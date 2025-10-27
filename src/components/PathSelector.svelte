@@ -74,7 +74,16 @@
 			});
 
 			if (isValid) {
-				await invoke("set_balatro_path", { path: pathToCheck });
+				const storedPath = (await invoke("get_balatro_path")) as
+					| string
+					| null
+					| undefined;
+				const normalizedPath =
+					typeof storedPath === "string" && storedPath.length > 0
+						? storedPath
+						: pathToCheck;
+				selectedPath = normalizedPath;
+				placeholder = normalizedPath;
 				addMessage(
 					"Balatro path set successfully! You can now manage mods for this installation.",
 					"success",

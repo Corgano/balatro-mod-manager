@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crate::state::AppState;
 use crate::util::map_error;
@@ -44,16 +44,46 @@ pub async fn set_balatro_path(
 
 #[tauri::command]
 pub async fn find_steam_balatro(state: tauri::State<'_, AppState>) -> Result<Vec<String>, String> {
-    let balatros = find_balatros();
-    if let Some(path) = balatros.first() {
-        let db = state.db.lock().map_err(|e| e.to_string())?;
-        map_error(db.set_installation_path(&path.path.to_string_lossy()))?;
+    let mut balatros = find_balatros();
+    if balatros.is_empty() {
+        return Ok(Vec::new());
     }
 
-    Ok(balatros
+    let steam_index = balatros
         .iter()
-        .map(|b| b.path.to_string_lossy().into_owned())
-        .collect())
+        .position(|b| looks_like_steam_install(&b.path));
+
+    if let Some(idx) = steam_index {
+        let steam_balatro = balatros.remove(idx);
+        let steam_path = steam_balatro.path.to_string_lossy().into_owned();
+        {
+            let db = state.db.lock().map_err(|e| e.to_string())?;
+            map_error(db.set_installation_path(&steam_path))?;
+        }
+
+        let mut ordered = Vec::with_capacity(balatros.len() + 1);
+        ordered.push(steam_path);
+        ordered.extend(
+            balatros
+                .into_iter()
+                .map(|b| b.path.to_string_lossy().into_owned()),
+        );
+        Ok(ordered)
+    } else {
+        let first_path = balatros
+            .get(0)
+            .map(|b| b.path.to_string_lossy().into_owned());
+
+        if let Some(ref path_str) = first_path {
+            let db = state.db.lock().map_err(|e| e.to_string())?;
+            map_error(db.set_installation_path(path_str))?;
+        }
+
+        Ok(balatros
+            .into_iter()
+            .map(|b| b.path.to_string_lossy().into_owned())
+            .collect())
+    }
 }
 
 #[tauri::command]
@@ -73,29 +103,45 @@ pub async fn path_exists(path: String) -> Result<bool, String> {
     Ok(path.exists())
 }
 
+fn looks_like_steam_install(path: &Path) -> bool {
+    let segments: Vec<String> = path
+        .components()
+        .filter_map(|component| {
+            if let std::path::Component::Normal(segment) = component {
+                Some(segment.to_string_lossy().to_ascii_lowercase())
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    segments
+        .windows(3)
+        .any(|window| window[0] == "steamapps" && window[1] == "common" && window[2] == "balatro")
+}
+
 #[tauri::command]
 pub async fn check_custom_balatro(
     state: tauri::State<'_, AppState>,
     path: String,
 ) -> Result<bool, String> {
-    let path = PathBuf::from(&path);
+    let path_buf = PathBuf::from(&path);
 
-    let path_to_check = if path.is_file() {
-        path.parent()
-            .map(|p| p.to_path_buf())
-            .unwrap_or(path.clone())
-    } else {
-        path.clone()
-    };
-
-    let is_valid = bmm_lib::balamod::Balatro::from_custom_path(path_to_check.clone()).is_some();
-
-    if is_valid {
-        let db = state.db.lock().map_err(|e| e.to_string())?;
-        map_error(db.set_installation_path(&path_to_check.to_string_lossy()))?;
+    let mut candidate = path_buf.clone();
+    if candidate.is_file() {
+        if let Some(parent) = candidate.parent() {
+            candidate = parent.to_path_buf();
+        }
     }
 
-    Ok(is_valid)
+    if let Some(balatro) = bmm_lib::balamod::Balatro::from_custom_path(candidate) {
+        let canonical = balatro.path.to_string_lossy().into_owned();
+        let db = state.db.lock().map_err(|e| e.to_string())?;
+        map_error(db.set_installation_path(&canonical))?;
+        Ok(true)
+    } else {
+        Ok(false)
+    }
 }
 
 #[tauri::command]

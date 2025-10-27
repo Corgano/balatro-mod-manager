@@ -4,8 +4,7 @@ use log::error;
 use std::fs;
 use std::fs::File;
 use std::io::{BufReader, Cursor, Read, Write};
-use std::path::PathBuf;
-// use std::path::Path;
+use std::path::{Path, PathBuf};
 use zip::ZipArchive;
 use zip::{write::FileOptions, CompressionMethod, ZipWriter};
 
@@ -14,12 +13,17 @@ pub struct Balatro {
     pub path: PathBuf,
 }
 
+#[cfg(target_os = "macos")]
+const MAX_BUNDLE_SEARCH_DEPTH: usize = 12;
+
 impl Balatro {
     #[cfg(target_os = "macos")]
     pub fn get_exe_path(&self) -> PathBuf {
-        self.path
-            .clone()
-            .join("Balatro.app/Contents/Resources/Balatro.love")
+        self.find_balatro_love().unwrap_or_else(|| {
+            self.path
+                .clone()
+                .join("Balatro.app/Contents/Resources/Balatro.love")
+        })
     }
     #[cfg(target_os = "windows")]
     pub fn get_exe_path(&self) -> PathBuf {
@@ -182,8 +186,21 @@ impl Balatro {
     pub fn is_valid(&self) -> bool {
         #[cfg(target_os = "macos")]
         {
-            // For macOS, keep existing validation
-            self.get_exe_path().exists()
+            if self
+                .path
+                .join("Balatro.app/Contents/Resources/Balatro.love")
+                .exists()
+            {
+                return true;
+            }
+
+            if is_app_bundle(&self.path)
+                && self.path.join("Contents/Resources/Balatro.love").exists()
+            {
+                return true;
+            }
+
+            self.find_balatro_love().is_some()
         }
 
         #[cfg(target_os = "windows")]
@@ -209,6 +226,12 @@ impl Balatro {
     }
 
     pub fn from_custom_path(path: PathBuf) -> Option<Self> {
+        #[cfg(target_os = "macos")]
+        let path = normalize_mac_install_path(path)?;
+
+        #[cfg(not(target_os = "macos"))]
+        let path = normalize_non_mac_install_path(path);
+
         let balatro = Balatro { path };
         if balatro.is_valid() {
             Some(balatro)
@@ -218,12 +241,141 @@ impl Balatro {
     }
 }
 
+#[cfg(not(target_os = "macos"))]
+fn normalize_non_mac_install_path(path: PathBuf) -> PathBuf {
+    if path.is_file() {
+        if let Some(parent) = path.parent() {
+            return parent.to_path_buf();
+        }
+    }
+    path
+}
+
+#[cfg(target_os = "macos")]
+fn normalize_mac_install_path(mut path: PathBuf) -> Option<PathBuf> {
+    if path.is_file() {
+        path = path.parent()?.to_path_buf();
+    }
+
+    let original = path.clone();
+    let mut search_root = path;
+
+    for _ in 0..MAX_BUNDLE_SEARCH_DEPTH {
+        if let Some(love_path) = find_balatro_love(&search_root, MAX_BUNDLE_SEARCH_DEPTH) {
+            let bundle = love_path
+                .ancestors()
+                .find(|ancestor| is_app_bundle(ancestor))
+                .map(|p| p.to_path_buf())?;
+
+            let mut candidate = if is_app_bundle(&original) {
+                bundle.clone()
+            } else if bundle
+                .parent()
+                .map(|parent| parent == original)
+                .unwrap_or(false)
+            {
+                original.clone()
+            } else {
+                bundle.clone()
+            };
+
+            if let Some(parent) = bundle.parent() {
+                if parent
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .map(|n| n.eq_ignore_ascii_case("Game"))
+                    .unwrap_or(false)
+                {
+                    candidate = parent.to_path_buf();
+                }
+            }
+
+            return Some(candidate);
+        }
+
+        if let Some(parent) = search_root.parent() {
+            search_root = parent.to_path_buf();
+        } else {
+            break;
+        }
+    }
+
+    None
+}
+
+#[cfg(target_os = "macos")]
+fn is_app_bundle(path: &Path) -> bool {
+    path.extension()
+        .and_then(|ext| ext.to_str())
+        .map(|ext| ext.eq_ignore_ascii_case("app"))
+        .unwrap_or(false)
+}
+
+#[cfg(target_os = "macos")]
+impl Balatro {
+    fn find_balatro_love(&self) -> Option<PathBuf> {
+        find_balatro_love(&self.path, MAX_BUNDLE_SEARCH_DEPTH)
+    }
+
+    pub fn get_app_bundle_path(&self) -> Option<PathBuf> {
+        self.find_balatro_love().and_then(|love| {
+            love.ancestors()
+                .find(|ancestor| is_app_bundle(ancestor))
+                .map(|p| p.to_path_buf())
+        })
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn find_balatro_love(path: &Path, depth: usize) -> Option<PathBuf> {
+    if depth == 0 {
+        return None;
+    }
+
+    if path.is_file() {
+        return path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .filter(|n| n.eq_ignore_ascii_case("Balatro.love"))
+            .map(|_| path.to_path_buf());
+    }
+
+    if is_app_bundle(path) {
+        let bundle_love = path.join("Contents/Resources/Balatro.love");
+        if bundle_love.exists() {
+            return Some(bundle_love);
+        }
+
+        let nested_game = path.join("Contents/Game");
+        if nested_game.exists() {
+            if let Some(found) = find_balatro_love(&nested_game, depth.saturating_sub(1)) {
+                return Some(found);
+            }
+        }
+    }
+
+    let direct = path.join("Balatro.love");
+    if direct.exists() {
+        return Some(direct);
+    }
+
+    if let Ok(entries) = std::fs::read_dir(path) {
+        for entry in entries.flatten() {
+            let child = entry.path();
+            if let Some(found) = find_balatro_love(&child, depth.saturating_sub(1)) {
+                return Some(found);
+            }
+        }
+    }
+
+    None
+}
+
 pub fn find_balatros() -> Vec<Balatro> {
     let paths: Vec<PathBuf> = get_balatro_paths();
     let mut balatros = Vec::new();
     for path in paths {
-        let balatro = Balatro { path };
-        if balatro.is_valid() {
+        if let Some(balatro) = Balatro::from_custom_path(path) {
             balatros.push(balatro);
         }
     }
