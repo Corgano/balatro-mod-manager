@@ -4,9 +4,9 @@ use log::error;
 use std::fs;
 use std::fs::File;
 use std::io::{BufReader, Cursor, Read, Write};
-use std::path::PathBuf;
 #[cfg(target_os = "macos")]
 use std::path::Path;
+use std::path::PathBuf;
 use zip::ZipArchive;
 use zip::{write::FileOptions, CompressionMethod, ZipWriter};
 
