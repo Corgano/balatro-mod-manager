@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { invoke } from "@tauri-apps/api/core";
 	import { FolderDot, FileDigit } from "lucide-svelte";
+	import type { DialogFilter } from "@tauri-apps/plugin-dialog";
 	import { addMessage } from "$lib/stores";
 
 	let selectedPath = "";
@@ -29,6 +30,17 @@
 
 	const handlePathSelect = async () => {
 		const { open } = await import("@tauri-apps/plugin-dialog");
+		const { platform } = await import("@tauri-apps/plugin-os");
+
+		let filters: DialogFilter[] | undefined;
+
+		if (selectMode === "executable") {
+			const currentPlatform = await platform();
+			filters =
+				currentPlatform === "macos"
+					? [{ name: "App Bundle", extensions: ["app"] }]
+					: [{ name: "Executable", extensions: ["exe"] }];
+		}
 
 		const selected = await open({
 			directory: selectMode === "directory",
@@ -37,10 +49,7 @@
 				selectMode === "directory"
 					? "Select Balatro Directory"
 					: "Select Balatro Executable",
-			filters:
-				selectMode === "executable"
-					? [{ name: "Executable", extensions: ["exe"] }]
-					: undefined,
+			filters: filters,
 		});
 
 		if (selected) {
@@ -65,7 +74,16 @@
 			});
 
 			if (isValid) {
-				await invoke("set_balatro_path", { path: pathToCheck });
+				const storedPath = (await invoke("get_balatro_path")) as
+					| string
+					| null
+					| undefined;
+				const normalizedPath =
+					typeof storedPath === "string" && storedPath.length > 0
+						? storedPath
+						: pathToCheck;
+				selectedPath = normalizedPath;
+				placeholder = normalizedPath;
 				addMessage(
 					"Balatro path set successfully! You can now manage mods for this installation.",
 					"success",

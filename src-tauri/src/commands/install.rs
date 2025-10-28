@@ -33,9 +33,15 @@ fn get_installation_and_console(
 pub async fn launch_balatro(state: tauri::State<'_, AppState>) -> Result<(), String> {
     let (path_str, lovely_console_enabled) = get_installation_and_console(&state)?;
     let path = PathBuf::from(path_str);
+    let balatro = bmm_lib::balamod::Balatro::from_custom_path(path.clone())
+        .ok_or_else(|| "Stored Balatro path is no longer valid".to_string())?;
 
     let lovely_path = map_error(lovely::ensure_lovely_exists().await)?;
-    let balatro_executable = path.join("Balatro.app/Contents/MacOS/love");
+    let app_bundle = balatro
+        .get_app_bundle_path()
+        .ok_or_else(|| "Unable to locate Balatro app bundle".to_string())?;
+    let balatro_executable = app_bundle.join("Contents/MacOS/love");
+    let launch_root = balatro.path.clone();
 
     if lovely_console_enabled {
         let disable_arg = if !lovely_console_enabled {
@@ -45,7 +51,7 @@ pub async fn launch_balatro(state: tauri::State<'_, AppState>) -> Result<(), Str
         };
         let command_line = format!(
             "cd '{}' && DYLD_INSERT_LIBRARIES='{}' '{}'{}",
-            path.display(),
+            launch_root.display(),
             lovely_path.display(),
             balatro_executable.display(),
             disable_arg
