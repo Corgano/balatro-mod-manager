@@ -71,7 +71,7 @@ pub async fn find_steam_balatro(state: tauri::State<'_, AppState>) -> Result<Vec
         Ok(ordered)
     } else {
         let first_path = balatros
-            .get(0)
+            .first()
             .map(|b| b.path.to_string_lossy().into_owned());
 
         if let Some(ref path_str) = first_path {
