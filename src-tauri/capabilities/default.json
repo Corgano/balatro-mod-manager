@@ -17,5 +17,5 @@
     "window-state:default",
     "os:default"
   ],
-  "platforms": ["windows", "macOS"]
+  "platforms": ["windows", "macOS", "linux"]
 }

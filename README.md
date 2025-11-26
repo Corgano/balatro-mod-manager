@@ -82,6 +82,8 @@ To start the project in development mode, use the provided taskfile:
    task debug
    ```
 
+> Linux/Wayland: on Wayland sessions the app now prefers X11 (XWayland) to avoid compositor protocol errors. Set `BMM_ALLOW_WAYLAND=1` before running if you want to keep native Wayland.
+
 ### Production Mode
 
 To build the project for production:
