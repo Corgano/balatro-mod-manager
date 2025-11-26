@@ -51,7 +51,7 @@ import { addMessage } from "$lib/stores";
 	}
 
 	const { mod, onCheckDependencies }: Props = $props();
-	const isDefaultCover = (imageUrl: string) => imageUrl.includes("cover.jpg");
+	const isDefaultCover = (imageUrl?: string | null) => !!imageUrl && imageUrl.includes("cover.jpg");
 	function handleAuxClick(event: MouseEvent) {
 		if (event.button === 3) {
 			event.preventDefault();
