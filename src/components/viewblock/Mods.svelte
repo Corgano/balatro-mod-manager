@@ -2050,7 +2050,7 @@ onDestroy(() => {
 	.folder-icon-button {
 		position: absolute;
 		top: 50%;
-		left: -1.2rem; /*Position on the left side*/
+		left: -0.2rem; /* Nudge right to avoid clipping */
 		transform: translateY(-50%);
 		z-index: 3000;
 		background: #4caf50;
@@ -2080,7 +2080,7 @@ onDestroy(() => {
 	/*Adjust position for smaller screens*/
 	@media (max-width: 1160px) {
 		.folder-icon-button {
-			left: -1.6rem;
+			left: -0.6rem;
 		}
 	}
 

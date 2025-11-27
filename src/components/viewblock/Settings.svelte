@@ -1,11 +1,12 @@
 <script lang="ts">
 import PathSelector from "../PathSelector.svelte";
 	import { Settings2, RefreshCw, Folder } from "lucide-svelte";
-	import { addMessage } from "$lib/stores";
-	import { onMount } from "svelte";
-	import { invoke } from "@tauri-apps/api/core";
-	import { backgroundEnabled } from "../../stores/modStore";
+import { addMessage } from "$lib/stores";
+import { onMount } from "svelte";
+import { invoke } from "@tauri-apps/api/core";
+import { backgroundEnabled } from "../../stores/modStore";
     import { cardScale } from "../../stores/ui";
+import { browser } from "$app/environment";
 
 	let isReindexing = false;
 	let isClearingCache = false;
@@ -16,6 +17,7 @@ import PathSelector from "../PathSelector.svelte";
 		cleanedEntries: 0,
 	};
 	let isDiscordRpcEnabled = false;
+	let isLinux = false;
 
 	export async function performReindexMods() {
 		isReindexing = true;
@@ -153,6 +155,18 @@ import PathSelector from "../PathSelector.svelte";
 	}
 
 	onMount(async () => {
+		// Detect platform for Linux-specific UI gating
+		try {
+			const { platform } = await import("@tauri-apps/plugin-os");
+			isLinux = (await platform()) === "linux";
+		} catch (_) {
+			if (browser) {
+				isLinux =
+					navigator.userAgent.toLowerCase().includes("linux") &&
+					!navigator.userAgent.toLowerCase().includes("android");
+			}
+		}
+
 		try {
 			isDiscordRpcEnabled = await invoke("get_discord_rpc_status");
 		} catch (error) {
@@ -249,22 +263,24 @@ import PathSelector from "../PathSelector.svelte";
 				</p>
 			</div>
 			<h3>Appearance</h3>
-			<div class="console-settings">
-				<span class="label-text">Enable Background Animation</span>
-				<div class="switch-container">
-					<label class="switch">
-						<input
-							type="checkbox"
-							checked={isBackgroundAnimationEnabled}
-							on:change={handleBackgroundAnimationChange}
-						/> <span class="slider"></span>
-					</label>
+			{#if !isLinux}
+				<div class="console-settings">
+					<span class="label-text">Enable Background Animation</span>
+					<div class="switch-container">
+						<label class="switch">
+							<input
+								type="checkbox"
+								checked={isBackgroundAnimationEnabled}
+								on:change={handleBackgroundAnimationChange}
+							/> <span class="slider"></span>
+						</label>
+					</div>
 				</div>
-			</div>
-		<p class="description-small">
-			Enable or disable the animated background. Disabling may improve
-			performance on low-end devices.
-		</p>
+				<p class="description-small">
+					Enable or disable the animated background. Disabling may improve
+					performance on low-end devices.
+				</p>
+			{/if}
 
 			<!-- Card size slider -->
 			<div class="slider-row">
