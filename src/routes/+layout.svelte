@@ -14,6 +14,7 @@
 	const { data, children } = $props();
 
 	let isWindows = $state(false);
+	let detectedPlatform: string | null = null;
     let showUpdatePopup = $state(false);
     let currentVersion = $state("");
     let latestVersion = $state("");
@@ -80,6 +81,30 @@
         }
     }
 
+	async function detectPlatform() {
+		if (typeof navigator === "undefined") return;
+
+		// Use UA as an immediate hint while awaiting the plugin result to avoid UI jumps
+		const ua = navigator.userAgent.toLowerCase();
+		if (ua.includes("windows")) {
+			isWindows = true;
+		}
+
+		try {
+			const { platform } = await import("@tauri-apps/plugin-os");
+			detectedPlatform = await platform();
+		} catch (_) {
+			if (ua.includes("linux")) detectedPlatform = "linux";
+			else if (ua.includes("mac")) detectedPlatform = "macos";
+			else if (ua.includes("windows")) detectedPlatform = "windows";
+		}
+
+		if (detectedPlatform) {
+			document.documentElement.dataset.platform = detectedPlatform;
+			isWindows = detectedPlatform === "windows";
+		}
+	}
+
 	async function setupAppWindow() {
 		const appWindow = Window.getCurrent();
 
@@ -88,7 +113,7 @@
 	}
 
     onMount(() => {
-        isWindows = navigator.userAgent.indexOf("Windows") !== -1;
+        detectPlatform();
         setupAppWindow();
         checkForUpdate();
     });

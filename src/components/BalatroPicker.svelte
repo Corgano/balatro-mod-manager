@@ -214,6 +214,7 @@
 			{/if}
 			<button
 				class="action-button"
+				class:loading={isLoading}
 				on:click={handleClick}
 				disabled={isLoading}
 			>
@@ -318,7 +319,7 @@
 		transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 	}
 
-	.action-button:has(.throbber) {
+	.action-button.loading {
 		width: 70px; /* Smaller width when showing throbber */
 		padding: 0.75rem;
 		background-color: #f4eee0;

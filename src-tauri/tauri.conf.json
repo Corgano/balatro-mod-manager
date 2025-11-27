@@ -22,7 +22,20 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; img-src 'self' asset: https://asset.localhost data: https:; script-src 'self' 'unsafe-eval' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self' ipc: http://ipc.localhost https:"
+      "csp": "default-src 'self' ipc: http://ipc.localhost; img-src 'self' asset: http://asset.localhost file: data: http: https:; script-src 'self' 'unsafe-eval' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self' ipc: http://ipc.localhost https:",
+      "assetProtocol": {
+        "enable": true,
+        "scope": [
+          "$APPDIR/**",
+          "$RESOURCE/**",
+          "$CONFIG/**",
+          "$CONFIG/Balatro/**",
+          "$APPDATA/Balatro/**",
+          "$HOME/AppData/Roaming/Balatro/**",
+          "$HOME/.config/Balatro/**",
+          "$HOME/Library/Application Support/Balatro/**"
+        ]
+      }
     }
   },
   "bundle": {
@@ -70,7 +83,7 @@
         "all": true
       },
       "fs": {
-        "scope": ["$RESOURCE/**", "$ASSET/**"]
+        "scope": ["$RESOURCE/**", "$ASSET/**", "$CONFIG/**"]
       },
       "window": {
         "show": true

@@ -7,8 +7,8 @@ function createPersistentBoolean(key: string, fallback: boolean) {
     try {
       const raw = localStorage.getItem(key);
       if (raw != null) initial = raw === "true";
-    } catch (_) {
-      // ignore
+    } catch (err) {
+      console.warn("Failed to read update prompt setting:", err);
     }
   }
   const store = writable<boolean>(initial);
@@ -16,8 +16,8 @@ function createPersistentBoolean(key: string, fallback: boolean) {
     store.subscribe((val) => {
       try {
         localStorage.setItem(key, val ? "true" : "false");
-      } catch (_) {
-        // ignore
+      } catch (err) {
+        console.warn("Failed to persist update prompt setting:", err);
       }
     });
   }

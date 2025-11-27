@@ -412,6 +412,8 @@
 		width: calc(300px * var(--card-scale, 1));
 		max-width: calc(300px * var(--card-scale, 1));
 		height: calc(330px * var(--card-scale, 1));
+		content-visibility: auto;
+		contain-intrinsic-size: 300px 330px;
 		margin: 0 auto;
 		padding: 1rem;
 		box-sizing: border-box;
@@ -439,6 +441,12 @@
 		z-index: 1;
 	}
 
+	:global([data-platform="linux"]) .overlay {
+		backdrop-filter: none;
+		-webkit-backdrop-filter: none;
+		background-color: rgba(0, 0, 0, 0.6);
+	}
+
 	.catalog-badge {
 		position: absolute;
 		top: 1rem;
@@ -459,6 +467,10 @@
 	.mod-card:hover {
 		animation: stripe-slide-up 1.5s linear infinite;
 		scale: 1.05;
+	}
+
+	:global([data-platform="linux"]) .mod-card:hover {
+		animation: none;
 	}
 
 	@keyframes stripe-slide-up {

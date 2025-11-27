@@ -1,11 +1,11 @@
 <script lang="ts">
 	import type { InstalledMod, Mod } from "../../stores/modStore";
-	import { onMount } from "svelte";
-	import {
-		installationStatus,
-		modsStore,
-		loadingStates2 as loadingStates,
-		uninstallDialogStore,
+import { onMount } from "svelte";
+import {
+	installationStatus,
+	modsStore,
+	loadingStates2 as loadingStates,
+	uninstallDialogStore,
 	} from "../../stores/modStore";
 // lightweight debounce to avoid pulling in lodash for a single helper
 function debounce<T extends (...args: unknown[]) => void>(fn: T, wait: number) {
@@ -19,9 +19,11 @@ function debounce<T extends (...args: unknown[]) => void>(fn: T, wait: number) {
 	import { currentModView } from "../../stores/modStore";
 	import { invoke } from "@tauri-apps/api/core";
 	import { fetchCachedMods } from "../../stores/modCache";
-	import { addMessage } from "$lib/stores";
-	import { fade } from "svelte/transition";
-	import ModCard from "./ModCard.svelte";
+import { addMessage } from "$lib/stores";
+import { fade } from "svelte/transition";
+import ModCard from "./ModCard.svelte";
+import { cardScale } from "../../stores/ui";
+import { tick } from "svelte";
 
 	let searchQuery = $state("");
 	let searchResults = $state<Mod[]>([]);
@@ -295,6 +297,166 @@ function debounce<T extends (...args: unknown[]) => void>(fn: T, wait: number) {
 		showSpinner = true;
 		handleSearch();
 	}
+
+	const BASE_CARD_WIDTH = 300;
+	const BASE_CARD_HEIGHT = 330;
+	const GRID_GAP_FALLBACK = 16;
+	const OVERSCAN_ROWS = 1;
+
+	let scrollContainer: HTMLDivElement | null = $state(null);
+	let resultsWrapper: HTMLDivElement | null = $state(null);
+	let containerHeight = $state(0);
+	let containerWidth = $state(0);
+	let measuredCardHeight = $state(BASE_CARD_HEIGHT);
+	let measuredCardWidth = $state(BASE_CARD_WIDTH);
+	let gridGap = $state(GRID_GAP_FALLBACK);
+	let columnCount = $state(1);
+	let paddingTop = $state(0);
+	let paddingBottom = $state(0);
+	let visibleResults = $state<Mod[]>([]);
+	let totalRows = $state(0);
+	let hasMeasuredCard = $state(false);
+	let resizeObserver: ResizeObserver | null = null;
+	let rafId: number | null = null;
+	let measuring = false;
+
+	function scheduleVirtualUpdate() {
+		if (rafId !== null) {
+			cancelAnimationFrame(rafId);
+		}
+		rafId = requestAnimationFrame(() => {
+			rafId = null;
+			updateVirtualWindow();
+		});
+	}
+
+	function updateVirtualWindow() {
+		if (!scrollContainer) {
+			visibleResults = searchResults;
+			paddingTop = 0;
+			paddingBottom = 0;
+			totalRows = searchResults.length > 0 ? 1 : 0;
+			return;
+		}
+
+		const rowHeight = measuredCardHeight + gridGap;
+		const width =
+			containerWidth || scrollContainer.clientWidth || measuredCardWidth;
+		const effectiveCardWidth = measuredCardWidth + gridGap;
+		const cols = Math.max(
+			1,
+			Math.floor((width + gridGap) / Math.max(1, effectiveCardWidth)),
+		);
+		columnCount = cols;
+
+		if (searchResults.length === 0 || rowHeight <= 0) {
+			visibleResults = [];
+			paddingTop = 0;
+			paddingBottom = 0;
+			totalRows = 0;
+			return;
+		}
+
+		const totalRowCount = Math.max(
+			1,
+			Math.ceil(searchResults.length / cols),
+		);
+		totalRows = totalRowCount;
+		const scrollTop = scrollContainer.scrollTop;
+		const viewportHeight =
+			containerHeight || scrollContainer.clientHeight || 0;
+		const startRow = Math.max(
+			0,
+			Math.floor(scrollTop / rowHeight) - OVERSCAN_ROWS,
+		);
+		const endRow = Math.min(
+			totalRowCount - 1,
+			Math.ceil((scrollTop + viewportHeight) / rowHeight) +
+				OVERSCAN_ROWS,
+		);
+
+		const startIndex = startRow * cols;
+		const endIndex = Math.min(searchResults.length, (endRow + 1) * cols);
+		visibleResults = searchResults.slice(startIndex, endIndex);
+
+		paddingTop = startRow * rowHeight;
+		const renderedRows = Math.ceil(visibleResults.length / cols);
+		const consumed = paddingTop + renderedRows * rowHeight;
+		const totalHeight = totalRowCount * rowHeight;
+		paddingBottom = Math.max(totalHeight - consumed, 0);
+	}
+
+	async function measureCardSize() {
+		if (measuring) return;
+		measuring = true;
+		await tick();
+		const wrapper = resultsWrapper;
+		if (wrapper) {
+			const sample = wrapper.querySelector(".mod-card");
+			if (sample instanceof HTMLElement) {
+				const rect = sample.getBoundingClientRect();
+				measuredCardHeight = rect.height;
+				measuredCardWidth = rect.width;
+				hasMeasuredCard = true;
+			}
+			const style = getComputedStyle(wrapper);
+			const nextGap =
+				parseFloat(style.rowGap || style.gap || "") ||
+				GRID_GAP_FALLBACK;
+			gridGap = Number.isFinite(nextGap) ? nextGap : GRID_GAP_FALLBACK;
+		}
+		measuring = false;
+		scheduleVirtualUpdate();
+	}
+
+	function handleScroll() {
+		if (!scrollContainer) return;
+		scheduleVirtualUpdate();
+	}
+
+	onMount(() => {
+		const updateSizes = () => {
+			if (!scrollContainer) return;
+			containerHeight = scrollContainer.clientHeight;
+			containerWidth = scrollContainer.clientWidth;
+			scheduleVirtualUpdate();
+		};
+
+		updateSizes();
+		resizeObserver = new ResizeObserver(updateSizes);
+		if (scrollContainer) resizeObserver.observe(scrollContainer);
+
+		return () => {
+			if (resizeObserver) resizeObserver.disconnect();
+			if (rafId !== null) cancelAnimationFrame(rafId);
+		};
+	});
+
+	$effect(() => {
+		searchResults;
+		if (scrollContainer) {
+			scrollContainer.scrollTop = 0;
+		}
+		visibleResults =
+			searchResults.length > 0 ? searchResults.slice(0, 1) : [];
+		hasMeasuredCard = false;
+		scheduleVirtualUpdate();
+	});
+
+	$effect(() => {
+		if (!hasMeasuredCard && visibleResults.length > 0) {
+			measureCardSize();
+		}
+	});
+
+	$effect(() => {
+		// Recompute when card scale changes (affects measured size)
+		$cardScale;
+		hasMeasuredCard = false;
+		measuredCardHeight = BASE_CARD_HEIGHT * $cardScale;
+		measuredCardWidth = BASE_CARD_WIDTH * $cardScale;
+		scheduleVirtualUpdate();
+	});
 </script>
 
 <div class="search-container">
@@ -319,7 +481,11 @@ function debounce<T extends (...args: unknown[]) => void>(fn: T, wait: number) {
 		{/if}
 	</div>
 
-	<div class="results-scroll-container default-scrollbar">
+	<div
+		class="results-scroll-container default-scrollbar"
+		bind:this={scrollContainer}
+		onscroll={handleScroll}
+	>
 		<div class="results-container">
 			{#if isSearching}
 				<p transition:fade={{ duration: 100 }} class="resulting-text">
@@ -333,8 +499,16 @@ function debounce<T extends (...args: unknown[]) => void>(fn: T, wait: number) {
 				<div
 					transition:fade={{ duration: 100 }}
 					class="results-wrapper"
+					bind:this={resultsWrapper}
 				>
-					{#each searchResults as mod}
+					{#if paddingTop > 0}
+						<div
+							class="virtual-spacer"
+							style={`height:${paddingTop}px`}
+							aria-hidden="true"
+						></div>
+					{/if}
+					{#each visibleResults as mod (mod.title)}
 						<ModCard
 							{mod}
 							oninstallclick={installMod}
@@ -342,6 +516,13 @@ function debounce<T extends (...args: unknown[]) => void>(fn: T, wait: number) {
 							onmodclick={handleModClick}
 						/>
 					{/each}
+					{#if paddingBottom > 0}
+						<div
+							class="virtual-spacer"
+							style={`height:${paddingBottom}px`}
+							aria-hidden="true"
+						></div>
+					{/if}
 				</div>
 			{/if}
 		</div>
@@ -436,6 +617,7 @@ function debounce<T extends (...args: unknown[]) => void>(fn: T, wait: number) {
 	.results-container {
 		padding: 1rem;
 		padding-top: 5rem;
+		contain: layout paint;
 	}
 
 	.results-wrapper {
@@ -447,11 +629,24 @@ function debounce<T extends (...args: unknown[]) => void>(fn: T, wait: number) {
 			minmax(calc(300px * var(--card-scale, 1)), 1fr)
 		);
 		gap: 1rem;
+		content-visibility: auto;
+		contain-intrinsic-size: 900px 1200px;
 	}
 
 	.results-scroll-container {
 		overflow-y: auto;
 		height: 100%;
+		contain: layout paint;
+		scrollbar-gutter: stable;
+		backface-visibility: hidden;
+		transform: translateZ(0);
+		will-change: scroll-position;
+		overscroll-behavior: contain;
+	}
+
+	.virtual-spacer {
+		grid-column: 1 / -1;
+		pointer-events: none;
 	}
 
 	@media (max-width: 1160px) {

@@ -228,4 +228,9 @@
 		padding: 0;
 		transition: background 0.3s ease;
 	}
+
+	:global([data-platform="linux"]) .blur-overlay {
+		backdrop-filter: none;
+		background: rgba(57, 54, 70, 0.6);
+	}
 </style>

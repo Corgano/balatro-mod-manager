@@ -5,6 +5,7 @@ import { listen } from "@tauri-apps/api/event";
 import type { InstalledMod } from "./modStore";
 
 declare global {
+  // eslint-disable-next-line no-unused-vars
   interface Window {
     __bmmInstalledModsListenerAttached?: boolean;
     __bmmInstalledModsUnlisten?: () => void;
@@ -108,13 +109,15 @@ try {
             import.meta.hot.dispose(() => {
               try {
                 window.__bmmInstalledModsUnlisten?.();
-              } catch {}
+              } catch (err) {
+                console.warn("Failed to dispose installed-mods listener:", err);
+              }
               window.__bmmInstalledModsListenerAttached = false;
             });
           }
         })
-        .catch(() => {
-          // ignore
+        .catch((err) => {
+          console.warn("Failed to attach installed-mods listener:", err);
         });
     }
   }

@@ -232,6 +232,11 @@
 		backdrop-filter: blur(2px);
 	}
 
+	:global([data-platform="linux"]) .dialog-overlay {
+		backdrop-filter: none;
+		background: rgba(0, 0, 0, 0.92);
+	}
+
 	.dialog-content {
 		background: #393646;
 		border: 2px solid #f4eee0;

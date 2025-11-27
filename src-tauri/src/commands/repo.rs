@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use crate::models::ModMeta;
-use base64::{engine::general_purpose::STANDARD, Engine as _};
+use base64::Engine as _;
 use bmm_lib::errors::AppError;
 use serde::{Deserialize, Serialize};
 
@@ -594,15 +594,11 @@ pub async fn get_cached_thumbnail_by_title(title: String) -> Result<Option<Strin
     if !path.exists() {
         return Ok(None);
     }
-    let data = std::fs::read(&path).map_err(|e| {
-        AppError::FileRead {
-            path: path.clone(),
-            source: e.to_string(),
-        }
-        .to_string()
-    })?;
-    let b64 = STANDARD.encode(data);
-    Ok(Some(format!("data:image/jpeg;base64,{b64}")))
+    Ok(Some(
+        path.to_str()
+            .ok_or_else(|| "Failed to convert thumbnail path".to_string())?
+            .to_string(),
+    ))
 }
 
 #[tauri::command]
@@ -645,15 +641,11 @@ pub async fn get_cached_installed_thumbnail(
     let slug = safe_slug(&title);
     let path = thumbs_dir.join(format!("{slug}.jpg"));
     if path.exists() {
-        let data = std::fs::read(&path).map_err(|e| {
-            AppError::FileRead {
-                path: path.clone(),
-                source: e.to_string(),
-            }
-            .to_string()
-        })?;
-        let b64 = STANDARD.encode(data);
-        return Ok(Some(format!("data:image/jpeg;base64,{b64}")));
+        return Ok(Some(
+            path.to_str()
+                .ok_or_else(|| "Failed to convert thumbnail path".to_string())?
+                .to_string(),
+        ));
     }
 
     // Not cached yet: try to download from GitLab raw and store.
@@ -675,8 +667,11 @@ pub async fn get_cached_installed_thumbnail(
                         }
                         .to_string()
                     })?;
-                    let b64 = STANDARD.encode(&bytes);
-                    return Ok(Some(format!("data:image/jpeg;base64,{b64}")));
+                    return Ok(Some(
+                        path.to_str()
+                            .ok_or_else(|| "Failed to convert thumbnail path".to_string())?
+                            .to_string(),
+                    ));
                 }
             } else if resp.status().as_u16() == 429 {
                 // Handle rate limiting in the background; keep UI unblocked

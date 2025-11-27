@@ -27,9 +27,11 @@ import { lovelyPopupStore } from "../../stores/modStore";
 import { cardScale } from "../../stores/ui";
 import { get } from "svelte/store";
 import ReportIssue from "../../components/ReportIssue.svelte";
+import { browser } from "$app/environment";
 
 	let currentSection = $state("mods");
 	let showSecurityPopup = $state(false); // Control visibility of the security popup
+	let isLinux = $state(false);
 
 	$effect(() => {
 		// Cleanup
@@ -186,7 +188,7 @@ import ReportIssue from "../../components/ReportIssue.svelte";
 
 		// Load shader background lazily when enabled
 		$effect(() => {
-			if ($backgroundEnabled && !ShaderBackgroundComp) {
+			if ($backgroundEnabled && !ShaderBackgroundComp && !isLinux) {
 				import("../../components/ShaderBackground.svelte")
 					.then((m) => {
 						ShaderBackgroundComp = m.default;
@@ -245,12 +247,21 @@ import ReportIssue from "../../components/ReportIssue.svelte";
 		} catch (_) {
 			// ignore detection errors
 		}
+
+		if (browser) {
+			const plat =
+				document.documentElement.dataset.platform ||
+				(navigator.userAgent.toLowerCase().includes("linux")
+					? "linux"
+					: "");
+			isLinux = plat === "linux";
+		}
 	});
 </script>
 
 <!-- Background shader is dynamically imported below when enabled -->
 
-{#if $backgroundEnabled && ShaderBackgroundComp}
+{#if $backgroundEnabled && ShaderBackgroundComp && !isLinux}
 	<ShaderBackgroundComp />
 {/if}
 
@@ -437,6 +448,11 @@ import ReportIssue from "../../components/ReportIssue.svelte";
 	}
 	header {
 		margin-bottom: -1rem;
+	}
+
+	:global([data-platform="linux"]) .content {
+		backdrop-filter: none;
+		background: rgba(193, 65, 57, 0.92);
 	}
 
 	@media (max-width: 1160px) {
