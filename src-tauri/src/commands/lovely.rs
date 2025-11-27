@@ -56,7 +56,7 @@ pub async fn is_lovely_installed(_state: tauri::State<'_, AppState>) -> Result<b
             let dll = p.join("version.dll");
             return Ok(dll.exists());
         }
-        return Ok(false);
+        Ok(false)
     }
 
     #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]

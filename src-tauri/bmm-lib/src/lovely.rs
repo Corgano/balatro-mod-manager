@@ -5,12 +5,10 @@ use std::fs::File;
 use std::fs::{self, File};
 #[cfg(target_os = "macos")]
 use std::os::unix::fs::PermissionsExt;
-#[cfg(target_os = "macos")]
-use std::path::Path;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 #[cfg(any(target_os = "windows", target_os = "linux"))]
-pub async fn ensure_version_dll_exists(game_path: &PathBuf) -> Result<PathBuf, AppError> {
+pub async fn ensure_version_dll_exists(game_path: &Path) -> Result<PathBuf, AppError> {
     let dll_path = game_path.join("version.dll");
 
     // If the DLL doesn't exist, download it
@@ -206,7 +204,7 @@ pub fn remove_installed_lovely() -> Result<(), AppError> {
                 source: e.to_string(),
             })?;
         }
-        return Ok(());
+        Ok(())
     }
 
     #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]

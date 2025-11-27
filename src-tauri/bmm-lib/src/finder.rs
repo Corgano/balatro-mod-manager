@@ -203,10 +203,7 @@ pub fn is_steam_running() -> bool {
 pub fn get_installed_mods() -> Vec<String> {
     let mut installed_mods_paths: Vec<PathBuf> = vec![];
 
-    let Some(config_dir) = dirs::config_dir() else {
-        return vec![];
-    };
-    let mod_dir = config_dir.join("Balatro").join("Mods");
+    let mod_dir = crate::mods_dir();
 
     if !mod_dir.exists() {
         return vec![];
