@@ -35,6 +35,16 @@ pub async fn set_balatro_path(
     state: tauri::State<'_, AppState>,
     path: String,
 ) -> Result<(), String> {
+    #[cfg(target_os = "linux")]
+    {
+        let path_buf = PathBuf::from(&path);
+        if !looks_like_steam_install(&path_buf) {
+            return Err(
+                "On Linux, Balatro must be launched via Steam; custom paths are not supported."
+                    .into(),
+            );
+        }
+    }
     let db = match state.db.lock() {
         Ok(db) => db,
         Err(e) => return Err(e.to_string()),
@@ -125,6 +135,15 @@ pub async fn check_custom_balatro(
     state: tauri::State<'_, AppState>,
     path: String,
 ) -> Result<bool, String> {
+    #[cfg(target_os = "linux")]
+    {
+        // Linux builds require Steam-managed installs; custom paths are not supported.
+        let path_buf = PathBuf::from(&path);
+        if !looks_like_steam_install(&path_buf) {
+            return Ok(false);
+        }
+    }
+
     let path_buf = PathBuf::from(&path);
 
     let mut candidate = path_buf.clone();

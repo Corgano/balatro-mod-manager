@@ -3,11 +3,30 @@
 	import { FolderDot, FileDigit } from "lucide-svelte";
 	import type { DialogFilter } from "@tauri-apps/plugin-dialog";
 	import { addMessage } from "$lib/stores";
+	import { onMount } from "svelte";
+	import { browser } from "$app/environment";
 
 	let selectedPath = "";
 	let placeholder = "Choose Balatro Path";
 	let isLoading = false;
 	let selectMode = "directory"; // Can be "directory" or "executable"
+	let isLinux = false;
+	let showSteamOnlyNotice = false;
+
+	onMount(async () => {
+		try {
+			const { platform } = await import("@tauri-apps/plugin-os");
+			isLinux = (await platform()) === "linux";
+			showSteamOnlyNotice = isLinux;
+		} catch (_) {
+			if (browser) {
+				isLinux =
+					navigator.userAgent.toLowerCase().includes("linux") &&
+					!navigator.userAgent.toLowerCase().includes("android");
+				showSteamOnlyNotice = isLinux;
+			}
+		}
+	});
 
 	const truncatePath = (path: string) => {
 		const maxLength = 50;
@@ -118,55 +137,63 @@
 </script>
 
 <div class="path-selector">
-	<div class="toggle-buttons">
-		<button
-			class="path-type-button"
-			class:active={selectMode === "directory"}
-			on:click={() => (selectMode = "directory")}
-		>
-			<FolderDot size={16} />
-			Select Directory
-		</button>
-		<button
-			class="path-type-button"
-			class:active={selectMode === "executable"}
-			on:click={() => (selectMode = "executable")}
-		>
-			<FileDigit size={16} />
-			Select Executable
+	{#if !isLinux}
+		<div class="toggle-buttons">
+			<button
+				class="path-type-button"
+				class:active={selectMode === "directory"}
+					on:click={() => (selectMode = "directory")}
+				>
+					<FolderDot size={16} />
+					Select Directory
+				</button>
+				<button
+					class="path-type-button"
+					class:active={selectMode === "executable"}
+					on:click={() => (selectMode = "executable")}
+				>
+					<FileDigit size={16} />
+					Select Executable
+				</button>
+			</div>
+
+			<p class="description-small">
+				{#if selectMode === "executable"}
+					Select a Balatro executable to manage mods for a specific
+					installation. This is useful for separate vanilla/modded setups.
+				{:else}
+					Select the Balatro game directory. This is the standard method.
+				{/if}
+			</p>
+
+			<div class="input-container">
+				<input
+					type="text"
+					placeholder={truncatePath(placeholder)}
+					value={selectedPath ? truncatePath(selectedPath) : ""}
+					on:click={handlePathSelect}
+					readonly
+					disabled={isLoading}
+				/>
+			</div>
+		{:else}
+			{#if showSteamOnlyNotice}
+				<p class="description-small">
+					On Linux, Balatro must be launched via Steam. Click below to set the Steam path.
+				</p>
+			{/if}
+		{/if}
+		<button class="steam-button" on:click={setSteamPath} disabled={isLoading}>
+			{#if isLoading}
+				<div class="throbber"></div>
+			{:else}
+				<FolderDot size={20} />
+				Set to Steam Path
+			{/if}
 		</button>
 	</div>
 
-	<p class="description-small">
-		{#if selectMode === "executable"}
-			Select a Balatro executable to manage mods for a specific
-			installation. This is useful for separate vanilla/modded setups.
-		{:else}
-			Select the Balatro game directory. This is the standard method.
-		{/if}
-	</p>
-
-	<div class="input-container">
-		<input
-			type="text"
-			placeholder={truncatePath(placeholder)}
-			value={selectedPath ? truncatePath(selectedPath) : ""}
-			on:click={handlePathSelect}
-			readonly
-			disabled={isLoading}
-		/>
-	</div>
-	<button class="steam-button" on:click={setSteamPath} disabled={isLoading}>
-		{#if isLoading}
-			<div class="throbber"></div>
-		{:else}
-			<FolderDot size={20} />
-			Set to Steam Path
-		{/if}
-	</button>
-</div>
-
-<style>
+	<style>
 	.path-selector {
 		display: flex;
 		flex-direction: column;

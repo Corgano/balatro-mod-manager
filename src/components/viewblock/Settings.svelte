@@ -1,5 +1,5 @@
 <script lang="ts">
-	import PathSelector from "../PathSelector.svelte";
+import PathSelector from "../PathSelector.svelte";
 	import { Settings2, RefreshCw, Folder } from "lucide-svelte";
 	import { addMessage } from "$lib/stores";
 	import { onMount } from "svelte";

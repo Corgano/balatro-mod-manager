@@ -5,13 +5,39 @@
 	import { FolderDot, FileDigit } from "lucide-svelte";
 	import type { DialogFilter } from "@tauri-apps/plugin-dialog";
 	import { goto } from "$app/navigation";
+	import { onMount } from "svelte";
+	import { browser } from "$app/environment";
 	
 	let selectedOption = "steam";
 	let showCustomInput = false;
 	let selectedPath = "";
 	let customPathType = "directory"; // New state to track directory or executable selection
+	let isLinux = false;
+
+	onMount(async () => {
+		try {
+			const { platform } = await import("@tauri-apps/plugin-os");
+			isLinux = (await platform()) === "linux";
+			if (isLinux) {
+				selectedOption = "steam";
+				showCustomInput = false;
+			}
+		} catch (_) {
+			// Fallback to user agent if plugin not available
+			if (browser) {
+				isLinux =
+					navigator.userAgent.toLowerCase().includes("linux") &&
+					!navigator.userAgent.toLowerCase().includes("android");
+				if (isLinux) {
+					selectedOption = "steam";
+					showCustomInput = false;
+				}
+			}
+		}
+	});
 	
 	const handleOptionChange = (option: string) => {
+		if (isLinux) return; // Linux is Steam-only
 		selectedOption = option;
 		showCustomInput = option === "custom";
 		
@@ -155,17 +181,19 @@
 				<span class="radio-text">Steam</span>
 			</label>
 
-			<label class="radio-label">
-				<input
-					type="radio"
-					name="location"
-					value="custom"
-					disabled={isLoading}
-					bind:group={selectedOption}
-					on:change={() => handleOptionChange("custom")}
-				/>
-				<span class="radio-text">Custom</span>
-			</label>
+			{#if !isLinux}
+				<label class="radio-label">
+					<input
+						type="radio"
+						name="location"
+						value="custom"
+						disabled={isLoading}
+						bind:group={selectedOption}
+						on:change={() => handleOptionChange("custom")}
+					/>
+					<span class="radio-text">Custom</span>
+				</label>
+			{/if}
 		</div>
 
 		{#if showCustomInput}
