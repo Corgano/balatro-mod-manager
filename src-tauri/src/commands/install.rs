@@ -233,6 +233,13 @@ pub async fn launch_balatro(state: tauri::State<'_, AppState>) -> Result<(), Str
         .or_else(|| bmm_lib::finder::get_balatro_paths().into_iter().next())
         .ok_or_else(|| "No Balatro installation path is configured or detected".to_string())?;
 
+    let lovely_console_enabled = {
+        let db = state.db.lock().map_err(|_| {
+            AppError::LockPoisoned("Database lock poisoned".to_string()).to_string()
+        })?;
+        db.is_lovely_console_enabled().map_err(|e| e.to_string())?
+    };
+
     let balatro = bmm_lib::balamod::Balatro::from_custom_path(path.clone())
         .ok_or_else(|| "Stored Balatro path is no longer valid".to_string())?;
 
@@ -278,9 +285,15 @@ pub async fn launch_balatro(state: tauri::State<'_, AppState>) -> Result<(), Str
     // Try Proton directly if available to avoid relying on Steam env propagation.
     if let Some(proton) = find_proton_runner(steamapps_dir) {
         let mut proton_cmd = Command::new(proton);
+        proton_cmd.arg("run");
+        proton_cmd.arg(path.join("Balatro.exe"));
+        if !lovely_console_enabled {
+            proton_cmd.arg("--disable-console");
+            proton_cmd.env("LOVELY_DISABLE_CONSOLE", "1");
+            proton_cmd.env("LOVELY_NO_CONSOLE", "1");
+            proton_cmd.env("LOVELY_CONSOLE", "0");
+        }
         proton_cmd
-            .arg("run")
-            .arg(path.join("Balatro.exe"))
             .env("WINEDLLOVERRIDES", DLL_OVERRIDE)
             .current_dir(&path);
         if let Some(compat) = compat_data_dir.as_ref() {
@@ -303,6 +316,11 @@ pub async fn launch_balatro(state: tauri::State<'_, AppState>) -> Result<(), Str
         .args(["-applaunch", STEAM_APP_ID])
         .env("WINEDLLOVERRIDES", DLL_OVERRIDE)
         .env("PROTON_LOG", PROTON_LOG);
+    if !lovely_console_enabled {
+        steam_cmd.env("LOVELY_DISABLE_CONSOLE", "1");
+        steam_cmd.env("LOVELY_NO_CONSOLE", "1");
+        steam_cmd.env("LOVELY_CONSOLE", "0");
+    }
     if let Some(compat) = compat_data_dir.as_ref() {
         steam_cmd.env("STEAM_COMPAT_DATA_PATH", compat);
     }
@@ -319,16 +337,26 @@ pub async fn launch_balatro(state: tauri::State<'_, AppState>) -> Result<(), Str
     let exe = balatro.get_exe_path();
     let mut wine = Command::new("sh");
     let cmd = format!(
-        "cd '{}' && {} '{}'",
+        "cd '{}' && {} '{}'{}",
         path.display(),
         wine_bin,
-        exe.display()
+        exe.display(),
+        if lovely_console_enabled {
+            ""
+        } else {
+            " --disable-console"
+        }
     );
     wine.arg("-c")
         .arg(&cmd)
         .env("WINEDLLOVERRIDES", DLL_OVERRIDE)
         .env("PROTON_LOG", PROTON_LOG)
         .current_dir(&path);
+    if !lovely_console_enabled {
+        wine.env("LOVELY_DISABLE_CONSOLE", "1");
+        wine.env("LOVELY_NO_CONSOLE", "1");
+        wine.env("LOVELY_CONSOLE", "0");
+    }
     if let Some(prefix) = proton_prefix.as_ref() {
         wine.env("WINEPREFIX", prefix);
     }
