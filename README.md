@@ -54,6 +54,16 @@ run this command:
 curl -sL https://raw.githubusercontent.com/skyline69/balatro-mod-manager/main/scripts/install.sh | bash
 ```
 
+### For Linux
+
+run this command:
+
+```bash
+bash <(curl -s https://raw.githubusercontent.com/skyline69/balatro-mod-manager/main/scripts/linux-install.sh)
+```
+
+Linux builds are supported through a reproducible Devbox environment. This ensures the correct GTK/WebKit/SSL dependencies are available on any distribution.
+
 ## Manual Installation
 
 1. Clone the repository & install bun's dependencies:
@@ -69,6 +79,10 @@ curl -sL https://raw.githubusercontent.com/skyline69/balatro-mod-manager/main/sc
    - For macOS:
      ```sh
      task release-macos
+     ```
+   - For Linux:
+     ```sh
+     task release-linux
      ```
 
 ## Running the Project
