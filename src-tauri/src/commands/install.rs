@@ -114,6 +114,15 @@ fn find_proton_runner(steamapps_dir: &Path) -> Option<PathBuf> {
 }
 
 #[cfg(target_os = "linux")]
+fn strip_python_env(cmd: &mut Command) {
+    // AppImage/runtime wrappers can leak Python env vars that break Proton's python runner.
+    cmd.env_remove("PYTHONHOME");
+    cmd.env_remove("PYTHONPATH");
+    cmd.env_remove("PYTHONNOUSERSITE");
+    cmd.env_remove("PYTHONUSERBASE");
+}
+
+#[cfg(target_os = "linux")]
 fn compat_data_dir_from_game(game_dir: &Path) -> Option<PathBuf> {
     let steamapps_dir = game_dir.parent()?.parent()?;
     let compat = steamapps_dir.join("compatdata/2379780");
@@ -305,6 +314,7 @@ pub async fn launch_balatro(state: tauri::State<'_, AppState>) -> Result<(), Str
             proton_cmd.env("STEAM_COMPAT_CLIENT_INSTALL_PATH", steam_root);
         }
         proton_cmd.env("PROTON_LOG", PROTON_LOG);
+        strip_python_env(&mut proton_cmd);
         if proton_cmd.spawn().is_ok() {
             return Ok(());
         }
@@ -327,6 +337,7 @@ pub async fn launch_balatro(state: tauri::State<'_, AppState>) -> Result<(), Str
     if let Some(steam_root) = steamapps_dir.parent() {
         steam_cmd.env("STEAM_COMPAT_CLIENT_INSTALL_PATH", steam_root);
     }
+    strip_python_env(&mut steam_cmd);
     if steam_cmd.spawn().is_ok() {
         return Ok(());
     }
@@ -360,6 +371,7 @@ pub async fn launch_balatro(state: tauri::State<'_, AppState>) -> Result<(), Str
     if let Some(prefix) = proton_prefix.as_ref() {
         wine.env("WINEPREFIX", prefix);
     }
+    strip_python_env(&mut wine);
     wine.spawn()
         .map_err(|e| format!("Failed to launch Balatro via steam and wine fallback: {e}"))?;
 
