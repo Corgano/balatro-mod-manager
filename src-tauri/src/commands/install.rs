@@ -95,7 +95,7 @@ pub async fn launch_balatro(state: tauri::State<'_, AppState>) -> Result<(), Str
 fn find_proton_runner(steamapps_dir: &Path) -> Option<PathBuf> {
     let common_dir = steamapps_dir.join("common");
     let entries = fs::read_dir(common_dir).ok()?;
-    // Look for Proton installations and pick the first matching entry with a `proton` script.
+    // Look for Proton installations, sort them in reverse order (preferring Experimental/newer versions),
     let mut candidates: Vec<PathBuf> = entries
         .filter_map(|e| e.ok())
         .map(|e| e.path())
