@@ -20,6 +20,9 @@ use bmm_lib::lovely::ensure_version_dll_exists;
 use bmm_lib::smods_installer::{ModInstaller, ModType};
 use bmm_lib::{cache, database::InstalledMod};
 
+#[cfg(target_os = "linux")]
+const STEAM_APP_ID: &str = "2379780";
+
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 fn get_installation_and_console(
     state: &tauri::State<'_, AppState>,
@@ -123,6 +126,15 @@ fn strip_python_env(cmd: &mut Command) {
 }
 
 #[cfg(target_os = "linux")]
+fn add_steam_app_env(cmd: &mut Command) {
+    // Some Steam integrations (e.g., luasteam) exit early when the app ID is missing.
+    cmd.env("STEAM_COMPAT_APP_ID", STEAM_APP_ID);
+    cmd.env("SteamAppId", STEAM_APP_ID);
+    cmd.env("SteamGameId", STEAM_APP_ID);
+    cmd.env("SteamOverlayGameId", STEAM_APP_ID);
+}
+
+#[cfg(target_os = "linux")]
 fn compat_data_dir_from_game(game_dir: &Path) -> Option<PathBuf> {
     let steamapps_dir = game_dir.parent()?.parent()?;
     let compat = steamapps_dir.join("compatdata/2379780");
@@ -223,7 +235,6 @@ pub async fn launch_balatro(_state: tauri::State<'_, AppState>) -> Result<(), St
 #[cfg(target_os = "linux")]
 #[tauri::command]
 pub async fn launch_balatro(state: tauri::State<'_, AppState>) -> Result<(), String> {
-    const STEAM_APP_ID: &str = "2379780";
     const DLL_OVERRIDE: &str = "version=n,b";
     const PROTON_LOG: &str = "0"; // set to "1" for verbose Proton logs if debugging
 
@@ -305,6 +316,7 @@ pub async fn launch_balatro(state: tauri::State<'_, AppState>) -> Result<(), Str
         proton_cmd
             .env("WINEDLLOVERRIDES", DLL_OVERRIDE)
             .current_dir(&path);
+        add_steam_app_env(&mut proton_cmd);
         if let Some(compat) = compat_data_dir.as_ref() {
             proton_cmd.env("STEAM_COMPAT_DATA_PATH", compat);
         }
@@ -326,6 +338,7 @@ pub async fn launch_balatro(state: tauri::State<'_, AppState>) -> Result<(), Str
         .args(["-applaunch", STEAM_APP_ID])
         .env("WINEDLLOVERRIDES", DLL_OVERRIDE)
         .env("PROTON_LOG", PROTON_LOG);
+    add_steam_app_env(&mut steam_cmd);
     if !lovely_console_enabled {
         steam_cmd.env("LOVELY_DISABLE_CONSOLE", "1");
         steam_cmd.env("LOVELY_NO_CONSOLE", "1");
@@ -363,6 +376,7 @@ pub async fn launch_balatro(state: tauri::State<'_, AppState>) -> Result<(), Str
         .env("WINEDLLOVERRIDES", DLL_OVERRIDE)
         .env("PROTON_LOG", PROTON_LOG)
         .current_dir(&path);
+    add_steam_app_env(&mut wine);
     if !lovely_console_enabled {
         wine.env("LOVELY_DISABLE_CONSOLE", "1");
         wine.env("LOVELY_NO_CONSOLE", "1");
