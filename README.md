@@ -70,6 +70,7 @@ curl -sL https://raw.githubusercontent.com/skyline69/balatro-mod-manager/main/sc
 ```
 
 Linux builds use a Podman container to ensure GTK/WebKit/SSL dependencies are present. Please install [Podman](https://podman.io/) before running the script.
+On Linux the manager currently supports the Steam version of Balatro only.
 
 ## Manual Installation
 
