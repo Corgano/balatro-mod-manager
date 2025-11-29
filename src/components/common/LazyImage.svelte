@@ -56,7 +56,7 @@
   let pendingRelease: (() => void) | null = null;
   let localFileFallback: string | null = null;
   let triedLocalFileFallback = false;
-  const cacheUrlMemo = new Map<string, string>();
+  const cacheUrlMemo = new Map<string, string | null>();
 
   function releaseSlot() {
     if (releaseCurrent) {
@@ -190,7 +190,7 @@
     }
     if (key.startsWith("http://") || key.startsWith("https://")) {
       // Not a local cache key
-      cacheUrlMemo.set(key, null as unknown as string);
+      cacheUrlMemo.set(key, null);
       return { path: null, url: null };
     }
     try {
@@ -206,7 +206,7 @@
       cacheUrlMemo.set(key, url);
       return { path, url };
     } catch (e) {
-      cacheUrlMemo.set(key, null as unknown as string);
+      cacheUrlMemo.set(key, null);
       return { path: null, url: null };
     }
   }
