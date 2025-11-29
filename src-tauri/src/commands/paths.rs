@@ -40,7 +40,7 @@ pub async fn set_balatro_path(
         let path_buf = PathBuf::from(&path);
         if !looks_like_steam_install(&path_buf) {
             return Err(
-                "On Linux, Balatro must be launched via Steam; custom paths are not supported."
+                "On Linux, Balatro must be launched via Steam because it requires Proton/Wine integration. Custom paths are not supported."
                     .into(),
             );
         }
