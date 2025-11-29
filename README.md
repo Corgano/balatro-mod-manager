@@ -16,7 +16,7 @@ Balatro Mod Manager is a standalone tool made for [Balatro](https://store.steamp
 
 # [![Download](images/download.svg)](https://github.com/skyline69/balatro-mod-manager/releases/latest)
 
-Balatro Mod Manager is currently available for Windows and macOS. The installer is standalone and does not require any external libraries.
+Balatro Mod Manager is available for Windows, macOS, and Linux. The installer is standalone and does not require any external libraries.
 
 [Download the Balatro Mod Manager installer here](https://github.com/skyline69/balatro-mod-manager/releases/latest).
 
@@ -24,6 +24,7 @@ Scroll down to find **▸Assets** and download the right version of the installe
 
 - Windows: `Balatro.Mod.Manager_…_x64-setup.exe` or `Balatro.Mod.Manager_…_x64_en-US.msi`
 - macOS: `Balatro.Mod.Manager_…_universal.dmg`
+- Linux: `Balatro.Mod.Manager_…_amd64.AppImage` (mark as executable if needed)
 
 # [![Build](images/build.svg)](#build-prerequisites)
 
