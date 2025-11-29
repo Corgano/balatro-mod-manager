@@ -230,6 +230,23 @@ pub fn run() {
             if let Some(window) = app.get_webview_window("main") {
                 window.open_devtools();
             }
+
+            // Ensure the main window is visible/focused on startup even if a saved state
+            // or window manager starts it hidden/minimized.
+            match app.get_webview_window("main") {
+                Some(window) => {
+                    if let Err(e) = window.show() {
+                        log::warn!("Failed to show main window: {e}");
+                    }
+                    if let Err(e) = window.unminimize() {
+                        log::warn!("Failed to unminimize main window: {e}");
+                    }
+                    if let Err(e) = window.set_focus() {
+                        log::warn!("Failed to focus main window: {e}");
+                    }
+                }
+                None => log::warn!("Main window not found during setup; UI may remain hidden"),
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

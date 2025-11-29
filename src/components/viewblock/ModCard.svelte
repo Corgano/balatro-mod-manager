@@ -20,6 +20,7 @@
 		oninstallclick?: (mod: Mod) => void;
 		onuninstallclick?: (mod: Mod) => void;
 		onToggleEnabled?: () => Promise<void>;
+		deferImages?: boolean;
 	}
 
 	let {
@@ -28,6 +29,7 @@
 		onuninstallclick,
 		onmodclick,
 		onToggleEnabled,
+		deferImages = false,
 	}: Props = $props();
 
 	// Check if an update is available when component mounts
@@ -273,9 +275,10 @@
 	<div class="mod-image">
 		<LazyImage
 			src={mod.image}
-			fallbackSrc={mod.imageFallback}
+			fallbackSrc={mod.imageFallback || "/images/cover.jpg"}
 			alt={mod.title}
 			cacheTitle={mod.title}
+			deferLoad={deferImages}
 		/>
 
 		<div class="tags">
@@ -372,16 +375,18 @@
 		flex-direction: column;
 		position: relative;
 		border-radius: 8px;
-		overflow: hidden;
-		border: 2px solid #f4eee0;
-		width: calc(300px * var(--card-scale, 1));
-		max-width: calc(300px * var(--card-scale, 1));
-		height: calc(330px * var(--card-scale, 1));
-		margin: 0 auto;
-		padding: 1rem;
-		box-sizing: border-box;
-		cursor: pointer;
-		background-size: 100% 200%;
+	overflow: hidden;
+	border: 2px solid #f4eee0;
+	width: calc(300px * var(--card-scale, 1));
+	max-width: calc(300px * var(--card-scale, 1));
+	height: calc(330px * var(--card-scale, 1));
+	content-visibility: auto;
+	contain-intrinsic-size: 300px 330px;
+	margin: 0 auto;
+	padding: 1rem;
+	box-sizing: border-box;
+	cursor: pointer;
+	background-size: 100% 200%;
 		transition: all 0.3s ease;
 		background-image: repeating-linear-gradient(
 			-45deg,
@@ -390,11 +395,17 @@
 			var(--bg-color-2) 10px,
 			var(--bg-color-2) 20px
 		);
+		will-change: transform;
+		backface-visibility: hidden;
 	}
 
 	.mod-card:hover {
 		animation: stripe-slide-up 1.5s linear infinite;
 		scale: 1.05;
+	}
+
+	:global([data-platform="linux"]) .mod-card:hover {
+		animation: none;
 	}
 
 	@keyframes stripe-slide-up {

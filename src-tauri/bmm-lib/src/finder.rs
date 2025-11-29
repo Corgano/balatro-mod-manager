@@ -203,10 +203,7 @@ pub fn is_steam_running() -> bool {
 pub fn get_installed_mods() -> Vec<String> {
     let mut installed_mods_paths: Vec<PathBuf> = vec![];
 
-    let Some(config_dir) = dirs::config_dir() else {
-        return vec![];
-    };
-    let mod_dir = config_dir.join("Balatro").join("Mods");
+    let mod_dir = crate::mods_dir();
 
     if !mod_dir.exists() {
         return vec![];
@@ -253,13 +250,53 @@ pub fn is_balatro_running() -> bool {
         use libproc::proc_pid::name;
         use libproc::processes;
 
+        let current_pid = std::process::id() as i32;
+        let self_exe_path = std::env::current_exe().ok();
+        let self_exe_name = self_exe_path
+            .as_ref()
+            .and_then(|p| p.file_name().map(|n| n.to_string_lossy().to_lowercase()));
+
         if let Ok(pids) = processes::pids_by_type(processes::ProcFilter::All) {
             for pid in pids {
-                if let Ok(name) = name(pid as i32) {
-                    if (name.to_lowercase().contains("balatro")
-                        && name.to_lowercase() != "balatro-mod-manager")
-                        | (name == "love")
+                let pid = pid as i32;
+                if pid == current_pid {
+                    continue;
+                }
+
+                if let Ok(name) = name(pid) {
+                    let name_lower = name.to_lowercase();
+
+                    #[cfg(target_os = "linux")]
                     {
+                        // Skip processes whose executable path matches our own (covers AppImage/wrapped launches).
+                        if let (Some(self_path), Ok(proc_path)) = (
+                            &self_exe_path,
+                            std::fs::read_link(format!("/proc/{pid}/exe")),
+                        ) {
+                            if proc_path == *self_path {
+                                continue;
+                            }
+                        }
+                    }
+
+                    // Linux can truncate binary names; skip anything that matches our own executable name or obvious variants.
+                    if let Some(self_name) = self_exe_name.as_deref() {
+                        if name_lower == self_name
+                            || self_name.starts_with(&name_lower)
+                            || name_lower.starts_with(self_name)
+                        {
+                            continue;
+                        }
+                    }
+                    if name_lower.contains("balatro-mod")
+                        || name_lower.contains("balatro mod")
+                        || name_lower.contains("balatro_mod")
+                        || name_lower == "bmm"
+                    {
+                        continue;
+                    }
+
+                    if name_lower.contains("balatro") || name_lower == "love" {
                         return true;
                     }
                 }

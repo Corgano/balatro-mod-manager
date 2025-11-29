@@ -33,7 +33,7 @@
 	import { catalogLoading } from "../../stores/modStore";
 	import type { InstalledMod } from "../../stores/modStore";
 	import { open } from "@tauri-apps/plugin-shell";
-	import { invoke } from "@tauri-apps/api/core";
+	import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 // Lazy-load SearchView only when Search tab is active
 import type { Component } from "svelte";
 let SearchViewComp = $state<Component | null>(null);
@@ -44,13 +44,14 @@ import { listen } from "@tauri-apps/api/event";
 	import { currentPage, itemsPerPage } from "../../stores/modStore";
 	import ModCard from "./ModCard.svelte";
 	import LocalModCard from "./LocalModCard.svelte";
-	import {
+import {
 		checkModInCache,
 		fetchCachedMods,
 		forceRefreshCache,
 	} from "../../stores/modCache";
 	import { updateAvailableStore } from "../../stores/modStore";
 	import { modEnabledStore } from "../../stores/modStore";
+	import { browser } from "$app/environment";
 
 	const loadingDots = writable(0);
 	let installedMods: InstalledMod[] = [];
@@ -69,6 +70,14 @@ import { listen } from "@tauri-apps/api/event";
 
 	// Animate the dots
 	let dotInterval: number;
+	let paginating = $state(false);
+	let paginationIdleTimer: number | null = null;
+	let hydrationTimer: number | null = null;
+	let hydrationPending = false;
+	let isLinux = false;
+	let modsScrollContainer: HTMLDivElement | null = $state(null);
+	let scrollIdleTimer: number | null = null;
+	let isUserScrolling = $state(false);
 
 	async function handleModUninstalled() {
 		// Refresh the local mods list
@@ -229,6 +238,7 @@ const { handleDependencyCheck, mod } = $props<{
 			currentPage.update((n) => n + 1);
 			updatePaginationWindow();
 			scrollToTop();
+			markPaginating();
 		}
 	}
 
@@ -237,6 +247,7 @@ const { handleDependencyCheck, mod } = $props<{
 			currentPage.update((n) => n - 1);
 			updatePaginationWindow();
 			scrollToTop();
+			markPaginating();
 		}
 	}
 
@@ -244,6 +255,7 @@ const { handleDependencyCheck, mod } = $props<{
 		currentPage.set(page);
 		updatePaginationWindow();
 		scrollToTop();
+		markPaginating();
 	}
 
 	// Add this helper function to handle scrolling to top
@@ -254,10 +266,21 @@ const { handleDependencyCheck, mod } = $props<{
 		if (scrollContainer) {
 			scrollContainer.scrollTo({
 				top: 0,
-				behavior: "smooth",
+				behavior: isLinux ? "auto" : "smooth",
 			});
 		}
 		setTimeout(() => {}, 500); // Delay to prevent scroll handler triggering during animated scroll
+	}
+
+	function markPaginating() {
+		paginating = true;
+		if (paginationIdleTimer) {
+			clearTimeout(paginationIdleTimer);
+		}
+		paginationIdleTimer = window.setTimeout(() => {
+			paginating = false;
+			if (hydrationPending) scheduleHydration();
+		}, isLinux ? 220 : 150);
 	}
 
 	function updateEnabledDisabledLists() {
@@ -294,6 +317,15 @@ const { handleDependencyCheck, mod } = $props<{
 		dotInterval = setInterval(() => {
 			loadingDots.update((n) => (n + 1) % 4);
 		}, 500);
+
+		if (browser) {
+			const plat =
+				document.documentElement.dataset.platform ||
+				(navigator.userAgent.toLowerCase().includes("linux")
+					? "linux"
+					: "");
+			isLinux = plat === "linux";
+		}
 
 		// Separate async function for initialization
 		const initialize = async () => {
@@ -361,10 +393,27 @@ const { handleDependencyCheck, mod } = $props<{
 		initialize();
 		initBackgroundState();
 
+		let installedModsRefresh: Promise<void> | null = null;
+		const scheduleInstalledModsRefresh = () => {
+			if (!installedModsRefresh) {
+				installedModsRefresh = (async () => {
+					await refreshInstalledMods();
+					await getLocalMods();
+				})().finally(() => {
+					installedModsRefresh = null;
+				});
+			}
+			return installedModsRefresh;
+		};
+
 		// Lazy-load SearchView when needed
 			$effect(() => {
 				if (showSearch && !SearchViewComp) {
-					import("./SearchView.svelte").then((m) => (SearchViewComp = m.default)).catch(() => {});
+					import("./SearchView.svelte")
+						.then((m) => (SearchViewComp = m.default))
+						.catch((err) =>
+							console.warn("Failed to load SearchView:", err),
+						);
 				}
 			});
 
@@ -373,20 +422,29 @@ const { handleDependencyCheck, mod } = $props<{
 			listen("installed-mods-changed", async () => {
 				if ($currentCategory === "Installed Mods") {
 					try {
-						await refreshInstalledMods();
-						await getLocalMods();
-					} catch {}
+						await scheduleInstalledModsRefresh();
+					} catch (err) {
+						console.warn("Failed to refresh installed mods:", err);
+					}
 				}
 			})
 				.then((un) => (unlistenModsChanged = un))
-				.catch(() => {});
+				.catch((err) =>
+					console.warn("Failed to subscribe to installed-mods:", err),
+				);
 
 			// Return synchronous cleanup function
 			return () => {
 				clearInterval(dotInterval);
+				if (scrollIdleTimer) {
+					clearTimeout(scrollIdleTimer);
+					scrollIdleTimer = null;
+				}
 				try {
 					if (typeof unlistenModsChanged === "function") unlistenModsChanged();
-				} catch {}
+				} catch (err) {
+					console.warn("Failed to unlisten installed-mods:", err);
+				}
 			};
 		});
 
@@ -1028,6 +1086,10 @@ const { handleDependencyCheck, mod } = $props<{
 	}
 
 	async function fillDescriptionsVisibleFirst() {
+		if (isUserScrolling) {
+			hydrationPending = true;
+			return;
+		}
 		// Prioritize current page mods so skeletons disappear quickly
 		const candidates = paginatedMods
 			.filter((m) => !m.description || m.description.trim().length === 0)
@@ -1106,6 +1168,10 @@ const { handleDependencyCheck, mod } = $props<{
 	}
 
 	async function fillCachedDescriptionsVisibleFirst() {
+		if (isUserScrolling) {
+			hydrationPending = true;
+			return;
+		}
 		const candidates = paginatedMods
 			.filter((m) => !m.description || m.description.trim().length === 0)
 			.map((m) => m.title);
@@ -1162,11 +1228,15 @@ const { handleDependencyCheck, mod } = $props<{
 						{ title: m.title, dirName: dir },
 					);
 					if (dataUrl) {
+						const resolved =
+							dataUrl.startsWith("data:") || dataUrl.startsWith("http")
+								? dataUrl
+								: convertFileSrc(dataUrl);
 						modsStore.update((arr) => {
                             const pos = arr.findIndex((x) => x.title === m.title);
                             if (pos >= 0) {
                                 arr = arr.slice();
-                                arr[pos] = { ...arr[pos], image: dataUrl, imageFallback: undefined };
+                                arr[pos] = { ...arr[pos], image: resolved, imageFallback: undefined };
                             }
 							return arr;
 						});
@@ -1333,6 +1403,17 @@ const { handleDependencyCheck, mod } = $props<{
 		currentPage.set(1);
 		startPage = 1; // Reset sliding window
 		currentCategory.set(category);
+		markPaginating();
+	}
+
+	function handleModsScroll() {
+		isUserScrolling = true;
+		if (scrollIdleTimer) clearTimeout(scrollIdleTimer);
+		const delay = isLinux ? 240 : 160;
+		scrollIdleTimer = window.setTimeout(() => {
+			isUserScrolling = false;
+			if (hydrationPending) scheduleHydration();
+		}, delay);
 	}
 
 // Safely register global click handler with cleanup to avoid duplicates
@@ -1409,15 +1490,7 @@ onDestroy(() => {
 $effect(() => {
     // touch dependency
     paginatedMods;
-    if (visibleHydrateTimer !== null) {
-        clearTimeout(visibleHydrateTimer);
-    }
-    visibleHydrateTimer = setTimeout(() => {
-        fillCachedDescriptionsVisibleFirst().catch(() => {});
-        if (!visibleFirstRunning) {
-            fillDescriptionsVisibleFirst().catch(() => {});
-        }
-    }, 120) as unknown as number;
+    scheduleHydration();
 });
 
 onDestroy(() => {
@@ -1429,6 +1502,22 @@ onDestroy(() => {
 
 	const maxVisiblePages = 5;
 	let startPage = $state(1);
+
+	function scheduleHydration() {
+		hydrationPending = true;
+		if (paginating || isUserScrolling) return;
+		if (visibleHydrateTimer !== null) {
+			clearTimeout(visibleHydrateTimer);
+		}
+		const delay = isLinux ? 160 : 120;
+		visibleHydrateTimer = setTimeout(() => {
+			hydrationPending = false;
+			fillCachedDescriptionsVisibleFirst().catch(() => {});
+			if (!visibleFirstRunning) {
+				fillDescriptionsVisibleFirst().catch(() => {});
+			}
+		}, delay) as unknown as number;
+	}
 
 	function updatePaginationWindow() {
 		if ($currentPage > startPage + maxVisiblePages - 1) {
@@ -1646,7 +1735,12 @@ onDestroy(() => {
 					</div>
 				</div>
 
-				<div class="mods-scroll-container default-scrollbar">
+				<div
+					class="mods-scroll-container default-scrollbar"
+					class:no-local-mods={localMods.length === 0}
+					bind:this={modsScrollContainer}
+					onscroll={handleModsScroll}
+				>
 					{#if $currentCategory === "Installed Mods"}
 						{#if isLoadingLocalMods}
 							<div class="section-header">
@@ -1763,6 +1857,7 @@ onDestroy(() => {
 									{#each enabledMods as mod (mod.title)}
 										<ModCard
 											{mod}
+											deferImages={paginating || isUserScrolling}
 											onmodclick={handleModClick}
 											oninstallclick={installMod}
 											onuninstallclick={uninstallMod}
@@ -1790,6 +1885,7 @@ onDestroy(() => {
 									{#each disabledMods as mod (mod.title)}
 										<ModCard
 											{mod}
+											deferImages={paginating || isUserScrolling}
 											onmodclick={handleModClick}
 											oninstallclick={installMod}
 											onuninstallclick={uninstallMod}
@@ -1805,6 +1901,7 @@ onDestroy(() => {
 									{#each paginatedMods as mod (mod.title)}
 										<ModCard
 											{mod}
+											deferImages={paginating || isUserScrolling}
 											onmodclick={handleModClick}
 											oninstallclick={installMod}
 											onuninstallclick={uninstallMod}
@@ -1820,6 +1917,7 @@ onDestroy(() => {
 							{#each paginatedMods as mod (mod.title)}
 								<ModCard
 									{mod}
+									deferImages={paginating || isUserScrolling}
 									onmodclick={handleModClick}
 									oninstallclick={installMod}
 									onuninstallclick={uninstallMod}
@@ -1841,6 +1939,10 @@ onDestroy(() => {
 </div>
 
 <style>
+	.container.default-scrollbar {
+		position: relative;
+	}
+
 	.update-all-button-top {
 		position: absolute;
 		top: 50%;
@@ -1948,7 +2050,7 @@ onDestroy(() => {
 	.folder-icon-button {
 		position: absolute;
 		top: 50%;
-		left: -1.2rem; /*Position on the left side*/
+		left: -0.2rem; /* Nudge right to avoid clipping */
 		transform: translateY(-50%);
 		z-index: 3000;
 		background: #4caf50;
@@ -1978,7 +2080,7 @@ onDestroy(() => {
 	/*Adjust position for smaller screens*/
 	@media (max-width: 1160px) {
 		.folder-icon-button {
-			left: -1.6rem;
+			left: -0.6rem;
 		}
 	}
 
@@ -2048,6 +2150,7 @@ onDestroy(() => {
 		padding: 0 2rem;
 		overflow: hidden;
 		height: 100%;
+		contain: layout paint;
 	}
 
 	.no-mods-message {
@@ -2199,10 +2302,15 @@ onDestroy(() => {
 	.mods-scroll-container {
 		overflow-y: auto;
 		height: 100%;
+		contain: layout paint;
+		scrollbar-gutter: stable;
+		backface-visibility: hidden;
+		transform: translateZ(0);
+		will-change: scroll-position;
+		overscroll-behavior: contain;
 	}
 
-	.mods-scroll-container:not(:has(.local-mods-grid))
-		.subsection-header:first-of-type {
+	.mods-scroll-container.no-local-mods .subsection-header:first-of-type {
 		margin-top: 3rem; /*Add spacing at the top when there are no local mods*/
 	}
 
@@ -2219,6 +2327,8 @@ onDestroy(() => {
 			minmax(calc(280px * var(--card-scale, 1)), 1fr)
 		);
 		gap: 30px;
+		content-visibility: auto;
+		contain-intrinsic-size: 900px 1200px;
 	}
 
 	.local-mods-grid {
@@ -2263,6 +2373,7 @@ onDestroy(() => {
 		/*192px being the width of the catagories + seperator*/
 		width: calc(100% - 192px);
 		padding: 0 1rem;
+		contain: layout paint;
 	}
 
 	.sort-wrapper :global(svg) {

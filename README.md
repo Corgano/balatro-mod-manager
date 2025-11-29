@@ -54,6 +54,22 @@ run this command:
 curl -sL https://raw.githubusercontent.com/skyline69/balatro-mod-manager/main/scripts/install.sh | bash
 ```
 
+### For Linux
+
+From a local checkout (respects your current branch/changes):
+
+```bash
+./scripts/linux-install.sh
+```
+
+If you want to install from the latest GitHub main without cloning manually, pass `--clone`:
+
+```bash
+bash <(curl -s https://raw.githubusercontent.com/skyline69/balatro-mod-manager/main/scripts/linux-install.sh) --clone
+```
+
+Linux builds are supported through a reproducible Devbox environment. This ensures the correct GTK/WebKit/SSL dependencies are available on any distribution.
+
 ## Manual Installation
 
 1. Clone the repository & install bun's dependencies:
@@ -70,6 +86,10 @@ curl -sL https://raw.githubusercontent.com/skyline69/balatro-mod-manager/main/sc
      ```sh
      task release-macos
      ```
+   - For Linux:
+     ```sh
+     task release-linux
+     ```
 
 ## Running the Project
 
@@ -81,6 +101,8 @@ To start the project in development mode, use the provided taskfile:
    ```sh
    task debug
    ```
+
+> Linux/Wayland: on Wayland sessions the app now prefers X11 (XWayland) to avoid compositor protocol errors. Set `BMM_ALLOW_WAYLAND=1` before running if you want to keep native Wayland.
 
 ### Production Mode
 

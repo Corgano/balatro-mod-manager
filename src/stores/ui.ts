@@ -14,8 +14,8 @@ function createPersistentNumber(
         const n = Number(raw);
         if (!Number.isNaN(n)) initial = n;
       }
-    } catch (_) {
-      // ignore storage read errors
+    } catch (err) {
+      console.warn("Failed to read ui setting:", err);
     }
   }
   // Clamp to optional bounds
@@ -30,8 +30,8 @@ function createPersistentNumber(
         if (typeof opts?.min === "number") v = Math.max(opts.min, v);
         if (typeof opts?.max === "number") v = Math.min(opts.max, v);
         localStorage.setItem(key, String(v));
-      } catch (_) {
-        // ignore storage write errors
+      } catch (err) {
+        console.warn("Failed to persist ui setting:", err);
       }
     });
   }

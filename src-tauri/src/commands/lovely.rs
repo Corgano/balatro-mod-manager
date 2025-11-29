@@ -1,4 +1,4 @@
-#[cfg(any(target_os = "macos", target_os = "windows"))]
+#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
 use std::path::PathBuf;
 
 #[cfg(target_os = "macos")]
@@ -9,7 +9,7 @@ use crate::state::AppState;
 
 /// Check whether Lovely is currently installed/present on this system.
 /// - macOS: checks for `~/Library/Application Support/Balatro/bins/liblovely.dylib` (via config dir)
-/// - Windows: checks that a `version.dll` exists in the Balatro game directory
+/// - Windows/Linux (Proton/Wine): checks that a `version.dll` exists in the Balatro game directory
 #[tauri::command]
 pub async fn is_lovely_installed(_state: tauri::State<'_, AppState>) -> Result<bool, String> {
     #[cfg(target_os = "macos")]
@@ -41,9 +41,27 @@ pub async fn is_lovely_installed(_state: tauri::State<'_, AppState>) -> Result<b
         return Ok(false);
     }
 
-    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    #[cfg(target_os = "linux")]
     {
-        // Linux or other targets: Lovely injector not managed; do not warn.
+        // Prefer database install path if present
+        let db = _state.db.lock().map_err(|e| e.to_string())?;
+        if let Some(path) = db.get_installation_path().map_err(|e| e.to_string())? {
+            let dll = PathBuf::from(path).join("version.dll");
+            return Ok(dll.exists());
+        }
+
+        // Fallback to first detected Balatro path (Proton/Wine install)
+        let candidates = bmm_lib::finder::get_balatro_paths();
+        if let Some(p) = candidates.first() {
+            let dll = p.join("version.dll");
+            return Ok(dll.exists());
+        }
+        Ok(false)
+    }
+
+    #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+    {
+        // Other targets: Lovely injector not managed; do not warn.
         Ok(true)
     }
 }
@@ -52,6 +70,12 @@ pub async fn is_lovely_installed(_state: tauri::State<'_, AppState>) -> Result<b
 pub async fn check_lovely_update(
     state: tauri::State<'_, AppState>,
 ) -> Result<Option<String>, String> {
+    #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+    {
+        // Unsupported target; skip.
+        return Ok(None);
+    }
+
     // Load latest from GitHub
     let latest = lovely::get_latest_lovely_version()
         .await
@@ -74,6 +98,13 @@ pub async fn check_lovely_update(
 
 #[tauri::command]
 pub async fn update_lovely_to_latest(state: tauri::State<'_, AppState>) -> Result<String, String> {
+    #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+    {
+        return Err(
+            "Lovely injection is only supported on Windows, macOS, and Linux/Proton.".into(),
+        );
+    }
+
     let latest = lovely::get_latest_lovely_version()
         .await
         .map_err(|e| e.to_string())?;

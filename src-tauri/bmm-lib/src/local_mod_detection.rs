@@ -496,8 +496,8 @@ fn calculate_edit_distance(s1: &str, s2: &str) -> usize {
     }
 
     // Initialize first row
-    for j in 0..=n {
-        matrix[0][j] = j;
+    for (j, cell) in matrix[0].iter_mut().enumerate().take(n + 1) {
+        *cell = j;
     }
 
     // Fill in the rest of the matrix

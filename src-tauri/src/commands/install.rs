@@ -1,5 +1,13 @@
-use std::path::PathBuf;
-#[cfg(any(target_os = "macos", target_os = "windows"))]
+#[cfg(target_os = "linux")]
+use log::{info, warn};
+#[cfg(target_os = "linux")]
+use std::env;
+#[cfg(target_os = "linux")]
+use std::fs;
+#[cfg(target_os = "linux")]
+use std::os::unix::fs::symlink;
+use std::path::{Path, PathBuf};
+#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
 use std::process::Command;
 
 use crate::state::AppState;
@@ -7,6 +15,8 @@ use crate::util::map_error;
 use bmm_lib::errors::AppError;
 #[cfg(target_os = "macos")]
 use bmm_lib::lovely;
+#[cfg(target_os = "linux")]
+use bmm_lib::lovely::ensure_version_dll_exists;
 use bmm_lib::smods_installer::{ModInstaller, ModType};
 use bmm_lib::{cache, database::InstalledMod};
 
@@ -81,6 +91,102 @@ pub async fn launch_balatro(state: tauri::State<'_, AppState>) -> Result<(), Str
     Ok(())
 }
 
+#[cfg(target_os = "linux")]
+fn find_proton_runner(steamapps_dir: &Path) -> Option<PathBuf> {
+    let common_dir = steamapps_dir.join("common");
+    let entries = fs::read_dir(common_dir).ok()?;
+    // Look for Proton installations, sort them in reverse order (preferring Experimental/newer versions),
+    let mut candidates: Vec<PathBuf> = entries
+        .filter_map(|e| e.ok())
+        .map(|e| e.path())
+        .filter(|p| {
+            p.file_name()
+                .and_then(|n| n.to_str())
+                .map(|n| n.starts_with("Proton"))
+                .unwrap_or(false)
+        })
+        .map(|p| p.join("proton"))
+        .filter(|p| p.is_file())
+        .collect();
+    // Prefer a stable order (reverse sort so Experimental/newer version likely first)
+    candidates.sort_by(|a, b| b.cmp(a));
+    candidates.into_iter().next()
+}
+
+#[cfg(target_os = "linux")]
+fn strip_python_env(cmd: &mut Command) {
+    // AppImage/runtime wrappers can leak Python env vars that break Proton's python runner.
+    cmd.env_remove("PYTHONHOME");
+    cmd.env_remove("PYTHONPATH");
+    cmd.env_remove("PYTHONNOUSERSITE");
+    cmd.env_remove("PYTHONUSERBASE");
+}
+
+#[cfg(target_os = "linux")]
+fn compat_data_dir_from_game(game_dir: &Path) -> Option<PathBuf> {
+    let steamapps_dir = game_dir.parent()?.parent()?;
+    let compat = steamapps_dir.join("compatdata/2379780");
+    if compat.exists() {
+        Some(compat)
+    } else {
+        None
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn ensure_mod_dir_link(prefix: &Path) -> Result<(), String> {
+    let Some(host_config) = dirs::config_dir() else {
+        return Ok(());
+    };
+    let host_mods = host_config.join("Balatro").join("Mods");
+    let prefix_mods = prefix.join("drive_c/users/steamuser/AppData/Roaming/Balatro/Mods");
+
+    // Ensure host mods dir exists
+    if let Err(e) = fs::create_dir_all(&host_mods) {
+        warn!(
+            "Failed to create host mods dir {}: {}",
+            host_mods.display(),
+            e
+        );
+    }
+
+    if prefix_mods.exists() {
+        if prefix_mods.is_symlink() {
+            return Ok(());
+        }
+        warn!(
+            "Proton mods path already exists and is not a symlink: {}",
+            prefix_mods.display()
+        );
+        return Ok(());
+    }
+
+    if let Some(parent) = prefix_mods.parent() {
+        if let Err(e) = fs::create_dir_all(parent) {
+            return Err(format!(
+                "Failed to create Proton mods parent {}: {}",
+                parent.display(),
+                e
+            ));
+        }
+    }
+
+    symlink(&host_mods, &prefix_mods).map_err(|e| {
+        format!(
+            "Failed to link Proton mods dir {} -> {}: {}",
+            prefix_mods.display(),
+            host_mods.display(),
+            e
+        )
+    })?;
+    info!(
+        "Linked Proton mods dir to host: {} -> {}",
+        prefix_mods.display(),
+        host_mods.display()
+    );
+    Ok(())
+}
+
 #[cfg(target_os = "windows")]
 #[tauri::command]
 pub async fn launch_balatro(state: tauri::State<'_, AppState>) -> Result<(), String> {
@@ -108,10 +214,168 @@ pub async fn launch_balatro(state: tauri::State<'_, AppState>) -> Result<(), Str
     Ok(())
 }
 
-#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+#[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
 #[tauri::command]
 pub async fn launch_balatro(_state: tauri::State<'_, AppState>) -> Result<(), String> {
     Err("Launching Balatro is not supported on this operating system".to_string())
+}
+
+#[cfg(target_os = "linux")]
+#[tauri::command]
+pub async fn launch_balatro(state: tauri::State<'_, AppState>) -> Result<(), String> {
+    const STEAM_APP_ID: &str = "2379780";
+    const DLL_OVERRIDE: &str = "version=n,b";
+    const PROTON_LOG: &str = "0"; // set to "1" for verbose Proton logs if debugging
+
+    // Prefer stored install path; fall back to discovered path if missing
+    let install_path = {
+        let db = state.db.lock().map_err(|_| {
+            AppError::LockPoisoned("Database lock poisoned".to_string()).to_string()
+        })?;
+        match db.get_installation_path() {
+            Ok(Some(p)) => Some(PathBuf::from(p)),
+            _ => None,
+        }
+    };
+
+    let path = install_path
+        .or_else(|| bmm_lib::finder::get_balatro_paths().into_iter().next())
+        .ok_or_else(|| "No Balatro installation path is configured or detected".to_string())?;
+
+    let lovely_console_enabled = {
+        let db = state.db.lock().map_err(|_| {
+            AppError::LockPoisoned("Database lock poisoned".to_string()).to_string()
+        })?;
+        db.is_lovely_console_enabled().map_err(|e| e.to_string())?
+    };
+
+    let balatro = bmm_lib::balamod::Balatro::from_custom_path(path.clone())
+        .ok_or_else(|| "Stored Balatro path is no longer valid".to_string())?;
+
+    // Ensure Lovely's version.dll is present before launching
+    ensure_version_dll_exists(&path)
+        .await
+        .map_err(|e| format!("Failed to ensure version.dll: {e}"))?;
+
+    // Keep mods in the Proton prefix pointed at the host-managed mod directory
+    let compat_data_dir = compat_data_dir_from_game(&path);
+    let proton_prefix = compat_data_dir.as_ref().map(|d| d.join("pfx"));
+    if let Some(prefix) = proton_prefix.as_ref() {
+        ensure_mod_dir_link(prefix)?;
+    }
+
+    // Try to derive Proton/Wine prefix alongside the Steam library to keep environment aligned.
+    // Typical path: ~/.local/share/Steam/steamapps/common/Balatro
+    let steamapps_dir = path
+        .parent()
+        .and_then(Path::parent)
+        .ok_or_else(|| "Could not determine Steam library root from Balatro path".to_string())?;
+
+    // Compat data root (no trailing pfx); Proton expects STEAM_COMPAT_DATA_PATH here.
+    let compat_data_dir = compat_data_dir.or_else(|| {
+        let candidate = steamapps_dir.join(format!("compatdata/{STEAM_APP_ID}"));
+        if candidate.exists() {
+            Some(candidate)
+        } else {
+            None
+        }
+    });
+    let proton_prefix = compat_data_dir.as_ref().and_then(|d| {
+        d.join("pfx").canonicalize().ok().or_else(|| {
+            let p = d.join("pfx");
+            if p.exists() {
+                Some(p)
+            } else {
+                None
+            }
+        })
+    });
+
+    // Try Proton directly if available to avoid relying on Steam env propagation.
+    if let Some(proton) = find_proton_runner(steamapps_dir) {
+        let mut proton_cmd = Command::new(proton);
+        proton_cmd.arg("run");
+        proton_cmd.arg(path.join("Balatro.exe"));
+        if !lovely_console_enabled {
+            proton_cmd.arg("--disable-console");
+            proton_cmd.env("LOVELY_DISABLE_CONSOLE", "1");
+            proton_cmd.env("LOVELY_NO_CONSOLE", "1");
+            proton_cmd.env("LOVELY_CONSOLE", "0");
+        }
+        proton_cmd
+            .env("WINEDLLOVERRIDES", DLL_OVERRIDE)
+            .current_dir(&path);
+        if let Some(compat) = compat_data_dir.as_ref() {
+            proton_cmd.env("STEAM_COMPAT_DATA_PATH", compat);
+        }
+        // Let Proton know where Steam is installed (one level above steamapps)
+        // Let Proton know where Steam is installed (one level above steamapps)
+        if let Some(steam_root) = steamapps_dir.parent() {
+            proton_cmd.env("STEAM_COMPAT_CLIENT_INSTALL_PATH", steam_root);
+        }
+        proton_cmd.env("PROTON_LOG", PROTON_LOG);
+        strip_python_env(&mut proton_cmd);
+        if proton_cmd.spawn().is_ok() {
+            return Ok(());
+        }
+    }
+
+    // Best-effort: ask Steam to launch the game via Proton. This preserves Steam runtime setup.
+    let mut steam_cmd = Command::new("steam");
+    steam_cmd
+        .args(["-applaunch", STEAM_APP_ID])
+        .env("WINEDLLOVERRIDES", DLL_OVERRIDE)
+        .env("PROTON_LOG", PROTON_LOG);
+    if !lovely_console_enabled {
+        steam_cmd.env("LOVELY_DISABLE_CONSOLE", "1");
+        steam_cmd.env("LOVELY_NO_CONSOLE", "1");
+        steam_cmd.env("LOVELY_CONSOLE", "0");
+    }
+    if let Some(compat) = compat_data_dir.as_ref() {
+        steam_cmd.env("STEAM_COMPAT_DATA_PATH", compat);
+    }
+    if let Some(steam_root) = steamapps_dir.parent() {
+        steam_cmd.env("STEAM_COMPAT_CLIENT_INSTALL_PATH", steam_root);
+    }
+    strip_python_env(&mut steam_cmd);
+    if steam_cmd.spawn().is_ok() {
+        return Ok(());
+    }
+
+    // Fallback: launch directly with wine (or overridden binary) from the install directory.
+    // Version.dll-based Lovely injection works when running the EXE directly.
+    let wine_bin = env::var("BMM_WINE_BIN").unwrap_or_else(|_| "wine".to_string());
+    let exe = balatro.get_exe_path();
+    let mut wine = Command::new("sh");
+    let cmd = format!(
+        "cd '{}' && {} '{}'{}",
+        path.display(),
+        wine_bin,
+        exe.display(),
+        if lovely_console_enabled {
+            ""
+        } else {
+            " --disable-console"
+        }
+    );
+    wine.arg("-c")
+        .arg(&cmd)
+        .env("WINEDLLOVERRIDES", DLL_OVERRIDE)
+        .env("PROTON_LOG", PROTON_LOG)
+        .current_dir(&path);
+    if !lovely_console_enabled {
+        wine.env("LOVELY_DISABLE_CONSOLE", "1");
+        wine.env("LOVELY_NO_CONSOLE", "1");
+        wine.env("LOVELY_CONSOLE", "0");
+    }
+    if let Some(prefix) = proton_prefix.as_ref() {
+        wine.env("WINEPREFIX", prefix);
+    }
+    strip_python_env(&mut wine);
+    wine.spawn()
+        .map_err(|e| format!("Failed to launch Balatro via steam and wine fallback: {e}"))?;
+
+    Ok(())
 }
 
 #[tauri::command]

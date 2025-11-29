@@ -11,10 +11,25 @@
   // thumbnail and persist successful remote loads for future sessions.
   export let cacheTitle: string | undefined;
   export let enableCache: boolean = true;
+  export let deferLoad: boolean = false;
 
   // Emit load/error for parent if needed
   const dispatch = createEventDispatcher();
-  import { invoke } from "@tauri-apps/api/core";
+  import { invoke, convertFileSrc } from "@tauri-apps/api/core";
+  import { configDir, join } from "@tauri-apps/api/path";
+
+  const ua = typeof navigator !== "undefined" ? navigator.userAgent.toLowerCase() : "";
+  const platformData =
+    typeof document !== "undefined"
+      ? document.documentElement.dataset.platform
+      : "";
+  const isLinux =
+    platformData === "linux" ||
+    (ua && ua.includes("linux") && !ua.includes("android"));
+  const MAX_CONCURRENT_LOADS = isLinux ? 2 : 6;
+  let inflightLoads = 0;
+  const loadWaiters: Array<() => void> = [];
+  let releaseCurrent: (() => void) | null = null;
 
   let wrapper: HTMLDivElement | null = null;
   let currentSrc: string | null = null;
@@ -38,26 +53,108 @@
   // IntersectionObserver to avoid loading offscreen images
   let observer: IntersectionObserver | null = null;
   let inView = false;
+  let pendingRelease: (() => void) | null = null;
+  let localFileFallback: string | null = null;
+  let triedLocalFileFallback = false;
+  const cacheUrlMemo = new Map<string, string | null>();
+
+  function releaseSlot() {
+    if (releaseCurrent) {
+      releaseCurrent();
+      releaseCurrent = null;
+    }
+    if (pendingRelease) {
+      pendingRelease();
+      pendingRelease = null;
+    }
+  }
+
+  function acquireSlot(): Promise<() => void> {
+    return new Promise((resolve) => {
+      const grant = () => {
+        inflightLoads = Math.max(0, inflightLoads) + 1;
+        resolve(() => {
+          inflightLoads = Math.max(0, inflightLoads - 1);
+          const next = loadWaiters.shift();
+          if (next) next();
+        });
+      };
+      if (inflightLoads < MAX_CONCURRENT_LOADS) {
+        grant();
+      } else {
+        loadWaiters.push(grant);
+      }
+    });
+  }
 
   function isValidSrc(val: string | undefined | null): boolean {
     if (!val) return false;
     const s = val.trim();
     if (s.length === 0) return false;
-    // Allow common safe schemes and app asset paths
+    const isAbsPosix = s.startsWith("/");
+    const isAbsWin = s.length > 2 && /[a-z]:[\\/]/i.test(s);
+    // Allow common safe schemes and known app asset paths
     return (
       s.startsWith("data:") ||
-      s.startsWith("/") ||
+      s.startsWith("/images/") ||
+      s.startsWith("/fonts/") ||
+      s.startsWith("/static/") ||
       s.startsWith("asset:") ||
       s.startsWith("http://") ||
       s.startsWith("https://") ||
-      s.startsWith("tauri://")
+      s.startsWith("tauri://") ||
+      s.startsWith("file://") ||
+      isAbsPosix ||
+      isAbsWin
     );
+  }
+
+  function hasScheme(val: string): boolean {
+    return /^[a-z][a-z0-9+.-]*:\/\//i.test(val);
+  }
+
+  function fileUrlForAbsolute(path: string | undefined | null): string | null {
+    if (!path) return null;
+    const s = path.trim();
+    if (s.length === 0) return null;
+    if (hasScheme(s)) return null;
+    const isWindowsPath = s.length > 2 && /[a-z]:[\\/]/i.test(s);
+    const isUnc = s.startsWith("\\\\");
+    const isPosixAbs = s.startsWith("/");
+    if (!isWindowsPath && !isUnc && !isPosixAbs) return null;
+    if (isUnc) {
+      const normalized = s.replace(/^\\\\/, "").replace(/\\\\/g, "/").replace(/\\/g, "/");
+      return encodeURI(`file://${normalized}`);
+    }
+    const normalized = isWindowsPath ? s.replace(/\\/g, "/") : s;
+    const prefix = isWindowsPath ? "file:///" : "file://";
+    return encodeURI(`${prefix}${normalized}`);
   }
 
   function resolveLocal(path: string | undefined | null): string | null {
     if (!path) return null;
     const s = path.trim();
     if (s.length === 0) return null;
+    const isAppAsset =
+      s.startsWith("/images/") ||
+      s.startsWith("/fonts/") ||
+      s.startsWith("/static/");
+    const isWindowsPath = s.length > 2 && /[a-z]:[\\/]/i.test(s);
+    const isPosixAbs =
+      s.startsWith("/") && !isAppAsset && !s.startsWith(`${assets}/`);
+    const isUnc = s.startsWith("\\\\");
+    if (isWindowsPath || isPosixAbs || isUnc) {
+      try {
+        const converted = convertFileSrc(s);
+        if (converted) return converted;
+      } catch (_) {
+        /* fall through */
+      }
+      // Fallback to file:// to allow loading when convertFileSrc is unavailable
+      const prefixed =
+        isWindowsPath || isUnc ? `file:///${s.replace(/\\\\/g, "/")}` : `file://${s}`;
+      return prefixed;
+    }
     // Remote or data/asset schemes are left as-is
     if (
       s.startsWith("http://") ||
@@ -68,9 +165,50 @@
     ) {
       return s;
     }
-    // Treat as app static asset; normalize leading slash
-    const normalized = s.startsWith("/") ? s : `/${s}`;
-    return `${assets}${normalized}`;
+    // Only allow known app assets; otherwise defer to default
+    if (isAppAsset) {
+      const normalized = s.startsWith("/") ? s : `/${s}`;
+      return `${assets}${normalized}`;
+    }
+    return null;
+  }
+
+  function safeSlug(input: string): string {
+    let s = input.trim().toLowerCase();
+    s = Array.from(s)
+      .map((c) => (/[a-z0-9]/i.test(c) ? c : "-"))
+      .join("");
+    while (s.includes("--")) s = s.replace("--", "-");
+    return s.replace(/^-+/, "").replace(/-+$/, "");
+  }
+
+  async function buildCachePaths(title: string | undefined | null) {
+    if (!title || title.trim().length === 0) return { path: null, url: null };
+    const key = title.trim();
+    if (cacheUrlMemo.has(key)) {
+      return { path: null, url: cacheUrlMemo.get(key) ?? null };
+    }
+    if (key.startsWith("http://") || key.startsWith("https://")) {
+      // Not a local cache key
+      cacheUrlMemo.set(key, null);
+      return { path: null, url: null };
+    }
+    try {
+      const base = await configDir();
+      const path = await join(
+        base,
+        "Balatro",
+        "mod_assets",
+        "thumbnails",
+        `${safeSlug(key)}.jpg`
+      );
+      const url = convertFileSrc(path, "asset");
+      cacheUrlMemo.set(key, url);
+      return { path, url };
+    } catch (e) {
+      cacheUrlMemo.set(key, null);
+      return { path: null, url: null };
+    }
   }
 
   function resolvedDefaultSrc(): string {
@@ -102,7 +240,11 @@
     }, LOAD_TIMEOUT_MS) as unknown as number;
   }
 
-  function startLoading() {
+  async function startLoading() {
+    if (deferLoad) {
+      ensureObserved();
+      return;
+    }
     if (!inView) {
       // Defer until the image is within (or near) the viewport
       ensureObserved();
@@ -122,7 +264,27 @@
     }
     triedFallback = false;
     usingDefault = false;
+    triedLocalFileFallback = false;
+    const { url: cacheUrl } = await buildCachePaths(cacheTitle);
+    localFileFallback = cacheUrl;
     const resolved = resolveLocal(src);
+    if (!resolved) {
+      resetToDefault();
+      lockDefaultFor = src ?? null;
+      return;
+    }
+    try {
+      releaseCurrent = await acquireSlot();
+    } catch (_) {
+      releaseCurrent = null;
+    }
+    if (isLinux) {
+      if (typeof requestIdleCallback !== "undefined") {
+        await new Promise((res) => requestIdleCallback(res, { timeout: 24 }));
+      }
+      // Spread work over frames to avoid main-thread spikes
+      await new Promise((res) => requestAnimationFrame(() => res(null)));
+    }
     currentSrc = resolved;
     // Treat non-network sources as immediately loaded (no timeout)
     if (resolved && /^data:/i.test(resolved)) {
@@ -130,6 +292,7 @@
       loading = false;
       loaded = true;
       showSpinner = false;
+      releaseSlot();
       dispatch("load");
       return;
     }
@@ -152,6 +315,9 @@
     loading = false;
     loaded = false;
     showSpinner = false;
+    localFileFallback = null;
+    triedLocalFileFallback = false;
+    releaseSlot();
     // Schedule a one-shot cache recheck: background queue may fetch it soon
     if (enableCache && cacheTitle && cacheRecheckTimer === null) {
       cacheRecheckTimer = setTimeout(async () => {
@@ -162,11 +328,18 @@
             { title: cacheTitle }
           );
           if (cached) {
-            currentSrc = cached;
+            const resolved = resolveLocal(cached);
+            if (!resolved) {
+              resetToDefault();
+              return;
+            }
+            currentSrc = resolved;
             usingDefault = false;
             loading = false;
             loaded = true;
             showSpinner = false;
+            localFileFallback = resolved;
+            triedLocalFileFallback = false;
             dispatch("load");
           }
         } catch (_) { /* ignore */ }
@@ -186,6 +359,7 @@
     loading = false;
     loaded = true;
     showSpinner = false;
+    releaseSlot();
     dispatch("load");
 
     // If a remote image loaded successfully, persist it to the cache for future use
@@ -202,8 +376,34 @@
     }
   }
 
+  function useLocalFileFallback(): boolean {
+    if (
+      !localFileFallback ||
+      triedLocalFileFallback ||
+      currentSrc === localFileFallback
+    ) {
+      return false;
+    }
+    triedLocalFileFallback = true;
+    usingDefault = false;
+    currentSrc = localFileFallback;
+    loading = true;
+    loaded = false;
+    showSpinner = false;
+    startTimeout();
+    spinnerDelayTimer = setTimeout(() => {
+      if (loading && !usingDefault) {
+        showSpinner = true;
+      }
+    }, SPINNER_DELAY_MS) as unknown as number;
+    return true;
+  }
+
   function handleError() {
     clearTimer();
+    if (useLocalFileFallback()) {
+      return;
+    }
     if (!triedFallback && fallbackSrc && currentSrc !== resolveLocal(fallbackSrc)) {
       triedFallback = true;
       usingDefault = false;
@@ -211,9 +411,11 @@
         resetToDefault();
         dispatch("error");
         lockDefaultFor = src ?? null;
+        releaseSlot();
         return;
       }
       currentSrc = resolveLocal(fallbackSrc);
+      // Keep local file fallback untouched; fallbackSrc may be a remote URL
       // keep loading true until fallback resolves
       loading = true;
       loaded = false;
@@ -229,11 +431,15 @@
       resetToDefault();
       dispatch("error");
       lockDefaultFor = src ?? null;
+      releaseSlot();
     }
   }
 
   function handleStall() {
     // Same logic as error handler but keep one path
+    if (useLocalFileFallback()) {
+      return;
+    }
     if (!triedFallback && fallbackSrc && currentSrc !== resolveLocal(fallbackSrc)) {
       triedFallback = true;
       usingDefault = false;
@@ -241,6 +447,7 @@
         resetToDefault();
         dispatch("error");
         lockDefaultFor = src ?? null;
+        releaseSlot();
         return;
       }
       currentSrc = resolveLocal(fallbackSrc);
@@ -257,27 +464,34 @@
       resetToDefault();
       dispatch("error");
       lockDefaultFor = src ?? null;
+      releaseSlot();
     }
   }
 
   async function tryLoadCachedOrStart() {
     const srcStr = src?.trim() || "";
-    // Only consult remote thumbnail cache for http(s) sources
-    if (enableCache && cacheTitle && cacheTitle.trim().length > 0 && /^https?:\/\//i.test(srcStr)) {
+    // Always try cached thumbnail when a cacheTitle is provided
+    if (enableCache && cacheTitle && cacheTitle.trim().length > 0) {
       try {
         const cached = await invoke<string | null>(
           "get_cached_thumbnail_by_title",
           { title: cacheTitle }
         );
         if (cached) {
+          const resolved = cached.startsWith("http://") || cached.startsWith("https://")
+            ? cached
+            : convertFileSrc(cached, "asset");
           triedFallback = false;
           usingDefault = false;
-          currentSrc = cached;
+          localFileFallback = resolved;
+          triedLocalFileFallback = false;
+          currentSrc = resolved;
           // Data URLs should be considered loaded immediately
           clearTimer();
           loading = false;
           loaded = true;
           showSpinner = false;
+          releaseSlot();
           dispatch("load");
           return;
         }
@@ -302,7 +516,7 @@
           tryLoadCachedOrStart();
         }
       },
-      { root: null, rootMargin: "150px", threshold: 0.01 }
+      { root: null, rootMargin: isLinux ? "0px" : "150px", threshold: 0.01 }
     );
     observer.observe(wrapper);
   }
@@ -319,6 +533,7 @@
       clearTimeout(cacheRecheckTimer);
       cacheRecheckTimer = null;
     }
+    releaseSlot();
     if (observer) {
       observer.disconnect();
       observer = null;
@@ -336,14 +551,18 @@
       if (!usingDefault) resetToDefault();
       lockDefaultFor = srcStr;
     } else if (currentSrc !== resolved && !usingDefault) {
-      if (inView) tryLoadCachedOrStart(); else ensureObserved();
+      if (inView && !deferLoad) tryLoadCachedOrStart(); else ensureObserved();
     } else if (currentSrc === null && !usingDefault) {
-      if (inView) tryLoadCachedOrStart(); else ensureObserved();
+      if (inView && !deferLoad) tryLoadCachedOrStart(); else ensureObserved();
     }
   } else {
     // If no src is provided, immediately show the static default cover
     resetToDefault();
     lockDefaultFor = src ?? null;
+  }
+
+  $: if (!deferLoad && inView && !loaded && !loading) {
+    tryLoadCachedOrStart();
   }
 </script>
 

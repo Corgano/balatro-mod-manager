@@ -51,7 +51,7 @@ import { addMessage } from "$lib/stores";
 	}
 
 	const { mod, onCheckDependencies }: Props = $props();
-	const isDefaultCover = (imageUrl: string) => imageUrl.includes("cover.jpg");
+	const isDefaultCover = (imageUrl?: string | null) => !!imageUrl && imageUrl.includes("cover.jpg");
 	function handleAuxClick(event: MouseEvent) {
 		if (event.button === 3) {
 			event.preventDefault();
@@ -1742,5 +1742,26 @@ let descLoading = $state(false);
 	.description :global(a:hover) {
 		text-decoration: underline;
 		filter: brightness(1.2);
+	}
+
+	:global([data-platform="linux"]) .category-tag {
+		backdrop-filter: none;
+		background: rgba(244, 238, 224, 0.14);
+	}
+
+	:global([data-platform="linux"]) .mod-view {
+		backdrop-filter: none;
+		background: rgba(133, 35, 27, 0.92);
+		position: absolute;
+		inset: 0;
+		border-radius: 6px;
+		max-height: 100%;
+		overflow-y: auto;
+	}
+
+	:global([data-platform="linux"]) .back-button,
+	:global([data-platform="linux"]) .close-button {
+		backdrop-filter: none;
+		background: rgba(244, 238, 224, 0.14);
 	}
 </style>
