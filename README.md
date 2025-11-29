@@ -56,10 +56,16 @@ curl -sL https://raw.githubusercontent.com/skyline69/balatro-mod-manager/main/sc
 
 ### For Linux
 
-run this command:
+From a local checkout (respects your current branch/changes):
 
 ```bash
-bash <(curl -s https://raw.githubusercontent.com/skyline69/balatro-mod-manager/main/scripts/linux-install.sh)
+./scripts/linux-install.sh
+```
+
+If you want to install from the latest GitHub main without cloning manually, pass `--clone`:
+
+```bash
+bash <(curl -s https://raw.githubusercontent.com/skyline69/balatro-mod-manager/main/scripts/linux-install.sh) --clone
 ```
 
 Linux builds are supported through a reproducible Devbox environment. This ensures the correct GTK/WebKit/SSL dependencies are available on any distribution.
