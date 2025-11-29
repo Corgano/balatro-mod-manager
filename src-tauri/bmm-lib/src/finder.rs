@@ -1,12 +1,16 @@
 use crate::database::Database;
 use log::error;
 use log::info;
+#[cfg(target_os = "linux")]
+use regex::Regex;
 use std::collections::HashSet;
 #[cfg(target_os = "windows")]
 use std::fs::File;
 #[cfg(target_os = "windows")]
 use std::io::{BufReader, Read};
 #[cfg(target_os = "windows")]
+use std::path::Path;
+#[cfg(target_os = "linux")]
 use std::path::Path;
 use std::path::PathBuf;
 #[cfg(target_os = "windows")]
@@ -146,6 +150,35 @@ pub fn get_balatro_paths() -> Vec<PathBuf> {
 }
 
 #[cfg(target_os = "linux")]
+fn parse_libraryfolders(library_path: &Path) -> Vec<PathBuf> {
+    let mut results = Vec::new();
+    let contents = match std::fs::read_to_string(library_path) {
+        Ok(c) => c,
+        Err(e) => {
+            error!(
+                "Failed to read libraryfolders.vdf at {}: {}",
+                library_path.to_string_lossy(),
+                e
+            );
+            return results;
+        }
+    };
+
+    // Matches lines like: "path"    "/mnt/games/SteamLibrary"
+    let re = Regex::new(r#""path"\s*"([^"]+)""#).unwrap();
+    for caps in re.captures_iter(&contents) {
+        if let Some(path_match) = caps.get(1) {
+            let path_str = path_match.as_str();
+            // Normalize escaped backslashes in case they appear
+            let cleaned = path_str.replace("\\\\", "\\");
+            results.push(PathBuf::from(cleaned).join("steamapps/common/Balatro"));
+        }
+    }
+
+    results
+}
+
+#[cfg(target_os = "linux")]
 pub fn get_balatro_paths() -> Vec<PathBuf> {
     let mut paths: Vec<PathBuf> = vec![];
 
@@ -158,14 +191,37 @@ pub fn get_balatro_paths() -> Vec<PathBuf> {
             }
         }
     }
+
+    let mut steam_roots: Vec<PathBuf> = Vec::new();
+    let mut seen_roots: HashSet<String> = HashSet::new();
+    let mut add_root = |root: PathBuf| {
+        let key = root.to_string_lossy().to_string().to_lowercase();
+        if seen_roots.insert(key) {
+            steam_roots.push(root);
+        }
+    };
+
     match home::home_dir() {
-        Some(path) => {
-            let mut path = path;
-            path.push(".local/share/Steam/steamapps/common/Balatro");
-            paths.push(path);
+        Some(home) => {
+            add_root(home.join(".local/share/Steam"));
+            add_root(home.join(".steam/steam"));
+            add_root(home.join(".var/app/com.valvesoftware.Steam/data/Steam"));
+            // Snap installs keep the real Steam data under this prefix.
+            add_root(home.join("snap/steam/common/.local/share/Steam"));
         }
         None => error!("Impossible to get your home dir!"),
     }
+
+    for root in steam_roots {
+        let steamapps = root.join("steamapps");
+        paths.push(steamapps.join("common/Balatro"));
+
+        let libraryfolders = steamapps.join("libraryfolders.vdf");
+        if libraryfolders.exists() {
+            paths.extend(parse_libraryfolders(&libraryfolders));
+        }
+    }
+
     remove_unexisting_paths(&mut paths);
     dedup_paths_case_insensitive(&mut paths);
     paths
