@@ -17,6 +17,78 @@ BLUE='\033[94m'
 CYAN='\033[38;2;61;181;255m'
 NC='\033[0m'
 
+BUILD_DIR=""
+CLEANUP_DONE=false
+CONTAINER_NAME=""
+APPIMAGE_DEST=""
+ICON_PATH=""
+DESKTOP_ENTRY=""
+SYMLINKS=()
+PODMAN_PID=""
+PREEXIST_APPIMAGE=false
+PREEXIST_ICON=false
+PREEXIST_DESKTOP=false
+PREEXIST_SYMLINKS=()
+
+cleanup() {
+    local exit_code=${1:-$?}
+
+    if [[ "$CLEANUP_DONE" == true ]]; then
+        return
+    fi
+    CLEANUP_DONE=true
+
+    if [[ -n "$CONTAINER_NAME" ]] && command -v podman &>/dev/null; then
+        podman rm -f "$CONTAINER_NAME" >/dev/null 2>&1 || true
+    fi
+
+    if [[ "$exit_code" -ne 0 ]]; then
+        if [[ -n "$APPIMAGE_DEST" && "$PREEXIST_APPIMAGE" == false && -e "$APPIMAGE_DEST" ]]; then
+            rm -f "$APPIMAGE_DEST" || true
+        fi
+
+        if [[ -n "$ICON_PATH" && "$PREEXIST_ICON" == false && -e "$ICON_PATH" ]]; then
+            rm -f "$ICON_PATH" || true
+        fi
+
+        if [[ -n "$DESKTOP_ENTRY" && "$PREEXIST_DESKTOP" == false && -e "$DESKTOP_ENTRY" ]]; then
+            rm -f "$DESKTOP_ENTRY" || true
+        fi
+
+        for i in "${!SYMLINKS[@]}"; do
+            local link_path="${SYMLINKS[$i]}"
+            local preexisting="${PREEXIST_SYMLINKS[$i]}"
+            if [[ "$preexisting" == false && -n "$link_path" && -e "$link_path" ]]; then
+                rm -f "$link_path" || true
+            fi
+        done
+    fi
+
+    if [[ "$USE_LOCAL" == false && -n "$BUILD_DIR" && -d "$BUILD_DIR" ]]; then
+        if [[ "$exit_code" -eq 0 ]]; then
+            echo -e "${YELLOW}9. Cleaning up temporary directory...${NC}"
+        else
+            echo -e "${YELLOW}Cleaning up temporary directory...${NC}"
+        fi
+        rm -rf "$BUILD_DIR"
+    fi
+}
+
+on_interrupt() {
+    echo -e "\n${YELLOW}Cancellation received (CTRL+C). Cleaning up...${NC}"
+    if [[ -n "$PODMAN_PID" ]] && kill -0 "$PODMAN_PID" >/dev/null 2>&1; then
+        kill -INT "$PODMAN_PID" >/dev/null 2>&1 || true
+    fi
+    if [[ -n "$CONTAINER_NAME" ]] && command -v podman &>/dev/null; then
+        podman kill "$CONTAINER_NAME" >/dev/null 2>&1 || true
+    fi
+    cleanup 130
+    exit 130
+}
+
+trap on_interrupt INT TERM
+trap 'cleanup $?' EXIT
+
 echo -e "${CYAN}"
 cat << "EOF"
     ____  __  _____  ___            ____           __        ____
@@ -131,9 +203,19 @@ podman run --rm \
 
         echo "Building Tauri bundles (deb, rpm, AppImage)..."
         cargo tauri build
-
         echo "Container build complete."
-    '
+    ' &
+PODMAN_PID=$!
+if ! wait "$PODMAN_PID"; then
+    PODMAN_EXIT=$?
+else
+    PODMAN_EXIT=0
+fi
+PODMAN_PID=""
+
+if [[ "$PODMAN_EXIT" -ne 0 ]]; then
+    exit "$PODMAN_EXIT"
+fi
 
 echo -e "${GREEN}Build inside Podman completed successfully.${NC}"
 
@@ -162,26 +244,41 @@ APP_NAME="Balatro Mod Manager"
 INSTALL_DIR="$HOME/.local/bin"
 ICON_DIR="$HOME/.local/share/icons/hicolor/512x512/apps"
 DESKTOP_DIR="$HOME/.local/share/applications"
+APPIMAGE_DEST="$INSTALL_DIR/$APP_ID.AppImage"
+ICON_PATH="$ICON_DIR/$APP_ID.png"
+DESKTOP_ENTRY="$DESKTOP_DIR/$APP_ID.desktop"
+SYMLINKS=("$INSTALL_DIR/balatro-mod-manager" "$INSTALL_DIR/balatro")
+
+[[ -e "$APPIMAGE_DEST" ]] && PREEXIST_APPIMAGE=true
+[[ -e "$ICON_PATH" ]] && PREEXIST_ICON=true
+[[ -e "$DESKTOP_ENTRY" ]] && PREEXIST_DESKTOP=true
+for link in "${SYMLINKS[@]}"; do
+    if [[ -e "$link" ]]; then
+        PREEXIST_SYMLINKS+=("true")
+    else
+        PREEXIST_SYMLINKS+=("false")
+    fi
+done
 
 echo -e "${YELLOW}4. Copying AppImage to $INSTALL_DIR ...${NC}"
 mkdir -p "$INSTALL_DIR"
-cp "$APPIMAGE" "$INSTALL_DIR/$APP_ID.AppImage"
-chmod +x "$INSTALL_DIR/$APP_ID.AppImage"
+cp "$APPIMAGE" "$APPIMAGE_DEST"
+chmod +x "$APPIMAGE_DEST"
 
 echo -e "${YELLOW}5. Installing icon from src-tauri/icons...${NC}"
 mkdir -p "$ICON_DIR"
 if [[ -f src-tauri/icons/512x512.png ]]; then
-    cp src-tauri/icons/512x512.png "$ICON_DIR/$APP_ID.png"
+    cp src-tauri/icons/512x512.png "$ICON_PATH"
 else
     echo -e "${YELLOW}Warning: src-tauri/icons/512x512.png not found, skipping icon install.${NC}"
 fi
 
 echo -e "${YELLOW}6. Creating desktop entry...${NC}"
 mkdir -p "$DESKTOP_DIR"
-cat > "$DESKTOP_DIR/$APP_ID.desktop" <<EOF
+cat > "$DESKTOP_ENTRY" <<EOF
 [Desktop Entry]
 Name=$APP_NAME
-Exec=$INSTALL_DIR/$APP_ID.AppImage
+Exec=$APPIMAGE_DEST
 Icon=$APP_ID
 Type=Application
 Categories=Game;Utility;
@@ -191,8 +288,8 @@ EOF
 chmod +x "$DESKTOP_DIR/$APP_ID.desktop"
 
 echo -e "${YELLOW}7. Creating terminal aliases...${NC}"
-ln -sf "$INSTALL_DIR/$APP_ID.AppImage" "$INSTALL_DIR/balatro-mod-manager"
-ln -sf "$INSTALL_DIR/$APP_ID.AppImage" "$INSTALL_DIR/balatro"
+ln -sf "$APPIMAGE_DEST" "${SYMLINKS[0]}"
+ln -sf "$APPIMAGE_DEST" "${SYMLINKS[1]}"
 
 echo -e "${YELLOW}8. Updating icon cache (if available)...${NC}"
 gtk-update-icon-cache "$HOME/.local/share/icons/hicolor" >/dev/null 2>&1 || true
@@ -200,10 +297,7 @@ gtk-update-icon-cache "$HOME/.local/share/icons/hicolor" >/dev/null 2>&1 || true
 ############################################
 # CLEANUP (IF WE CLONED)
 ############################################
-if [[ "$USE_LOCAL" == false ]]; then
-    echo -e "${YELLOW}9. Cleaning up temporary directory...${NC}"
-    rm -rf "$BUILD_DIR"
-fi
+cleanup 0
 
 echo -e "${GREEN}"
 echo "--------------------------------------"
