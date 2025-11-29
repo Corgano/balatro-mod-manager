@@ -596,7 +596,7 @@ pub async fn get_cached_thumbnail_by_title(title: String) -> Result<Option<Strin
     }
     Ok(Some(
         path.to_str()
-            .ok_or_else(|| "Failed to convert thumbnail path".to_string())?
+            .ok_or_else(|| format!("Failed to convert thumbnail path: {}", path.display()))?
             .to_string(),
     ))
 }
