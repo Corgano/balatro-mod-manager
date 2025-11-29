@@ -99,9 +99,12 @@ New-Item -Path $BUILD_DIR -ItemType Directory -Force | Out-Null
 # Clone repository
 Write-Host "1. Cloning repository..." -ForegroundColor $YELLOW
 try {
-    $gitOutput = git clone https://github.com/skyline69/balatro-mod-manager.git (Join-Path $BUILD_DIR "balatro-mod-manager") 2>&1
+    # Use -q (quiet) to suppress git's progress output to stderr, which can cause
+    # issues with PowerShell's error handling when combined with $ErrorActionPreference = "Stop"
+    $clonePath = Join-Path $BUILD_DIR "balatro-mod-manager"
+    git clone -q https://github.com/skyline69/balatro-mod-manager.git $clonePath
     if ($LASTEXITCODE -ne 0) {
-        throw "Git clone failed: $gitOutput"
+        throw "Git clone failed with exit code $LASTEXITCODE"
     }
 } catch {
     Write-Host "Error during repository cloning: $_" -ForegroundColor $RED
