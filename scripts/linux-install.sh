@@ -91,7 +91,7 @@ podman run --rm \
 
         echo "Updating APT and installing system dependencies..."
         apt-get update
-		apt-get install -y \
+        apt-get install -y \
             build-essential curl git ca-certificates unzip \
             libgtk-3-0 libgtk-3-dev libgdk-pixbuf-2.0-0 libgdk-pixbuf2.0-dev \
             libcanberra-gtk3-module libcanberra-gtk-module libcanberra-gtk3-dev \
