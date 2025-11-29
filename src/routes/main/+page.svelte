@@ -346,7 +346,7 @@ import { browser } from "$app/environment";
 		{onError}
 	/>
 
-	<div class="version-text">v0.2.9</div>
+	<div class="version-text">v0.3.0</div>
 </div>
 
 <LovelyMissingPopup />
