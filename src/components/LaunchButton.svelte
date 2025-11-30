@@ -3,8 +3,20 @@
 	import LaunchAlertBox from "./LaunchAlertBox.svelte";
 import { addMessage } from "../lib/stores";
 import { lovelyPopupStore } from "../stores/modStore";
+import { onMount } from "svelte";
 
 let showAlert = false;
+let isLinux = false;
+
+onMount(async () => {
+	try {
+		const { platform } = await import("@tauri-apps/plugin-os");
+		const p = await platform();
+		isLinux = p.toLowerCase() === "linux";
+	} catch (_) {
+		isLinux = false;
+	}
+});
 
 async function doLaunch() {
   const path = await invoke("get_balatro_path");
@@ -17,7 +29,7 @@ async function doLaunch() {
       return;
     }
     let is_steam_running: boolean = await invoke("check_steam_running");
-    if (!is_steam_running) {
+    if (!is_steam_running && !isLinux) {
       showAlert = true;
       return;
     } else {

@@ -102,14 +102,6 @@ fn strip_python_env(cmd: &mut Command) {
 }
 
 #[cfg(target_os = "linux")]
-fn add_steam_app_env(cmd: &mut Command) {
-    // Some Steam integrations (e.g., luasteam) exit early when the app ID is missing.
-    cmd.env("STEAM_COMPAT_APP_ID", STEAM_APP_ID);
-    cmd.env("SteamAppId", STEAM_APP_ID);
-    cmd.env("SteamGameId", STEAM_APP_ID);
-}
-
-#[cfg(target_os = "linux")]
 fn compat_data_dir_from_game(game_dir: &Path) -> Option<PathBuf> {
     let steamapps_dir = game_dir.parent()?.parent()?;
     let compat = steamapps_dir.join("compatdata/2379780");
@@ -210,9 +202,6 @@ pub async fn launch_balatro(_state: tauri::State<'_, AppState>) -> Result<(), St
 #[cfg(target_os = "linux")]
 #[tauri::command]
 pub async fn launch_balatro(state: tauri::State<'_, AppState>) -> Result<(), String> {
-    const DLL_OVERRIDE: &str = "version=n,b";
-    const PROTON_LOG: &str = "0"; // set to "1" for verbose Proton logs if debugging
-
     // Prefer stored install path; fall back to discovered path if missing
     let install_path = {
         let db = state.db.lock().map_err(|_| {
@@ -268,11 +257,7 @@ pub async fn launch_balatro(state: tauri::State<'_, AppState>) -> Result<(), Str
     });
     // Best-effort: ask Steam to launch the game via Proton. This preserves Steam runtime setup.
     let mut steam_cmd = Command::new("steam");
-    steam_cmd
-        .args(["-applaunch", STEAM_APP_ID])
-        .env("WINEDLLOVERRIDES", DLL_OVERRIDE)
-        .env("PROTON_LOG", PROTON_LOG);
-    add_steam_app_env(&mut steam_cmd);
+    steam_cmd.args(["-applaunch", STEAM_APP_ID]);
     if !lovely_console_enabled {
         steam_cmd.env("LOVELY_DISABLE_CONSOLE", "1");
         steam_cmd.env("LOVELY_NO_CONSOLE", "1");
@@ -291,11 +276,7 @@ pub async fn launch_balatro(state: tauri::State<'_, AppState>) -> Result<(), Str
 
     // Fallback: Flatpak Steam (common on Ubuntu). Avoid using plain wine to prevent steamclient assertions.
     let mut flatpak_cmd = Command::new("flatpak");
-    flatpak_cmd
-        .args(["run", "com.valvesoftware.Steam", "-applaunch", STEAM_APP_ID])
-        .env("WINEDLLOVERRIDES", DLL_OVERRIDE)
-        .env("PROTON_LOG", PROTON_LOG);
-    add_steam_app_env(&mut flatpak_cmd);
+    flatpak_cmd.args(["run", "com.valvesoftware.Steam", "-applaunch", STEAM_APP_ID]);
     if !lovely_console_enabled {
         flatpak_cmd.env("LOVELY_DISABLE_CONSOLE", "1");
         flatpak_cmd.env("LOVELY_NO_CONSOLE", "1");
