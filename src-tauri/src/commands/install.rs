@@ -126,11 +126,9 @@ fn strip_python_env(cmd: &mut Command) {
 }
 
 #[cfg(target_os = "linux")]
-fn add_steam_app_env(cmd: &mut Command, steam_running: bool) {
+fn add_steam_app_env(cmd: &mut Command, _steam_running: bool) {
     // Some Steam integrations (e.g., luasteam) exit early when the app ID is missing.
-    if steam_running {
-        cmd.env("STEAM_COMPAT_APP_ID", STEAM_APP_ID);
-    }
+    cmd.env("STEAM_COMPAT_APP_ID", STEAM_APP_ID);
     cmd.env("SteamAppId", STEAM_APP_ID);
     cmd.env("SteamGameId", STEAM_APP_ID);
 }
