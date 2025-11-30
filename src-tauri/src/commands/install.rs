@@ -275,27 +275,41 @@ pub async fn launch_balatro(state: tauri::State<'_, AppState>) -> Result<(), Str
         .map(|ext| ext.eq_ignore_ascii_case("AppImage"))
         .unwrap_or(false);
 
-    let mut love_cmd = Command::new(&love_bin_path);
-    love_cmd
-        .current_dir(&path)
-        .arg("Balatro.exe")
-        .env("LD_PRELOAD", &lovely_so);
-    if using_appimage {
-        // Allow running without FUSE support (common on SteamOS/Deck).
-        love_cmd.env("APPIMAGE_EXTRACT_AND_RUN", "1");
-    }
-    // Avoid inheriting wrapped library paths that can crash the AppImage.
-    love_cmd.env_remove("LD_LIBRARY_PATH");
-    if !lovely_console_enabled {
-        love_cmd.env("LOVELY_DISABLE_CONSOLE", "1");
-        love_cmd.env("LOVELY_NO_CONSOLE", "1");
-        love_cmd.env("LOVELY_CONSOLE", "0");
-    }
-    strip_python_env(&mut love_cmd);
-    strip_wrapper_env(&mut love_cmd);
-    love_cmd
-        .spawn()
-        .map_err(|e| format!("Failed to launch Balatro via native LOVE: {e}"))?;
+    // Build native launch command. Use direct exec for system love; shell for AppImage to set extract env.
+    let spawn_result = if using_appimage {
+        let mut love_cmd = Command::new("sh");
+        let love_run = format!(
+            "cd '{}' && APPIMAGE_EXTRACT_AND_RUN=1 LD_PRELOAD='{}' '{}' Balatro.exe",
+            path.display(),
+            lovely_so.display(),
+            love_bin_path.display()
+        );
+        love_cmd.arg("-c").arg(love_run);
+        if !lovely_console_enabled {
+            love_cmd.env("LOVELY_DISABLE_CONSOLE", "1");
+            love_cmd.env("LOVELY_NO_CONSOLE", "1");
+            love_cmd.env("LOVELY_CONSOLE", "0");
+        }
+        strip_python_env(&mut love_cmd);
+        strip_wrapper_env(&mut love_cmd);
+        love_cmd.spawn()
+    } else {
+        let mut love_cmd = Command::new(&love_bin_path);
+        love_cmd
+            .current_dir(&path)
+            .arg("Balatro.exe")
+            .env("LD_PRELOAD", &lovely_so);
+        if !lovely_console_enabled {
+            love_cmd.env("LOVELY_DISABLE_CONSOLE", "1");
+            love_cmd.env("LOVELY_NO_CONSOLE", "1");
+            love_cmd.env("LOVELY_CONSOLE", "0");
+        }
+        strip_python_env(&mut love_cmd);
+        strip_wrapper_env(&mut love_cmd);
+        love_cmd.spawn()
+    };
+
+    spawn_result.map_err(|e| format!("Failed to launch Balatro via native LOVE: {e}"))?;
 
     Ok(())
 }
