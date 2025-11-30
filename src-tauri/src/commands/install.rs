@@ -5,6 +5,8 @@ use std::env;
 #[cfg(target_os = "linux")]
 use std::fs;
 #[cfg(target_os = "linux")]
+use std::fs::remove_file;
+#[cfg(target_os = "linux")]
 use std::os::unix::fs::symlink;
 use std::path::PathBuf;
 #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
@@ -16,7 +18,7 @@ use bmm_lib::errors::AppError;
 #[cfg(target_os = "macos")]
 use bmm_lib::lovely;
 #[cfg(target_os = "linux")]
-use bmm_lib::lovely::{ensure_love_binary, ensure_lovely_so_exists};
+use bmm_lib::lovely::{ensure_love_binary, ensure_lovely_so_exists, get_latest_lovely_version};
 use bmm_lib::smods_installer::{ModInstaller, ModType};
 use bmm_lib::{cache, database::InstalledMod};
 
@@ -236,6 +238,21 @@ pub async fn launch_balatro(state: tauri::State<'_, AppState>) -> Result<(), Str
     ensure_native_mod_dir_link()?;
 
     // Ensure Lovely's liblovely.so is present for native LOVE injection
+    // Refresh Lovely if a newer version is available
+    if let Ok(latest) = get_latest_lovely_version().await {
+        if let Ok(db) = state.db.lock() {
+            if let Ok(current) = db.get_lovely_version() {
+                if current.as_deref() != Some(latest.as_str()) {
+                    let _ = db.set_lovely_version(&latest);
+                    if let Some(config_dir) = dirs::config_dir() {
+                        let _ = remove_file(config_dir.join("Balatro/bins/liblovely.so"));
+                    }
+                    let _ = remove_file(path.join("liblovely.so"));
+                }
+            }
+        }
+    }
+
     let lovely_so = ensure_lovely_so_exists(&path)
         .await
         .map_err(|e| format!("Failed to ensure liblovely.so: {e}"))?;
@@ -269,10 +286,18 @@ pub async fn launch_balatro(state: tauri::State<'_, AppState>) -> Result<(), Str
     if !love_available {
         return Err("LOVE is not installed or could not be downloaded automatically.".to_string());
     }
+
+    // Ensure Balatro.exe is available as a .love zip for LOVE to load cleanly.
+    let balatro_love = path.join("Balatro.love");
+    let balatro_exe = path.join("Balatro.exe");
+    if balatro_exe.exists() && !balatro_love.exists() {
+        let _ = fs::copy(&balatro_exe, &balatro_love);
+    }
+
     let mut love_cmd = Command::new(&love_bin_path);
     love_cmd
         .current_dir(&path)
-        .arg("Balatro.exe")
+        .arg("Balatro.love")
         .env("LD_PRELOAD", &lovely_so);
     if let Some(lib_dir) = love_lib_path {
         love_cmd.env("LD_LIBRARY_PATH", lib_dir);

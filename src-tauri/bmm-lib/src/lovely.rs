@@ -1,6 +1,5 @@
 use crate::errors::AppError;
 #[cfg(target_os = "linux")]
-use serde_json::Value;
 #[cfg(any(target_os = "windows", target_os = "linux"))]
 use std::fs::File;
 #[cfg(target_os = "linux")]
@@ -229,49 +228,11 @@ pub async fn ensure_lovely_so_exists(game_path: &Path) -> Result<PathBuf, AppErr
 
 #[cfg(target_os = "linux")]
 async fn download_love_tarball(target_dir: &Path) -> Result<(), AppError> {
-    let client = reqwest::Client::builder()
-        .user_agent("balatro-mod-manager")
-        .build()
-        .map_err(|e| AppError::Network(e.to_string()))?;
+    // Pin to LOVE 11.5 linux x86_64 tarball (latest as of Balatro/Lovely expectations).
+    let tar_url =
+        "https://github.com/love2d/love/releases/download/11.5/love-11.5-linux-x86_64.tar.gz";
 
-    let resp = client
-        .get("https://api.github.com/repos/love2d/love/releases/latest")
-        .send()
-        .await
-        .map_err(|e| AppError::Network(format!("Failed to query LOVE releases: {e}")))?;
-    let release: Value = resp
-        .json()
-        .await
-        .map_err(|e| AppError::Network(format!("Failed to parse LOVE release data: {e}")))?;
-
-    let assets = release
-        .get("assets")
-        .and_then(|v| v.as_array())
-        .ok_or_else(|| {
-            AppError::InvalidState("LOVE release data missing assets array".to_string())
-        })?;
-
-    let tar_url = assets
-        .iter()
-        .filter_map(|asset| {
-            let name = asset.get("name")?.as_str()?;
-            let url = asset.get("browser_download_url")?.as_str()?;
-            if name.contains("linux") && name.contains("x86_64") && name.ends_with("tar.gz") {
-                Some(url.to_string())
-            } else {
-                None
-            }
-        })
-        .next()
-        .ok_or_else(|| {
-            AppError::InvalidState(
-                "Could not find LOVE linux x86_64 tarball in latest release".to_string(),
-            )
-        })?;
-
-    let bytes = client
-        .get(tar_url)
-        .send()
+    let bytes = reqwest::get(tar_url)
         .await
         .map_err(|e| AppError::Network(format!("Failed to download LOVE tarball: {e}")))?
         .bytes()
