@@ -258,6 +258,7 @@ pub async fn launch_balatro(state: tauri::State<'_, AppState>) -> Result<(), Str
     // 1) Prefer the registered Steam URL handler; this should always hit the native client.
     let mut xdg = Command::new("xdg-open");
     xdg.arg(format!("steam://rungameid/{STEAM_APP_ID}"));
+    strip_python_env(&mut xdg);
     if xdg.spawn().is_ok() {
         return Ok(());
     }
