@@ -217,7 +217,7 @@ pub async fn launch_balatro(state: tauri::State<'_, AppState>) -> Result<(), Str
         .or_else(|| bmm_lib::finder::get_balatro_paths().into_iter().next())
         .ok_or_else(|| "No Balatro installation path is configured or detected".to_string())?;
 
-    let _lovely_console_enabled = {
+    let lovely_console_enabled = {
         let db = state.db.lock().map_err(|_| {
             AppError::LockPoisoned("Database lock poisoned".to_string()).to_string()
         })?;
@@ -247,7 +247,7 @@ pub async fn launch_balatro(state: tauri::State<'_, AppState>) -> Result<(), Str
         .ok_or_else(|| "Could not determine Steam library root from Balatro path".to_string())?;
 
     // Compat data root (no trailing pfx); Proton expects STEAM_COMPAT_DATA_PATH here.
-    let _compat_data_dir = compat_data_dir.or_else(|| {
+    let compat_data_dir = compat_data_dir.or_else(|| {
         let candidate = steamapps_dir.join(format!("compatdata/{STEAM_APP_ID}"));
         if candidate.exists() {
             Some(candidate)
@@ -262,21 +262,57 @@ pub async fn launch_balatro(state: tauri::State<'_, AppState>) -> Result<(), Str
         return Ok(());
     }
 
-    // 2) Fallback: direct steam binary.
+    // 2) Fallback: direct steam binary with Lovely/Proton env.
     let mut steam_cmd = Command::new("steam");
-    steam_cmd.args(["-applaunch", STEAM_APP_ID]);
+    steam_cmd
+        .args(["-applaunch", STEAM_APP_ID])
+        .env("WINEDLLOVERRIDES", "version=n,b")
+        .env("STEAM_COMPAT_APP_ID", STEAM_APP_ID)
+        .env("SteamAppId", STEAM_APP_ID)
+        .env("SteamGameId", STEAM_APP_ID)
+        .env("SteamOverlayGameId", STEAM_APP_ID)
+        .env("PROTON_LOG", "0");
+    if !lovely_console_enabled {
+        steam_cmd.env("LOVELY_DISABLE_CONSOLE", "1");
+        steam_cmd.env("LOVELY_NO_CONSOLE", "1");
+        steam_cmd.env("LOVELY_CONSOLE", "0");
+    }
+    if let Some(compat) = compat_data_dir.as_ref() {
+        steam_cmd.env("STEAM_COMPAT_DATA_PATH", compat);
+    }
+    if let Some(steam_root) = steamapps_dir.parent() {
+        steam_cmd.env("STEAM_COMPAT_CLIENT_INSTALL_PATH", steam_root);
+    }
     strip_python_env(&mut steam_cmd);
     if steam_cmd.spawn().is_ok() {
         return Ok(());
     }
 
-    // 3) Fallback: Flatpak Steam.
+    // 3) Fallback: Flatpak Steam with Lovely/Proton env.
     let mut flatpak_cmd = Command::new("flatpak");
-    flatpak_cmd.args([
-        "run",
-        "com.valvesoftware.Steam",
-        "steam://rungameid/2379780",
-    ]);
+    flatpak_cmd
+        .args([
+            "run",
+            "com.valvesoftware.Steam",
+            "steam://rungameid/2379780",
+        ])
+        .env("WINEDLLOVERRIDES", "version=n,b")
+        .env("STEAM_COMPAT_APP_ID", STEAM_APP_ID)
+        .env("SteamAppId", STEAM_APP_ID)
+        .env("SteamGameId", STEAM_APP_ID)
+        .env("SteamOverlayGameId", STEAM_APP_ID)
+        .env("PROTON_LOG", "0");
+    if !lovely_console_enabled {
+        flatpak_cmd.env("LOVELY_DISABLE_CONSOLE", "1");
+        flatpak_cmd.env("LOVELY_NO_CONSOLE", "1");
+        flatpak_cmd.env("LOVELY_CONSOLE", "0");
+    }
+    if let Some(compat) = compat_data_dir.as_ref() {
+        flatpak_cmd.env("STEAM_COMPAT_DATA_PATH", compat);
+    }
+    if let Some(steam_root) = steamapps_dir.parent() {
+        flatpak_cmd.env("STEAM_COMPAT_CLIENT_INSTALL_PATH", steam_root);
+    }
     strip_python_env(&mut flatpak_cmd);
     if flatpak_cmd.spawn().is_ok() {
         return Ok(());
