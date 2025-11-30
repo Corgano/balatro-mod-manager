@@ -217,7 +217,7 @@ pub async fn launch_balatro(state: tauri::State<'_, AppState>) -> Result<(), Str
         .or_else(|| bmm_lib::finder::get_balatro_paths().into_iter().next())
         .ok_or_else(|| "No Balatro installation path is configured or detected".to_string())?;
 
-    let lovely_console_enabled = {
+    let _lovely_console_enabled = {
         let db = state.db.lock().map_err(|_| {
             AppError::LockPoisoned("Database lock poisoned".to_string()).to_string()
         })?;
@@ -247,7 +247,7 @@ pub async fn launch_balatro(state: tauri::State<'_, AppState>) -> Result<(), Str
         .ok_or_else(|| "Could not determine Steam library root from Balatro path".to_string())?;
 
     // Compat data root (no trailing pfx); Proton expects STEAM_COMPAT_DATA_PATH here.
-    let compat_data_dir = compat_data_dir.or_else(|| {
+    let _compat_data_dir = compat_data_dir.or_else(|| {
         let candidate = steamapps_dir.join(format!("compatdata/{STEAM_APP_ID}"));
         if candidate.exists() {
             Some(candidate)
@@ -255,45 +255,34 @@ pub async fn launch_balatro(state: tauri::State<'_, AppState>) -> Result<(), Str
             None
         }
     });
-    // Best-effort: ask Steam to launch the game via Proton. This preserves Steam runtime setup.
+    // 1) Prefer the registered Steam URL handler; this should always hit the native client.
+    let mut xdg = Command::new("xdg-open");
+    xdg.arg(format!("steam://rungameid/{STEAM_APP_ID}"));
+    if xdg.spawn().is_ok() {
+        return Ok(());
+    }
+
+    // 2) Fallback: direct steam binary.
     let mut steam_cmd = Command::new("steam");
     steam_cmd.args(["-applaunch", STEAM_APP_ID]);
-    if !lovely_console_enabled {
-        steam_cmd.env("LOVELY_DISABLE_CONSOLE", "1");
-        steam_cmd.env("LOVELY_NO_CONSOLE", "1");
-        steam_cmd.env("LOVELY_CONSOLE", "0");
-    }
-    if let Some(compat) = compat_data_dir.as_ref() {
-        steam_cmd.env("STEAM_COMPAT_DATA_PATH", compat);
-    }
-    if let Some(steam_root) = steamapps_dir.parent() {
-        steam_cmd.env("STEAM_COMPAT_CLIENT_INSTALL_PATH", steam_root);
-    }
     strip_python_env(&mut steam_cmd);
     if steam_cmd.spawn().is_ok() {
         return Ok(());
     }
 
-    // Fallback: Flatpak Steam (common on Ubuntu). Avoid using plain wine to prevent steamclient assertions.
+    // 3) Fallback: Flatpak Steam.
     let mut flatpak_cmd = Command::new("flatpak");
-    flatpak_cmd.args(["run", "com.valvesoftware.Steam", "-applaunch", STEAM_APP_ID]);
-    if !lovely_console_enabled {
-        flatpak_cmd.env("LOVELY_DISABLE_CONSOLE", "1");
-        flatpak_cmd.env("LOVELY_NO_CONSOLE", "1");
-        flatpak_cmd.env("LOVELY_CONSOLE", "0");
-    }
-    if let Some(compat) = compat_data_dir.as_ref() {
-        flatpak_cmd.env("STEAM_COMPAT_DATA_PATH", compat);
-    }
-    if let Some(steam_root) = steamapps_dir.parent() {
-        flatpak_cmd.env("STEAM_COMPAT_CLIENT_INSTALL_PATH", steam_root);
-    }
+    flatpak_cmd.args([
+        "run",
+        "com.valvesoftware.Steam",
+        "steam://rungameid/2379780",
+    ]);
     strip_python_env(&mut flatpak_cmd);
     if flatpak_cmd.spawn().is_ok() {
         return Ok(());
     }
 
-    Err("Failed to launch Balatro: Steam must be installed (native or Flatpak) and available on PATH. Start Steam, then try again.".to_string())
+    Err("Failed to launch Balatro: Steam must be installed (native or Flatpak) and available on PATH.".to_string())
 }
 
 #[tauri::command]
