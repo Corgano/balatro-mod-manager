@@ -16,7 +16,7 @@ use bmm_lib::errors::AppError;
 #[cfg(target_os = "macos")]
 use bmm_lib::lovely;
 #[cfg(target_os = "linux")]
-use bmm_lib::lovely::{ensure_love_appimage, ensure_lovely_so_exists};
+use bmm_lib::lovely::{ensure_love_binary, ensure_lovely_so_exists};
 use bmm_lib::smods_installer::{ModInstaller, ModType};
 use bmm_lib::{cache, database::InstalledMod};
 
@@ -106,7 +106,6 @@ fn strip_wrapper_env(cmd: &mut Command) {
     cmd.env_remove("APPIMAGE");
     cmd.env_remove("APPDIR");
     cmd.env_remove("LD_LIBRARY_PATH");
-    cmd.env_remove("LD_PRELOAD");
     cmd.env_remove("SNAP");
     cmd.env_remove("SNAP_NAME");
     cmd.env_remove("SNAP_REVISION");
@@ -246,16 +245,18 @@ pub async fn launch_balatro(state: tauri::State<'_, AppState>) -> Result<(), Str
     let love_bin_env = env::var("BMM_LOVE_BIN").ok();
     let mut love_bin_path =
         PathBuf::from(love_bin_env.clone().unwrap_or_else(|| "love".to_string()));
+    let mut love_lib_path: Option<PathBuf> = None;
     let mut love_available = Command::new(&love_bin_path)
         .arg("--version")
         .output()
         .is_ok();
 
     if !love_available {
-        // Auto-download the LOVE AppImage if not present on the system.
-        match ensure_love_appimage().await {
-            Ok(appimage) => {
-                love_bin_path = appimage;
+        // Auto-download the LOVE tarball if not present on the system.
+        match ensure_love_binary().await {
+            Ok((bin, lib_dir)) => {
+                love_bin_path = bin;
+                love_lib_path = lib_dir;
                 love_available = true;
             }
             Err(e) => {
@@ -269,45 +270,22 @@ pub async fn launch_balatro(state: tauri::State<'_, AppState>) -> Result<(), Str
     if !love_available {
         return Err("LOVE is not installed or could not be downloaded automatically.".to_string());
     }
-    let using_appimage = love_bin_path
-        .extension()
-        .and_then(|e| e.to_str())
-        .map(|ext| ext.eq_ignore_ascii_case("AppImage"))
-        .unwrap_or(false);
-
-    // Build native launch command. Use direct exec for system love; shell for AppImage to set extract env.
-    let spawn_result = if using_appimage {
-        let mut love_cmd = Command::new("sh");
-        let love_run = format!(
-            "cd '{}' && APPIMAGE_EXTRACT_AND_RUN=1 LD_PRELOAD='{}' '{}' Balatro.exe",
-            path.display(),
-            lovely_so.display(),
-            love_bin_path.display()
-        );
-        love_cmd.arg("-c").arg(love_run);
-        if !lovely_console_enabled {
-            love_cmd.env("LOVELY_DISABLE_CONSOLE", "1");
-            love_cmd.env("LOVELY_NO_CONSOLE", "1");
-            love_cmd.env("LOVELY_CONSOLE", "0");
-        }
-        strip_python_env(&mut love_cmd);
-        // Avoid stripping LD_LIBRARY_PATH/APPIMAGE for the AppImage itself.
-        love_cmd.spawn()
-    } else {
-        let mut love_cmd = Command::new(&love_bin_path);
-        love_cmd
-            .current_dir(&path)
-            .arg("Balatro.exe")
-            .env("LD_PRELOAD", &lovely_so);
-        if !lovely_console_enabled {
-            love_cmd.env("LOVELY_DISABLE_CONSOLE", "1");
-            love_cmd.env("LOVELY_NO_CONSOLE", "1");
-            love_cmd.env("LOVELY_CONSOLE", "0");
-        }
-        strip_python_env(&mut love_cmd);
-        strip_wrapper_env(&mut love_cmd);
-        love_cmd.spawn()
-    };
+    let mut love_cmd = Command::new(&love_bin_path);
+    love_cmd
+        .current_dir(&path)
+        .arg("Balatro.exe")
+        .env("LD_PRELOAD", &lovely_so);
+    if let Some(lib_dir) = love_lib_path {
+        love_cmd.env("LD_LIBRARY_PATH", lib_dir);
+    }
+    if !lovely_console_enabled {
+        love_cmd.env("LOVELY_DISABLE_CONSOLE", "1");
+        love_cmd.env("LOVELY_NO_CONSOLE", "1");
+        love_cmd.env("LOVELY_CONSOLE", "0");
+    }
+    strip_python_env(&mut love_cmd);
+    strip_wrapper_env(&mut love_cmd);
+    let spawn_result = love_cmd.spawn();
 
     spawn_result.map_err(|e| format!("Failed to launch Balatro via native LOVE: {e}"))?;
 

@@ -132,7 +132,7 @@ pub async fn ensure_lovely_exists() -> Result<PathBuf, AppError> {
 }
 
 #[cfg(target_os = "linux")]
-pub async fn ensure_love_appimage() -> Result<PathBuf, AppError> {
+pub async fn ensure_love_binary() -> Result<(PathBuf, Option<PathBuf>), AppError> {
     let config_dir = dirs::config_dir()
         .ok_or_else(|| AppError::DirNotFound(PathBuf::from("config directory")))?;
     let bins_dir = config_dir.join("Balatro/bins");
@@ -140,16 +140,57 @@ pub async fn ensure_love_appimage() -> Result<PathBuf, AppError> {
         path: bins_dir.clone(),
         source: e.to_string(),
     })?;
-    let target_path = bins_dir.join("love.AppImage");
-    if target_path.exists() {
+    let target_dir = bins_dir.join("love");
+    let target_bin = target_dir.join("love");
+    if target_bin.exists() {
         // Refresh permissions in case they were lost.
         let perms = std::fs::Permissions::from_mode(0o755);
-        let _ = std::fs::set_permissions(&target_path, perms);
-        return Ok(target_path);
+        let _ = std::fs::set_permissions(&target_bin, perms);
+        let lib_dir = target_bin
+            .parent()
+            .and_then(|p| p.parent())
+            .map(|p| p.join("lib"))
+            .filter(|p| p.is_dir());
+        return Ok((target_bin, lib_dir));
     }
 
-    download_love_appimage(&target_path).await?;
-    Ok(target_path)
+    download_love_tarball(&target_dir).await?;
+    // Try to locate the love binary inside the extracted tree.
+    let mut found = None;
+    let mut stack = vec![target_dir.clone()];
+    while let Some(dir) = stack.pop() {
+        if let Ok(entries) = fs::read_dir(&dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    stack.push(path);
+                } else if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                    if name == "love" && path.is_file() {
+                        found = Some(path);
+                        break;
+                    }
+                }
+            }
+        }
+        if found.is_some() {
+            break;
+        }
+    }
+
+    let bin = found.ok_or_else(|| {
+        AppError::InvalidState("Failed to locate love binary after download".to_string())
+    })?;
+    let perms = std::fs::Permissions::from_mode(0o755);
+    std::fs::set_permissions(&bin, perms).map_err(|e| AppError::FileWrite {
+        path: bin.clone(),
+        source: e.to_string(),
+    })?;
+    let lib_dir = bin
+        .parent()
+        .and_then(|p| p.parent())
+        .map(|p| p.join("lib"))
+        .filter(|p| p.is_dir());
+    Ok((bin, lib_dir))
 }
 
 #[cfg(target_os = "linux")]
@@ -184,6 +225,93 @@ pub async fn ensure_lovely_so_exists(game_path: &Path) -> Result<PathBuf, AppErr
     })?;
 
     Ok(target_so)
+}
+
+#[cfg(target_os = "linux")]
+async fn download_love_tarball(target_dir: &Path) -> Result<(), AppError> {
+    let client = reqwest::Client::builder()
+        .user_agent("balatro-mod-manager")
+        .build()
+        .map_err(|e| AppError::Network(e.to_string()))?;
+
+    let resp = client
+        .get("https://api.github.com/repos/love2d/love/releases/latest")
+        .send()
+        .await
+        .map_err(|e| AppError::Network(format!("Failed to query LOVE releases: {e}")))?;
+    let release: Value = resp
+        .json()
+        .await
+        .map_err(|e| AppError::Network(format!("Failed to parse LOVE release data: {e}")))?;
+
+    let assets = release
+        .get("assets")
+        .and_then(|v| v.as_array())
+        .ok_or_else(|| {
+            AppError::InvalidState("LOVE release data missing assets array".to_string())
+        })?;
+
+    let tar_url = assets
+        .iter()
+        .filter_map(|asset| {
+            let name = asset.get("name")?.as_str()?;
+            let url = asset.get("browser_download_url")?.as_str()?;
+            if name.contains("linux") && name.contains("x86_64") && name.ends_with("tar.gz") {
+                Some(url.to_string())
+            } else {
+                None
+            }
+        })
+        .next()
+        .ok_or_else(|| {
+            AppError::InvalidState(
+                "Could not find LOVE linux x86_64 tarball in latest release".to_string(),
+            )
+        })?;
+
+    let bytes = client
+        .get(tar_url)
+        .send()
+        .await
+        .map_err(|e| AppError::Network(format!("Failed to download LOVE tarball: {e}")))?
+        .bytes()
+        .await
+        .map_err(|e| AppError::Network(format!("Failed to read LOVE tarball bytes: {e}")))?;
+
+    let temp_dir = tempfile::tempdir().map_err(|e| AppError::FileWrite {
+        path: PathBuf::from("temp directory"),
+        source: e.to_string(),
+    })?;
+    let temp_tar_gz = temp_dir.path().join("love.tar.gz");
+    fs::write(&temp_tar_gz, &bytes).map_err(|e| AppError::FileWrite {
+        path: temp_tar_gz.clone(),
+        source: e.to_string(),
+    })?;
+
+    let tar_gz = File::open(&temp_tar_gz).map_err(|e| AppError::FileRead {
+        path: temp_tar_gz.clone(),
+        source: e.to_string(),
+    })?;
+    let tar = flate2::read::GzDecoder::new(tar_gz);
+    let mut archive = tar::Archive::new(tar);
+
+    if target_dir.exists() {
+        fs::remove_dir_all(target_dir).map_err(|e| AppError::DirCreate {
+            path: target_dir.to_path_buf(),
+            source: e.to_string(),
+        })?;
+    }
+    fs::create_dir_all(target_dir).map_err(|e| AppError::DirCreate {
+        path: target_dir.to_path_buf(),
+        source: e.to_string(),
+    })?;
+
+    archive.unpack(target_dir).map_err(|e| AppError::FileRead {
+        path: temp_tar_gz.clone(),
+        source: e.to_string(),
+    })?;
+
+    Ok(())
 }
 
 /// Query GitHub for the latest Lovely release tag (e.g., "0.8.0").
@@ -474,69 +602,6 @@ async fn download_version_dll(target_path: &PathBuf) -> Result<(), AppError> {
             "version.dll not found in downloaded zip".to_string(),
         ));
     }
-
-    Ok(())
-}
-
-#[cfg(target_os = "linux")]
-async fn download_love_appimage(target_path: &Path) -> Result<(), AppError> {
-    let client = reqwest::Client::builder()
-        .user_agent("balatro-mod-manager")
-        .build()
-        .map_err(|e| AppError::Network(e.to_string()))?;
-
-    let resp = client
-        .get("https://api.github.com/repos/love2d/love/releases/latest")
-        .send()
-        .await
-        .map_err(|e| AppError::Network(format!("Failed to query LOVE releases: {e}")))?;
-    let release: Value = resp
-        .json()
-        .await
-        .map_err(|e| AppError::Network(format!("Failed to parse LOVE release data: {e}")))?;
-
-    let assets = release
-        .get("assets")
-        .and_then(|v| v.as_array())
-        .ok_or_else(|| {
-            AppError::InvalidState("LOVE release data missing assets array".to_string())
-        })?;
-
-    let appimage_url = assets
-        .iter()
-        .filter_map(|asset| {
-            let name = asset.get("name")?.as_str()?;
-            let url = asset.get("browser_download_url")?.as_str()?;
-            if name.contains("AppImage") && name.contains("x86_64") {
-                Some(url.to_string())
-            } else {
-                None
-            }
-        })
-        .next()
-        .ok_or_else(|| {
-            AppError::InvalidState("Could not find LOVE AppImage in latest release".to_string())
-        })?;
-
-    let bytes = client
-        .get(appimage_url)
-        .send()
-        .await
-        .map_err(|e| AppError::Network(format!("Failed to download LOVE AppImage: {e}")))?
-        .bytes()
-        .await
-        .map_err(|e| AppError::Network(format!("Failed to read LOVE AppImage bytes: {e}")))?;
-
-    fs::write(target_path, &bytes).map_err(|e| AppError::FileWrite {
-        path: target_path.to_path_buf(),
-        source: e.to_string(),
-    })?;
-
-    let perms = std::fs::Permissions::from_mode(0o755);
-    std::fs::set_permissions(target_path, perms).map_err(|e| AppError::FileWrite {
-        path: target_path.to_path_buf(),
-        source: e.to_string(),
-    })?;
 
     Ok(())
 }
