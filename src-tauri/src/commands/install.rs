@@ -128,13 +128,11 @@ fn strip_python_env(cmd: &mut Command) {
 #[cfg(target_os = "linux")]
 fn add_steam_app_env(cmd: &mut Command, steam_running: bool) {
     // Some Steam integrations (e.g., luasteam) exit early when the app ID is missing.
-    cmd.env("STEAM_COMPAT_APP_ID", STEAM_APP_ID);
+    if steam_running {
+        cmd.env("STEAM_COMPAT_APP_ID", STEAM_APP_ID);
+    }
     cmd.env("SteamAppId", STEAM_APP_ID);
     cmd.env("SteamGameId", STEAM_APP_ID);
-    // Overlay variables can trigger steamclient init; only set when Steam is actually running.
-    if steam_running {
-        cmd.env("SteamOverlayGameId", STEAM_APP_ID);
-    }
 }
 
 #[cfg(target_os = "linux")]
@@ -306,33 +304,35 @@ pub async fn launch_balatro(state: tauri::State<'_, AppState>) -> Result<(), Str
         })
     });
 
-    // Try Proton directly if available to avoid relying on Steam env propagation.
-    if let Some(proton) = find_proton_runner(steamapps_dir) {
-        let mut proton_cmd = Command::new(proton);
-        proton_cmd.arg("run");
-        proton_cmd.arg(path.join("Balatro.exe"));
-        if !lovely_console_enabled {
-            proton_cmd.arg("--disable-console");
-            proton_cmd.env("LOVELY_DISABLE_CONSOLE", "1");
-            proton_cmd.env("LOVELY_NO_CONSOLE", "1");
-            proton_cmd.env("LOVELY_CONSOLE", "0");
-        }
-        proton_cmd
-            .env("WINEDLLOVERRIDES", DLL_OVERRIDE)
-            .current_dir(&path);
-        add_steam_app_env(&mut proton_cmd, steam_running);
-        if let Some(compat) = compat_data_dir.as_ref() {
-            proton_cmd.env("STEAM_COMPAT_DATA_PATH", compat);
-        }
-        // Let Proton know where Steam is installed (one level above steamapps)
-        // Let Proton know where Steam is installed (one level above steamapps)
-        if let Some(steam_root) = steamapps_dir.parent() {
-            proton_cmd.env("STEAM_COMPAT_CLIENT_INSTALL_PATH", steam_root);
-        }
-        proton_cmd.env("PROTON_LOG", PROTON_LOG);
-        strip_python_env(&mut proton_cmd);
-        if proton_cmd.spawn().is_ok() {
-            return Ok(());
+    // Try Proton directly if Steam is already running; otherwise defer to Steam client below.
+    if steam_running {
+        if let Some(proton) = find_proton_runner(steamapps_dir) {
+            let mut proton_cmd = Command::new(proton);
+            proton_cmd.arg("run");
+            proton_cmd.arg(path.join("Balatro.exe"));
+            if !lovely_console_enabled {
+                proton_cmd.arg("--disable-console");
+                proton_cmd.env("LOVELY_DISABLE_CONSOLE", "1");
+                proton_cmd.env("LOVELY_NO_CONSOLE", "1");
+                proton_cmd.env("LOVELY_CONSOLE", "0");
+            }
+            proton_cmd
+                .env("WINEDLLOVERRIDES", DLL_OVERRIDE)
+                .current_dir(&path);
+            add_steam_app_env(&mut proton_cmd, steam_running);
+            if let Some(compat) = compat_data_dir.as_ref() {
+                proton_cmd.env("STEAM_COMPAT_DATA_PATH", compat);
+            }
+            // Let Proton know where Steam is installed (one level above steamapps)
+            // Let Proton know where Steam is installed (one level above steamapps)
+            if let Some(steam_root) = steamapps_dir.parent() {
+                proton_cmd.env("STEAM_COMPAT_CLIENT_INSTALL_PATH", steam_root);
+            }
+            proton_cmd.env("PROTON_LOG", PROTON_LOG);
+            strip_python_env(&mut proton_cmd);
+            if proton_cmd.spawn().is_ok() {
+                return Ok(());
+            }
         }
     }
 
