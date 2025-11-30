@@ -154,11 +154,36 @@ pub async fn ensure_love_appimage() -> Result<PathBuf, AppError> {
 
 #[cfg(target_os = "linux")]
 pub async fn ensure_lovely_so_exists(game_path: &Path) -> Result<PathBuf, AppError> {
-    let so_path = game_path.join("liblovely.so");
-    if !so_path.exists() {
-        download_lovely_linux(&so_path).await?;
+    let config_dir = dirs::config_dir()
+        .ok_or_else(|| AppError::DirNotFound(PathBuf::from("config directory")))?;
+    let bins_dir = config_dir.join("Balatro/bins");
+    fs::create_dir_all(&bins_dir).map_err(|e| AppError::DirCreate {
+        path: bins_dir.clone(),
+        source: e.to_string(),
+    })?;
+
+    let cached_so = bins_dir.join("liblovely.so");
+    if !cached_so.exists() {
+        download_lovely_linux(&cached_so).await?;
     }
-    Ok(so_path)
+
+    let target_so = game_path.join("liblovely.so");
+    if let Err(e) = fs::copy(&cached_so, &target_so) {
+        return Err(AppError::FileCopy {
+            source: cached_so.display().to_string(),
+            dest: target_so.display().to_string(),
+            source_error: e.to_string(),
+        });
+    }
+
+    // Ensure it is executable for preload
+    let perms = std::fs::Permissions::from_mode(0o755);
+    std::fs::set_permissions(&target_so, perms).map_err(|e| AppError::FileWrite {
+        path: target_so.clone(),
+        source: e.to_string(),
+    })?;
+
+    Ok(target_so)
 }
 
 /// Query GitHub for the latest Lovely release tag (e.g., "0.8.0").

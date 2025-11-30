@@ -291,7 +291,7 @@ pub async fn launch_balatro(state: tauri::State<'_, AppState>) -> Result<(), Str
             love_cmd.env("LOVELY_CONSOLE", "0");
         }
         strip_python_env(&mut love_cmd);
-        strip_wrapper_env(&mut love_cmd);
+        // Avoid stripping LD_LIBRARY_PATH/APPIMAGE for the AppImage itself.
         love_cmd.spawn()
     } else {
         let mut love_cmd = Command::new(&love_bin_path);
