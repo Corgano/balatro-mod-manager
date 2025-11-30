@@ -287,6 +287,16 @@ pub async fn launch_balatro(state: tauri::State<'_, AppState>) -> Result<(), Str
         return Err("LOVE is not installed or could not be downloaded automatically.".to_string());
     }
 
+    info!(
+        "Launching Balatro via LOVE: bin={}, liblovely={}, lib_dir={}",
+        love_bin_path.display(),
+        lovely_so.display(),
+        love_lib_path
+            .as_ref()
+            .map(|p| p.display().to_string())
+            .unwrap_or_else(|| "<none>".to_string())
+    );
+
     // Ensure Balatro.exe is available as a .love zip for LOVE to load cleanly.
     let balatro_love = path.join("Balatro.love");
     let balatro_exe = path.join("Balatro.exe");

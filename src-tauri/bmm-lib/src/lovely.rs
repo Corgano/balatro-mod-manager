@@ -189,7 +189,17 @@ pub async fn ensure_love_binary() -> Result<(PathBuf, Option<PathBuf>), AppError
         .and_then(|p| p.parent())
         .map(|p| p.join("lib"))
         .filter(|p| p.is_dir());
-    Ok((bin, lib_dir))
+    // Create convenience symlink: ~/.config/Balatro/bins/love/bin/love -> extracted love
+    let convenient_bin = target_dir.join("bin/love");
+    if let Some(parent) = convenient_bin.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+    if convenient_bin.exists() {
+        let _ = fs::remove_file(&convenient_bin);
+    }
+    let _ = std::os::unix::fs::symlink(&bin, &convenient_bin);
+
+    Ok((convenient_bin, lib_dir))
 }
 
 #[cfg(target_os = "linux")]
