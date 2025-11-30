@@ -1,4 +1,6 @@
 use crate::errors::AppError;
+#[cfg(target_os = "linux")]
+use serde_json::Value;
 #[cfg(any(target_os = "windows", target_os = "linux"))]
 use std::fs::File;
 #[cfg(target_os = "linux")]
@@ -127,6 +129,27 @@ pub async fn ensure_lovely_exists() -> Result<PathBuf, AppError> {
             "Lovely injection is not supported on this platform.".into(),
         ))
     }
+}
+
+#[cfg(target_os = "linux")]
+pub async fn ensure_love_appimage() -> Result<PathBuf, AppError> {
+    let config_dir = dirs::config_dir()
+        .ok_or_else(|| AppError::DirNotFound(PathBuf::from("config directory")))?;
+    let bins_dir = config_dir.join("Balatro/bins");
+    fs::create_dir_all(&bins_dir).map_err(|e| AppError::DirCreate {
+        path: bins_dir.clone(),
+        source: e.to_string(),
+    })?;
+    let target_path = bins_dir.join("love.AppImage");
+    if target_path.exists() {
+        // Refresh permissions in case they were lost.
+        let perms = std::fs::Permissions::from_mode(0o755);
+        let _ = std::fs::set_permissions(&target_path, perms);
+        return Ok(target_path);
+    }
+
+    download_love_appimage(&target_path).await?;
+    Ok(target_path)
 }
 
 #[cfg(target_os = "linux")]
@@ -426,6 +449,69 @@ async fn download_version_dll(target_path: &PathBuf) -> Result<(), AppError> {
             "version.dll not found in downloaded zip".to_string(),
         ));
     }
+
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+async fn download_love_appimage(target_path: &Path) -> Result<(), AppError> {
+    let client = reqwest::Client::builder()
+        .user_agent("balatro-mod-manager")
+        .build()
+        .map_err(|e| AppError::Network(e.to_string()))?;
+
+    let resp = client
+        .get("https://api.github.com/repos/love2d/love/releases/latest")
+        .send()
+        .await
+        .map_err(|e| AppError::Network(format!("Failed to query LOVE releases: {e}")))?;
+    let release: Value = resp
+        .json()
+        .await
+        .map_err(|e| AppError::Network(format!("Failed to parse LOVE release data: {e}")))?;
+
+    let assets = release
+        .get("assets")
+        .and_then(|v| v.as_array())
+        .ok_or_else(|| {
+            AppError::InvalidState("LOVE release data missing assets array".to_string())
+        })?;
+
+    let appimage_url = assets
+        .iter()
+        .filter_map(|asset| {
+            let name = asset.get("name")?.as_str()?;
+            let url = asset.get("browser_download_url")?.as_str()?;
+            if name.contains("AppImage") && name.contains("x86_64") {
+                Some(url.to_string())
+            } else {
+                None
+            }
+        })
+        .next()
+        .ok_or_else(|| {
+            AppError::InvalidState("Could not find LOVE AppImage in latest release".to_string())
+        })?;
+
+    let bytes = client
+        .get(appimage_url)
+        .send()
+        .await
+        .map_err(|e| AppError::Network(format!("Failed to download LOVE AppImage: {e}")))?
+        .bytes()
+        .await
+        .map_err(|e| AppError::Network(format!("Failed to read LOVE AppImage bytes: {e}")))?;
+
+    fs::write(target_path, &bytes).map_err(|e| AppError::FileWrite {
+        path: target_path.to_path_buf(),
+        source: e.to_string(),
+    })?;
+
+    let perms = std::fs::Permissions::from_mode(0o755);
+    std::fs::set_permissions(target_path, perms).map_err(|e| AppError::FileWrite {
+        path: target_path.to_path_buf(),
+        source: e.to_string(),
+    })?;
 
     Ok(())
 }

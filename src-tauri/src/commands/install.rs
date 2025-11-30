@@ -16,7 +16,7 @@ use bmm_lib::errors::AppError;
 #[cfg(target_os = "macos")]
 use bmm_lib::lovely;
 #[cfg(target_os = "linux")]
-use bmm_lib::lovely::ensure_lovely_so_exists;
+use bmm_lib::lovely::{ensure_love_appimage, ensure_lovely_so_exists};
 use bmm_lib::smods_installer::{ModInstaller, ModType};
 use bmm_lib::{cache, database::InstalledMod};
 
@@ -243,13 +243,38 @@ pub async fn launch_balatro(state: tauri::State<'_, AppState>) -> Result<(), Str
         .map_err(|e| format!("Failed to ensure liblovely.so: {e}"))?;
 
     // Native LOVE launch (no Steam/Proton)
-    let love_bin = env::var("BMM_LOVE_BIN").unwrap_or_else(|_| "love".to_string());
+    let love_bin_env = env::var("BMM_LOVE_BIN").ok();
+    let mut love_bin_path =
+        PathBuf::from(love_bin_env.clone().unwrap_or_else(|| "love".to_string()));
+    let mut love_available = Command::new(&love_bin_path)
+        .arg("--version")
+        .output()
+        .is_ok();
+
+    if !love_available {
+        // Auto-download the LOVE AppImage if not present on the system.
+        match ensure_love_appimage().await {
+            Ok(appimage) => {
+                love_bin_path = appimage;
+                love_available = true;
+            }
+            Err(e) => {
+                return Err(format!(
+                    "LOVE is not installed and auto-download failed: {e}. Install love (e.g. sudo apt install love) or set BMM_LOVE_BIN."
+                ));
+            }
+        }
+    }
+
+    if !love_available {
+        return Err("LOVE is not installed or could not be downloaded automatically.".to_string());
+    }
     let mut love_cmd = Command::new("sh");
     let love_run = format!(
         "cd '{}' && LD_PRELOAD='{}' {} 'Balatro.exe'",
         path.display(),
         lovely_so.display(),
-        love_bin
+        love_bin_path.display()
     );
     love_cmd.arg("-c").arg(love_run);
     if !lovely_console_enabled {
