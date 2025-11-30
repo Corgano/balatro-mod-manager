@@ -6,7 +6,7 @@ use std::env;
 use std::fs;
 #[cfg(target_os = "linux")]
 use std::os::unix::fs::symlink;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
 use std::process::Command;
 
@@ -16,12 +16,9 @@ use bmm_lib::errors::AppError;
 #[cfg(target_os = "macos")]
 use bmm_lib::lovely;
 #[cfg(target_os = "linux")]
-use bmm_lib::lovely::{ensure_lovely_so_exists, ensure_version_dll_exists};
+use bmm_lib::lovely::ensure_lovely_so_exists;
 use bmm_lib::smods_installer::{ModInstaller, ModType};
 use bmm_lib::{cache, database::InstalledMod};
-
-#[cfg(target_os = "linux")]
-const STEAM_APP_ID: &str = "2379780";
 
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 fn get_installation_and_console(
@@ -120,25 +117,15 @@ fn strip_wrapper_env(cmd: &mut Command) {
 }
 
 #[cfg(target_os = "linux")]
-fn compat_data_dir_from_game(game_dir: &Path) -> Option<PathBuf> {
-    let steamapps_dir = game_dir.parent()?.parent()?;
-    let compat = steamapps_dir.join("compatdata/2379780");
-    if compat.exists() {
-        Some(compat)
-    } else {
-        None
-    }
-}
-
-#[cfg(target_os = "linux")]
-fn ensure_mod_dir_link(prefix: &Path) -> Result<(), String> {
+fn ensure_native_mod_dir_link() -> Result<(), String> {
     let Some(host_config) = dirs::config_dir() else {
         return Ok(());
     };
     let host_mods = host_config.join("Balatro").join("Mods");
-    let prefix_mods = prefix.join("drive_c/users/steamuser/AppData/Roaming/Balatro/Mods");
+    let love_mods = dirs::data_dir()
+        .unwrap_or_else(|| PathBuf::from("/tmp"))
+        .join("love/Mods");
 
-    // Ensure host mods dir exists
     if let Err(e) = fs::create_dir_all(&host_mods) {
         warn!(
             "Failed to create host mods dir {}: {}",
@@ -147,40 +134,41 @@ fn ensure_mod_dir_link(prefix: &Path) -> Result<(), String> {
         );
     }
 
-    if prefix_mods.exists() {
-        if prefix_mods.is_symlink() {
+    if love_mods.exists() {
+        if love_mods.is_symlink() {
             return Ok(());
         }
         warn!(
-            "Proton mods path already exists and is not a symlink: {}",
-            prefix_mods.display()
+            "LOVE mods path already exists and is not a symlink: {}",
+            love_mods.display()
         );
         return Ok(());
     }
 
-    if let Some(parent) = prefix_mods.parent() {
+    if let Some(parent) = love_mods.parent() {
         if let Err(e) = fs::create_dir_all(parent) {
             return Err(format!(
-                "Failed to create Proton mods parent {}: {}",
+                "Failed to create LOVE mods parent {}: {}",
                 parent.display(),
                 e
             ));
         }
     }
 
-    symlink(&host_mods, &prefix_mods).map_err(|e| {
+    symlink(&host_mods, &love_mods).map_err(|e| {
         format!(
-            "Failed to link Proton mods dir {} -> {}: {}",
-            prefix_mods.display(),
+            "Failed to link LOVE mods dir {} -> {}: {}",
+            love_mods.display(),
             host_mods.display(),
             e
         )
     })?;
     info!(
-        "Linked Proton mods dir to host: {} -> {}",
-        prefix_mods.display(),
+        "Linked LOVE mods dir to host: {} -> {}",
+        love_mods.display(),
         host_mods.display()
     );
+
     Ok(())
 }
 
@@ -242,130 +230,40 @@ pub async fn launch_balatro(state: tauri::State<'_, AppState>) -> Result<(), Str
         db.is_lovely_console_enabled().map_err(|e| e.to_string())?
     };
 
+    // Validate Balatro path
     let _balatro = bmm_lib::balamod::Balatro::from_custom_path(path.clone())
         .ok_or_else(|| "Stored Balatro path is no longer valid".to_string())?;
 
-    // Ensure Lovely's version.dll is present before launching
-    ensure_version_dll_exists(&path)
+    // Ensure host mods map to LOVE's native mods dir
+    ensure_native_mod_dir_link()?;
+
+    // Ensure Lovely's liblovely.so is present for native LOVE injection
+    let lovely_so = ensure_lovely_so_exists(&path)
         .await
-        .map_err(|e| format!("Failed to ensure version.dll: {e}"))?;
+        .map_err(|e| format!("Failed to ensure liblovely.so: {e}"))?;
 
-    // Keep mods in the Proton prefix pointed at the host-managed mod directory
-    let compat_data_dir = compat_data_dir_from_game(&path);
-    let proton_prefix = compat_data_dir.as_ref().map(|d| d.join("pfx"));
-    if let Some(prefix) = proton_prefix.as_ref() {
-        ensure_mod_dir_link(prefix)?;
-    }
-
-    // Try to derive Proton/Wine prefix alongside the Steam library to keep environment aligned.
-    // Typical path: ~/.local/share/Steam/steamapps/common/Balatro
-    let steamapps_dir = path
-        .parent()
-        .and_then(Path::parent)
-        .ok_or_else(|| "Could not determine Steam library root from Balatro path".to_string())?;
-
-    // Compat data root (no trailing pfx); Proton expects STEAM_COMPAT_DATA_PATH here.
-    let compat_data_dir = compat_data_dir.or_else(|| {
-        let candidate = steamapps_dir.join(format!("compatdata/{STEAM_APP_ID}"));
-        if candidate.exists() {
-            Some(candidate)
-        } else {
-            None
-        }
-    });
-    // 1) Prefer the registered Steam URL handler; this should always hit the native client.
-    let mut xdg = Command::new("xdg-open");
-    xdg.arg(format!("steam://rungameid/{STEAM_APP_ID}"));
-    strip_python_env(&mut xdg);
-    strip_wrapper_env(&mut xdg);
-    if xdg.spawn().is_ok() {
-        return Ok(());
-    }
-
-    // 2) Fallback: direct steam binary with Lovely/Proton env.
-    let mut steam_cmd = Command::new("steam");
-    steam_cmd
-        .args(["-applaunch", STEAM_APP_ID])
-        .env("WINEDLLOVERRIDES", "version=n,b")
-        .env("STEAM_COMPAT_APP_ID", STEAM_APP_ID)
-        .env("SteamAppId", STEAM_APP_ID)
-        .env("SteamGameId", STEAM_APP_ID)
-        .env("SteamOverlayGameId", STEAM_APP_ID)
-        .env("PROTON_LOG", "0");
-    if !lovely_console_enabled {
-        steam_cmd.env("LOVELY_DISABLE_CONSOLE", "1");
-        steam_cmd.env("LOVELY_NO_CONSOLE", "1");
-        steam_cmd.env("LOVELY_CONSOLE", "0");
-    }
-    if let Some(compat) = compat_data_dir.as_ref() {
-        steam_cmd.env("STEAM_COMPAT_DATA_PATH", compat);
-    }
-    if let Some(steam_root) = steamapps_dir.parent() {
-        steam_cmd.env("STEAM_COMPAT_CLIENT_INSTALL_PATH", steam_root);
-    }
-    strip_python_env(&mut steam_cmd);
-    strip_wrapper_env(&mut steam_cmd);
-    if steam_cmd.spawn().is_ok() {
-        return Ok(());
-    }
-
-    // 3) Fallback: Flatpak Steam with Lovely/Proton env.
-    let mut flatpak_cmd = Command::new("flatpak");
-    flatpak_cmd
-        .args([
-            "run",
-            "com.valvesoftware.Steam",
-            "steam://rungameid/2379780",
-        ])
-        .env("WINEDLLOVERRIDES", "version=n,b")
-        .env("STEAM_COMPAT_APP_ID", STEAM_APP_ID)
-        .env("SteamAppId", STEAM_APP_ID)
-        .env("SteamGameId", STEAM_APP_ID)
-        .env("SteamOverlayGameId", STEAM_APP_ID)
-        .env("PROTON_LOG", "0");
-    if !lovely_console_enabled {
-        flatpak_cmd.env("LOVELY_DISABLE_CONSOLE", "1");
-        flatpak_cmd.env("LOVELY_NO_CONSOLE", "1");
-        flatpak_cmd.env("LOVELY_CONSOLE", "0");
-    }
-    if let Some(compat) = compat_data_dir.as_ref() {
-        flatpak_cmd.env("STEAM_COMPAT_DATA_PATH", compat);
-    }
-    if let Some(steam_root) = steamapps_dir.parent() {
-        flatpak_cmd.env("STEAM_COMPAT_CLIENT_INSTALL_PATH", steam_root);
-    }
-    strip_python_env(&mut flatpak_cmd);
-    strip_wrapper_env(&mut flatpak_cmd);
-    if flatpak_cmd.spawn().is_ok() {
-        return Ok(());
-    }
-
-    // 4) Fallback: native LOVE with liblovely.so (no Steam/Proton). Requires love binary present.
+    // Native LOVE launch (no Steam/Proton)
     let love_bin = env::var("BMM_LOVE_BIN").unwrap_or_else(|_| "love".to_string());
-    if Command::new(&love_bin).arg("--version").output().is_ok() {
-        if let Ok(lovely_so) = ensure_lovely_so_exists(&path).await {
-            let mut love_cmd = Command::new("sh");
-            let love_run = format!(
-                "cd '{}' && LD_PRELOAD='{}' {} 'Balatro.exe'",
-                path.display(),
-                lovely_so.display(),
-                love_bin
-            );
-            love_cmd.arg("-c").arg(love_run);
-            if !lovely_console_enabled {
-                love_cmd.env("LOVELY_DISABLE_CONSOLE", "1");
-                love_cmd.env("LOVELY_NO_CONSOLE", "1");
-                love_cmd.env("LOVELY_CONSOLE", "0");
-            }
-            strip_python_env(&mut love_cmd);
-            strip_wrapper_env(&mut love_cmd);
-            if love_cmd.spawn().is_ok() {
-                return Ok(());
-            }
-        }
+    let mut love_cmd = Command::new("sh");
+    let love_run = format!(
+        "cd '{}' && LD_PRELOAD='{}' {} 'Balatro.exe'",
+        path.display(),
+        lovely_so.display(),
+        love_bin
+    );
+    love_cmd.arg("-c").arg(love_run);
+    if !lovely_console_enabled {
+        love_cmd.env("LOVELY_DISABLE_CONSOLE", "1");
+        love_cmd.env("LOVELY_NO_CONSOLE", "1");
+        love_cmd.env("LOVELY_CONSOLE", "0");
     }
+    strip_python_env(&mut love_cmd);
+    strip_wrapper_env(&mut love_cmd);
+    love_cmd
+        .spawn()
+        .map_err(|e| format!("Failed to launch Balatro via native LOVE: {e}"))?;
 
-    Err("Failed to launch Balatro: Steam must be installed (native or Flatpak) and available on PATH.".to_string())
+    Ok(())
 }
 
 #[tauri::command]
