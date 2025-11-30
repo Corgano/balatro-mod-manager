@@ -105,7 +105,6 @@ fn strip_wrapper_env(cmd: &mut Command) {
     // Drop common AppImage/Snap wrappers that can poison Steam/Proton env.
     cmd.env_remove("APPIMAGE");
     cmd.env_remove("APPDIR");
-    cmd.env_remove("LD_LIBRARY_PATH");
     cmd.env_remove("SNAP");
     cmd.env_remove("SNAP_NAME");
     cmd.env_remove("SNAP_REVISION");
