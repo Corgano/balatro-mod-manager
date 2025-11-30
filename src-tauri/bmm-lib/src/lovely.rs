@@ -1,9 +1,11 @@
 use crate::errors::AppError;
 #[cfg(any(target_os = "windows", target_os = "linux"))]
 use std::fs::File;
+#[cfg(target_os = "linux")]
+use std::fs::{self};
 #[cfg(target_os = "macos")]
 use std::fs::{self, File};
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
@@ -125,6 +127,15 @@ pub async fn ensure_lovely_exists() -> Result<PathBuf, AppError> {
             "Lovely injection is not supported on this platform.".into(),
         ))
     }
+}
+
+#[cfg(target_os = "linux")]
+pub async fn ensure_lovely_so_exists(game_path: &Path) -> Result<PathBuf, AppError> {
+    let so_path = game_path.join("liblovely.so");
+    if !so_path.exists() {
+        download_lovely_linux(&so_path).await?;
+    }
+    Ok(so_path)
 }
 
 /// Query GitHub for the latest Lovely release tag (e.g., "0.8.0").
@@ -275,6 +286,59 @@ async fn download_and_install_lovely(target_path: &Path) -> Result<(), AppError>
 
     // Set permissions
     std::fs::set_permissions(target_path, std::fs::Permissions::from_mode(0o755))?;
+
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+async fn download_lovely_linux(target_path: &Path) -> Result<(), AppError> {
+    let temp_dir = tempfile::tempdir().map_err(|e| AppError::FileWrite {
+        path: PathBuf::from("temp directory"),
+        source: e.to_string(),
+    })?;
+    let temp_tar_gz = temp_dir.path().join("lovely.tar.gz");
+
+    let url =
+        "https://github.com/ethangreen-dev/lovely-injector/releases/latest/download/lovely-x86_64-unknown-linux-gnu.tar.gz";
+    log::info!("Downloading lovely injector for Linux from {}", url);
+
+    let resp = reqwest::get(url)
+        .await
+        .map_err(|e| AppError::Network(format!("Failed to download lovely injector: {e}")))?;
+    let bytes = resp
+        .bytes()
+        .await
+        .map_err(|e| AppError::Network(format!("Failed to read download response: {e}")))?;
+
+    fs::write(&temp_tar_gz, &bytes).map_err(|e| AppError::FileWrite {
+        path: temp_tar_gz.clone(),
+        source: e.to_string(),
+    })?;
+
+    let tar_gz = File::open(&temp_tar_gz).map_err(|e| AppError::FileRead {
+        path: temp_tar_gz.clone(),
+        source: e.to_string(),
+    })?;
+    let tar = flate2::read::GzDecoder::new(tar_gz);
+    let mut archive = tar::Archive::new(tar);
+    archive.unpack(&temp_dir).map_err(|e| AppError::FileRead {
+        path: temp_tar_gz.clone(),
+        source: e.to_string(),
+    })?;
+
+    let extracted_lib = temp_dir.path().join("liblovely.so");
+    fs::copy(&extracted_lib, target_path).map_err(|e| AppError::FileCopy {
+        source: extracted_lib.display().to_string(),
+        dest: target_path.display().to_string(),
+        source_error: e.to_string(),
+    })?;
+
+    // Ensure it is executable for preload
+    let perms = std::fs::Permissions::from_mode(0o755);
+    std::fs::set_permissions(target_path, perms).map_err(|e| AppError::FileWrite {
+        path: target_path.to_path_buf(),
+        source: e.to_string(),
+    })?;
 
     Ok(())
 }

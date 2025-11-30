@@ -1,6 +1,8 @@
 #[cfg(target_os = "linux")]
 use log::{info, warn};
 #[cfg(target_os = "linux")]
+use std::env;
+#[cfg(target_os = "linux")]
 use std::fs;
 #[cfg(target_os = "linux")]
 use std::os::unix::fs::symlink;
@@ -14,7 +16,7 @@ use bmm_lib::errors::AppError;
 #[cfg(target_os = "macos")]
 use bmm_lib::lovely;
 #[cfg(target_os = "linux")]
-use bmm_lib::lovely::ensure_version_dll_exists;
+use bmm_lib::lovely::{ensure_lovely_so_exists, ensure_version_dll_exists};
 use bmm_lib::smods_installer::{ModInstaller, ModType};
 use bmm_lib::{cache, database::InstalledMod};
 
@@ -336,6 +338,31 @@ pub async fn launch_balatro(state: tauri::State<'_, AppState>) -> Result<(), Str
     strip_wrapper_env(&mut flatpak_cmd);
     if flatpak_cmd.spawn().is_ok() {
         return Ok(());
+    }
+
+    // 4) Fallback: native LOVE with liblovely.so (no Steam/Proton). Requires love binary present.
+    let love_bin = env::var("BMM_LOVE_BIN").unwrap_or_else(|_| "love".to_string());
+    if Command::new(&love_bin).arg("--version").output().is_ok() {
+        if let Ok(lovely_so) = ensure_lovely_so_exists(&path).await {
+            let mut love_cmd = Command::new("sh");
+            let love_run = format!(
+                "cd '{}' && LD_PRELOAD='{}' {} 'Balatro.exe'",
+                path.display(),
+                lovely_so.display(),
+                love_bin
+            );
+            love_cmd.arg("-c").arg(love_run);
+            if !lovely_console_enabled {
+                love_cmd.env("LOVELY_DISABLE_CONSOLE", "1");
+                love_cmd.env("LOVELY_NO_CONSOLE", "1");
+                love_cmd.env("LOVELY_CONSOLE", "0");
+            }
+            strip_python_env(&mut love_cmd);
+            strip_wrapper_env(&mut love_cmd);
+            if love_cmd.spawn().is_ok() {
+                return Ok(());
+            }
+        }
     }
 
     Err("Failed to launch Balatro: Steam must be installed (native or Flatpak) and available on PATH.".to_string())
