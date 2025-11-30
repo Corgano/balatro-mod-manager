@@ -286,7 +286,6 @@ pub async fn launch_balatro(state: tauri::State<'_, AppState>) -> Result<(), Str
     }
     // Avoid inheriting wrapped library paths that can crash the AppImage.
     love_cmd.env_remove("LD_LIBRARY_PATH");
-    love_cmd.env_remove("LD_PRELOAD");
     if !lovely_console_enabled {
         love_cmd.env("LOVELY_DISABLE_CONSOLE", "1");
         love_cmd.env("LOVELY_NO_CONSOLE", "1");
