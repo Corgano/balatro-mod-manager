@@ -93,28 +93,6 @@ pub async fn launch_balatro(state: tauri::State<'_, AppState>) -> Result<(), Str
 }
 
 #[cfg(target_os = "linux")]
-fn find_proton_runner(steamapps_dir: &Path) -> Option<PathBuf> {
-    let common_dir = steamapps_dir.join("common");
-    let entries = fs::read_dir(common_dir).ok()?;
-    // Look for Proton installations, sort them in reverse order (preferring Experimental/newer versions),
-    let mut candidates: Vec<PathBuf> = entries
-        .filter_map(|e| e.ok())
-        .map(|e| e.path())
-        .filter(|p| {
-            p.file_name()
-                .and_then(|n| n.to_str())
-                .map(|n| n.starts_with("Proton"))
-                .unwrap_or(false)
-        })
-        .map(|p| p.join("proton"))
-        .filter(|p| p.is_file())
-        .collect();
-    // Prefer a stable order (reverse sort so Experimental/newer version likely first)
-    candidates.sort_by(|a, b| b.cmp(a));
-    candidates.into_iter().next()
-}
-
-#[cfg(target_os = "linux")]
 fn strip_python_env(cmd: &mut Command) {
     // AppImage/runtime wrappers can leak Python env vars that break Proton's python runner.
     cmd.env_remove("PYTHONHOME");
@@ -124,7 +102,7 @@ fn strip_python_env(cmd: &mut Command) {
 }
 
 #[cfg(target_os = "linux")]
-fn add_steam_app_env(cmd: &mut Command, _steam_running: bool) {
+fn add_steam_app_env(cmd: &mut Command) {
     // Some Steam integrations (e.g., luasteam) exit early when the app ID is missing.
     cmd.env("STEAM_COMPAT_APP_ID", STEAM_APP_ID);
     cmd.env("SteamAppId", STEAM_APP_ID);
@@ -234,7 +212,6 @@ pub async fn launch_balatro(_state: tauri::State<'_, AppState>) -> Result<(), St
 pub async fn launch_balatro(state: tauri::State<'_, AppState>) -> Result<(), String> {
     const DLL_OVERRIDE: &str = "version=n,b";
     const PROTON_LOG: &str = "0"; // set to "1" for verbose Proton logs if debugging
-    let steam_running = bmm_lib::finder::is_steam_running();
 
     // Prefer stored install path; fall back to discovered path if missing
     let install_path = {
@@ -289,45 +266,13 @@ pub async fn launch_balatro(state: tauri::State<'_, AppState>) -> Result<(), Str
             None
         }
     });
-    // Try Proton directly if Steam is already running; otherwise defer to Steam client below.
-    if steam_running {
-        if let Some(proton) = find_proton_runner(steamapps_dir) {
-            let mut proton_cmd = Command::new(proton);
-            proton_cmd.arg("run");
-            proton_cmd.arg(path.join("Balatro.exe"));
-            if !lovely_console_enabled {
-                proton_cmd.arg("--disable-console");
-                proton_cmd.env("LOVELY_DISABLE_CONSOLE", "1");
-                proton_cmd.env("LOVELY_NO_CONSOLE", "1");
-                proton_cmd.env("LOVELY_CONSOLE", "0");
-            }
-            proton_cmd
-                .env("WINEDLLOVERRIDES", DLL_OVERRIDE)
-                .current_dir(&path);
-            add_steam_app_env(&mut proton_cmd, steam_running);
-            if let Some(compat) = compat_data_dir.as_ref() {
-                proton_cmd.env("STEAM_COMPAT_DATA_PATH", compat);
-            }
-            // Let Proton know where Steam is installed (one level above steamapps)
-            // Let Proton know where Steam is installed (one level above steamapps)
-            if let Some(steam_root) = steamapps_dir.parent() {
-                proton_cmd.env("STEAM_COMPAT_CLIENT_INSTALL_PATH", steam_root);
-            }
-            proton_cmd.env("PROTON_LOG", PROTON_LOG);
-            strip_python_env(&mut proton_cmd);
-            if proton_cmd.spawn().is_ok() {
-                return Ok(());
-            }
-        }
-    }
-
     // Best-effort: ask Steam to launch the game via Proton. This preserves Steam runtime setup.
     let mut steam_cmd = Command::new("steam");
     steam_cmd
         .args(["-applaunch", STEAM_APP_ID])
         .env("WINEDLLOVERRIDES", DLL_OVERRIDE)
         .env("PROTON_LOG", PROTON_LOG);
-    add_steam_app_env(&mut steam_cmd, steam_running);
+    add_steam_app_env(&mut steam_cmd);
     if !lovely_console_enabled {
         steam_cmd.env("LOVELY_DISABLE_CONSOLE", "1");
         steam_cmd.env("LOVELY_NO_CONSOLE", "1");
@@ -350,7 +295,7 @@ pub async fn launch_balatro(state: tauri::State<'_, AppState>) -> Result<(), Str
         .args(["run", "com.valvesoftware.Steam", "-applaunch", STEAM_APP_ID])
         .env("WINEDLLOVERRIDES", DLL_OVERRIDE)
         .env("PROTON_LOG", PROTON_LOG);
-    add_steam_app_env(&mut flatpak_cmd, steam_running);
+    add_steam_app_env(&mut flatpak_cmd);
     if !lovely_console_enabled {
         flatpak_cmd.env("LOVELY_DISABLE_CONSOLE", "1");
         flatpak_cmd.env("LOVELY_NO_CONSOLE", "1");
