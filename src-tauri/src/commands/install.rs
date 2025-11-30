@@ -275,18 +275,18 @@ pub async fn launch_balatro(state: tauri::State<'_, AppState>) -> Result<(), Str
         .map(|ext| ext.eq_ignore_ascii_case("AppImage"))
         .unwrap_or(false);
 
-    let mut love_cmd = Command::new("sh");
-    let love_run = format!(
-        "cd '{}' && LD_PRELOAD='{}' {} 'Balatro.exe'",
-        path.display(),
-        lovely_so.display(),
-        love_bin_path.display()
-    );
-    love_cmd.arg("-c").arg(love_run);
+    let mut love_cmd = Command::new(&love_bin_path);
+    love_cmd
+        .current_dir(&path)
+        .arg("Balatro.exe")
+        .env("LD_PRELOAD", &lovely_so);
     if using_appimage {
         // Allow running without FUSE support (common on SteamOS/Deck).
         love_cmd.env("APPIMAGE_EXTRACT_AND_RUN", "1");
     }
+    // Avoid inheriting wrapped library paths that can crash the AppImage.
+    love_cmd.env_remove("LD_LIBRARY_PATH");
+    love_cmd.env_remove("LD_PRELOAD");
     if !lovely_console_enabled {
         love_cmd.env("LOVELY_DISABLE_CONSOLE", "1");
         love_cmd.env("LOVELY_NO_CONSOLE", "1");
