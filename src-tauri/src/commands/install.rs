@@ -102,6 +102,22 @@ fn strip_python_env(cmd: &mut Command) {
 }
 
 #[cfg(target_os = "linux")]
+fn strip_wrapper_env(cmd: &mut Command) {
+    // Drop common AppImage/Snap wrappers that can poison Steam/Proton env.
+    cmd.env_remove("APPIMAGE");
+    cmd.env_remove("APPDIR");
+    cmd.env_remove("LD_LIBRARY_PATH");
+    cmd.env_remove("LD_PRELOAD");
+    cmd.env_remove("SNAP");
+    cmd.env_remove("SNAP_NAME");
+    cmd.env_remove("SNAP_REVISION");
+    cmd.env_remove("SNAP_INSTANCE_NAME");
+    cmd.env_remove("SNAP_INSTANCE_KEY");
+    cmd.env_remove("SNAP_ARCH");
+    cmd.env_remove("SNAP_LIBRARY_PATH");
+}
+
+#[cfg(target_os = "linux")]
 fn compat_data_dir_from_game(game_dir: &Path) -> Option<PathBuf> {
     let steamapps_dir = game_dir.parent()?.parent()?;
     let compat = steamapps_dir.join("compatdata/2379780");
@@ -259,6 +275,7 @@ pub async fn launch_balatro(state: tauri::State<'_, AppState>) -> Result<(), Str
     let mut xdg = Command::new("xdg-open");
     xdg.arg(format!("steam://rungameid/{STEAM_APP_ID}"));
     strip_python_env(&mut xdg);
+    strip_wrapper_env(&mut xdg);
     if xdg.spawn().is_ok() {
         return Ok(());
     }
@@ -285,6 +302,7 @@ pub async fn launch_balatro(state: tauri::State<'_, AppState>) -> Result<(), Str
         steam_cmd.env("STEAM_COMPAT_CLIENT_INSTALL_PATH", steam_root);
     }
     strip_python_env(&mut steam_cmd);
+    strip_wrapper_env(&mut steam_cmd);
     if steam_cmd.spawn().is_ok() {
         return Ok(());
     }
@@ -315,6 +333,7 @@ pub async fn launch_balatro(state: tauri::State<'_, AppState>) -> Result<(), Str
         flatpak_cmd.env("STEAM_COMPAT_CLIENT_INSTALL_PATH", steam_root);
     }
     strip_python_env(&mut flatpak_cmd);
+    strip_wrapper_env(&mut flatpak_cmd);
     if flatpak_cmd.spawn().is_ok() {
         return Ok(());
     }
