@@ -269,6 +269,12 @@ pub async fn launch_balatro(state: tauri::State<'_, AppState>) -> Result<(), Str
     if !love_available {
         return Err("LOVE is not installed or could not be downloaded automatically.".to_string());
     }
+    let using_appimage = love_bin_path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|ext| ext.eq_ignore_ascii_case("AppImage"))
+        .unwrap_or(false);
+
     let mut love_cmd = Command::new("sh");
     let love_run = format!(
         "cd '{}' && LD_PRELOAD='{}' {} 'Balatro.exe'",
@@ -277,6 +283,10 @@ pub async fn launch_balatro(state: tauri::State<'_, AppState>) -> Result<(), Str
         love_bin_path.display()
     );
     love_cmd.arg("-c").arg(love_run);
+    if using_appimage {
+        // Allow running without FUSE support (common on SteamOS/Deck).
+        love_cmd.env("APPIMAGE_EXTRACT_AND_RUN", "1");
+    }
     if !lovely_console_enabled {
         love_cmd.env("LOVELY_DISABLE_CONSOLE", "1");
         love_cmd.env("LOVELY_NO_CONSOLE", "1");
