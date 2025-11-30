@@ -1,8 +1,6 @@
 #[cfg(target_os = "linux")]
 use log::{info, warn};
 #[cfg(target_os = "linux")]
-use std::env;
-#[cfg(target_os = "linux")]
 use std::fs;
 #[cfg(target_os = "linux")]
 use std::os::unix::fs::symlink;
@@ -46,7 +44,7 @@ fn get_installation_and_console(
 pub async fn launch_balatro(state: tauri::State<'_, AppState>) -> Result<(), String> {
     let (path_str, lovely_console_enabled) = get_installation_and_console(&state)?;
     let path = PathBuf::from(path_str);
-    let balatro = bmm_lib::balamod::Balatro::from_custom_path(path.clone())
+    let _balatro = bmm_lib::balamod::Balatro::from_custom_path(path.clone())
         .ok_or_else(|| "Stored Balatro path is no longer valid".to_string())?;
 
     let lovely_path = map_error(lovely::ensure_lovely_exists().await)?;
@@ -260,7 +258,7 @@ pub async fn launch_balatro(state: tauri::State<'_, AppState>) -> Result<(), Str
         db.is_lovely_console_enabled().map_err(|e| e.to_string())?
     };
 
-    let balatro = bmm_lib::balamod::Balatro::from_custom_path(path.clone())
+    let _balatro = bmm_lib::balamod::Balatro::from_custom_path(path.clone())
         .ok_or_else(|| "Stored Balatro path is no longer valid".to_string())?;
 
     // Ensure Lovely's version.dll is present before launching
@@ -291,17 +289,6 @@ pub async fn launch_balatro(state: tauri::State<'_, AppState>) -> Result<(), Str
             None
         }
     });
-    let proton_prefix = compat_data_dir.as_ref().and_then(|d| {
-        d.join("pfx").canonicalize().ok().or_else(|| {
-            let p = d.join("pfx");
-            if p.exists() {
-                Some(p)
-            } else {
-                None
-            }
-        })
-    });
-
     // Try Proton directly if Steam is already running; otherwise defer to Steam client below.
     if steam_running {
         if let Some(proton) = find_proton_runner(steamapps_dir) {
@@ -357,41 +344,30 @@ pub async fn launch_balatro(state: tauri::State<'_, AppState>) -> Result<(), Str
         return Ok(());
     }
 
-    // Fallback: launch directly with wine (or overridden binary) from the install directory.
-    // Version.dll-based Lovely injection works when running the EXE directly.
-    let wine_bin = env::var("BMM_WINE_BIN").unwrap_or_else(|_| "wine".to_string());
-    let exe = balatro.get_exe_path();
-    let mut wine = Command::new("sh");
-    let cmd = format!(
-        "cd '{}' && {} '{}'{}",
-        path.display(),
-        wine_bin,
-        exe.display(),
-        if lovely_console_enabled {
-            ""
-        } else {
-            " --disable-console"
-        }
-    );
-    wine.arg("-c")
-        .arg(&cmd)
+    // Fallback: Flatpak Steam (common on Ubuntu). Avoid using plain wine to prevent steamclient assertions.
+    let mut flatpak_cmd = Command::new("flatpak");
+    flatpak_cmd
+        .args(["run", "com.valvesoftware.Steam", "-applaunch", STEAM_APP_ID])
         .env("WINEDLLOVERRIDES", DLL_OVERRIDE)
-        .env("PROTON_LOG", PROTON_LOG)
-        .current_dir(&path);
-    add_steam_app_env(&mut wine, steam_running);
+        .env("PROTON_LOG", PROTON_LOG);
+    add_steam_app_env(&mut flatpak_cmd, steam_running);
     if !lovely_console_enabled {
-        wine.env("LOVELY_DISABLE_CONSOLE", "1");
-        wine.env("LOVELY_NO_CONSOLE", "1");
-        wine.env("LOVELY_CONSOLE", "0");
+        flatpak_cmd.env("LOVELY_DISABLE_CONSOLE", "1");
+        flatpak_cmd.env("LOVELY_NO_CONSOLE", "1");
+        flatpak_cmd.env("LOVELY_CONSOLE", "0");
     }
-    if let Some(prefix) = proton_prefix.as_ref() {
-        wine.env("WINEPREFIX", prefix);
+    if let Some(compat) = compat_data_dir.as_ref() {
+        flatpak_cmd.env("STEAM_COMPAT_DATA_PATH", compat);
     }
-    strip_python_env(&mut wine);
-    wine.spawn()
-        .map_err(|e| format!("Failed to launch Balatro via steam and wine fallback: {e}"))?;
+    if let Some(steam_root) = steamapps_dir.parent() {
+        flatpak_cmd.env("STEAM_COMPAT_CLIENT_INSTALL_PATH", steam_root);
+    }
+    strip_python_env(&mut flatpak_cmd);
+    if flatpak_cmd.spawn().is_ok() {
+        return Ok(());
+    }
 
-    Ok(())
+    Err("Failed to launch Balatro: Steam must be installed (native or Flatpak) and available on PATH. Start Steam, then try again.".to_string())
 }
 
 #[tauri::command]
