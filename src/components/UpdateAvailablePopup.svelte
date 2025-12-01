@@ -1,7 +1,7 @@
 <script lang="ts">
   import { fade, scale } from "svelte/transition";
   import { onMount, onDestroy } from "svelte";
-  import { open } from "@tauri-apps/plugin-shell";
+  import { openExternal } from "$lib/opener";
 
   export let visible: boolean = false;
   export let currentVersion: string = "";
@@ -11,7 +11,7 @@
 
   async function handleDownload() {
     try {
-      await open("https://balatro-mod-manager.dasguney.com/download");
+      await openExternal("https://balatro-mod-manager.dasguney.com/download");
     } catch (e) {
       console.error("Failed to open download page:", e);
     }

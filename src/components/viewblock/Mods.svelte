@@ -32,7 +32,6 @@
 	import { modsStore, installationStatus } from "../../stores/modStore";
 	import { catalogLoading } from "../../stores/modStore";
 	import type { InstalledMod } from "../../stores/modStore";
-	import { open } from "@tauri-apps/plugin-shell";
 	import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 // Lazy-load SearchView only when Search tab is active
 import type { Component } from "svelte";
@@ -52,6 +51,7 @@ import {
 	import { updateAvailableStore } from "../../stores/modStore";
 	import { modEnabledStore } from "../../stores/modStore";
 	import { browser } from "$app/environment";
+import { openExternal } from "$lib/opener";
 
 	const loadingDots = writable(0);
 	let installedMods: InstalledMod[] = [];
@@ -1418,17 +1418,17 @@ const { handleDependencyCheck, mod } = $props<{
 
 // Safely register global click handler with cleanup to avoid duplicates
 let globalClickHandler: ((e: MouseEvent) => void) | null = null;
-onMount(() => {
-  globalClickHandler = (e: MouseEvent) => {
-    const target = e.target as HTMLElement;
-    const anchor = target?.closest?.("a");
-    if (anchor && anchor instanceof HTMLAnchorElement && anchor.href.startsWith("https://")) {
-      e.preventDefault();
-      open(anchor.href);
-    }
-  };
-  document.addEventListener("click", globalClickHandler);
-});
+	onMount(() => {
+	  globalClickHandler = (e: MouseEvent) => {
+	    const target = e.target as HTMLElement;
+	    const anchor = target?.closest?.("a");
+	    if (anchor && anchor instanceof HTMLAnchorElement && anchor.href.startsWith("https://")) {
+	      e.preventDefault();
+	      openExternal(anchor.href);
+	    }
+	  };
+	  document.addEventListener("click", globalClickHandler);
+	});
 onDestroy(() => {
   if (globalClickHandler) {
     document.removeEventListener("click", globalClickHandler);

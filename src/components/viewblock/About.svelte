@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { BookOpen, Coffee } from "lucide-svelte";
-	import { open } from "@tauri-apps/plugin-shell";
 	import { Confetti } from "svelte-confetti";
+	import { openExternal } from "$lib/opener";
 
 	let showConfetti = false;
 
@@ -13,7 +13,7 @@
 		showConfetti = true;
 		setTimeout(() => (showConfetti = false), 2000);
 		try {
-			await open("https://ko-fi.com/skyline69/goal?g=0");
+			await openExternal("https://ko-fi.com/skyline69/goal?g=0");
 		} catch (error) {
 			console.error("Failed to open URL:", error);
 		}
@@ -49,7 +49,7 @@
 				<button
 					class="wiki-button"
 					on:click={() =>
-						open("https://balatromods.miraheze.org/wiki/Main_Page")}
+						openExternal("https://balatromods.miraheze.org/wiki/Main_Page")}
 				>
 					<BookOpen size={20} />
 					<span>Visit Wiki</span>

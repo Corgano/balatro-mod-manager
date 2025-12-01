@@ -6,12 +6,11 @@
 		Trash2,
 		User,
 		ArrowLeft,
-		Github,
-		X,
-		RefreshCw,
+	Github,
+	X,
+	RefreshCw,
 	} from "lucide-svelte";
 	import { onMount, onDestroy } from "svelte";
-	import { open } from "@tauri-apps/plugin-shell";
 	import {
 		currentModView,
 		installationStatus,
@@ -37,6 +36,7 @@ import { addMessage } from "$lib/stores";
 	} from "../../stores/modCache";
     import LazyImage from "../common/LazyImage.svelte";
 import { isLinuxPlatform } from "$lib/platform";
+import { openExternal } from "$lib/opener";
 
 	// Store to track which mods have updates available
 	// const updateAvailable = writable<Record<string, boolean>>({});
@@ -546,7 +546,7 @@ let descLoading = $state(false);
 				currentModView.set(targetMod);
 			}
 		} else if (anchor.href.startsWith("http")) {
-			open(anchor.href).catch((e) =>
+			openExternal(anchor.href).catch((e) =>
 				console.error("Failed to open link:", e),
 			);
 		}
@@ -1020,17 +1020,17 @@ let descLoading = $state(false);
 					<!-- <span><Clock size={16} /> {mod.lastUpdated}</span> -->
 					<span><User size={16} /> {mod.publisher}</span>
 				</div>
-				{#if mod.repo}
-					<button onclick={() => open(mod.repo)} class="repo-button">
-						<Github size={16} /> Repository
-					</button>
-				{/if}
+					{#if mod.repo}
+						<button onclick={() => openExternal(mod.repo)} class="repo-button">
+							<Github size={16} /> Repository
+						</button>
+					{/if}
 
-				{#if mod.categories && mod.categories.length > 0}
-					<div class="categories-section">
-						<h3>Categories</h3>
-						<div class="category-tags">
-							{#each mod.categories as category}
+					{#if mod.categories && mod.categories.length > 0}
+						<div class="categories-section">
+							<h3>Categories</h3>
+							<div class="category-tags">
+								{#each mod.categories as category}
 								<button
 									class="category-tag"
 									onclick={() => {
