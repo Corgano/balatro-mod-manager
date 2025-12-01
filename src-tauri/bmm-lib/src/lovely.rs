@@ -282,15 +282,13 @@ async fn download_love_appimage_and_extract(target_dir: &Path) -> Result<(), App
         ));
     }
 
-    for entry in fs::read_dir(&squash_root).map_err(|e| AppError::DirCreate {
+    for ent in (fs::read_dir(&squash_root).map_err(|e| AppError::DirCreate {
         path: squash_root.clone(),
         source: e.to_string(),
-    })? {
-        if let Ok(ent) = entry {
-            let src = ent.path();
-            let dst = target_dir.join(ent.file_name());
-            let _ = fs::rename(&src, &dst);
-        }
+    })?).flatten() {
+        let src = ent.path();
+        let dst = target_dir.join(ent.file_name());
+        let _ = fs::rename(&src, &dst);
     }
 
     let _ = fs::remove_dir_all(&squash_root);

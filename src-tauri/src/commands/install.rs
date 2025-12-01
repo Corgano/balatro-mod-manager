@@ -8,6 +8,8 @@ use std::fs;
 use std::fs::remove_file;
 #[cfg(target_os = "linux")]
 use std::os::unix::fs::symlink;
+#[cfg(target_os = "linux")]
+use std::os::unix::process::CommandExt;
 use std::path::PathBuf;
 #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
 use std::process::Command;
@@ -315,6 +317,12 @@ pub async fn launch_balatro(state: tauri::State<'_, AppState>) -> Result<(), Str
         love_cmd.env("LOVELY_DISABLE_CONSOLE", "1");
         love_cmd.env("LOVELY_NO_CONSOLE", "1");
         love_cmd.env("LOVELY_CONSOLE", "0");
+    }
+    unsafe {
+        love_cmd.pre_exec(|| {
+            libc::setsid();
+            Ok(())
+        });
     }
     strip_python_env(&mut love_cmd);
     strip_wrapper_env(&mut love_cmd);
