@@ -156,23 +156,29 @@ pub async fn ensure_love_binary() -> Result<(PathBuf, Option<PathBuf>), AppError
     download_love_tarball(&target_dir).await?;
     // Try to locate the love binary inside the extracted tree.
     let mut found = None;
-    let mut stack = vec![target_dir.clone()];
-    while let Some(dir) = stack.pop() {
-        if let Ok(entries) = fs::read_dir(&dir) {
-            for entry in entries.flatten() {
-                let path = entry.path();
-                if path.is_dir() {
-                    stack.push(path);
-                } else if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-                    if name == "love" && path.is_file() {
-                        found = Some(path);
-                        break;
+    // Common extracted structure: love-11.5-linux-x86_64/bin/love
+    let candidate = target_dir.join("love-11.5-linux-x86_64/bin/love");
+    if candidate.is_file() {
+        found = Some(candidate);
+    } else {
+        let mut stack = vec![target_dir.clone()];
+        while let Some(dir) = stack.pop() {
+            if let Ok(entries) = fs::read_dir(&dir) {
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    if path.is_dir() {
+                        stack.push(path);
+                    } else if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                        if name == "love" && path.is_file() {
+                            found = Some(path);
+                            break;
+                        }
                     }
                 }
             }
-        }
-        if found.is_some() {
-            break;
+            if found.is_some() {
+                break;
+            }
         }
     }
 

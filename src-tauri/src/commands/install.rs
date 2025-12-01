@@ -287,16 +287,6 @@ pub async fn launch_balatro(state: tauri::State<'_, AppState>) -> Result<(), Str
         return Err("LOVE is not installed or could not be downloaded automatically.".to_string());
     }
 
-    info!(
-        "Launching Balatro via LOVE: bin={}, liblovely={}, lib_dir={}",
-        love_bin_path.display(),
-        lovely_so.display(),
-        love_lib_path
-            .as_ref()
-            .map(|p| p.display().to_string())
-            .unwrap_or_else(|| "<none>".to_string())
-    );
-
     // Ensure Balatro.exe is available as a .love zip for LOVE to load cleanly.
     let balatro_love = path.join("Balatro.love");
     let balatro_exe = path.join("Balatro.exe");
@@ -309,7 +299,7 @@ pub async fn launch_balatro(state: tauri::State<'_, AppState>) -> Result<(), Str
         .current_dir(&path)
         .arg("Balatro.love")
         .env("LD_PRELOAD", &lovely_so);
-    if let Some(lib_dir) = love_lib_path {
+    if let Some(ref lib_dir) = love_lib_path {
         love_cmd.env("LD_LIBRARY_PATH", lib_dir);
     }
     if !lovely_console_enabled {
@@ -319,6 +309,16 @@ pub async fn launch_balatro(state: tauri::State<'_, AppState>) -> Result<(), Str
     }
     strip_python_env(&mut love_cmd);
     strip_wrapper_env(&mut love_cmd);
+    info!(
+        "Launching Balatro via LOVE\n  love_bin={}\n  love_lib={}\n  preload={}\n  cwd={}",
+        love_bin_path.display(),
+        love_lib_path
+            .as_ref()
+            .map(|p| p.display().to_string())
+            .unwrap_or_else(|| "<none>".to_string()),
+        lovely_so.display(),
+        path.display()
+    );
     let spawn_result = love_cmd.spawn();
 
     spawn_result.map_err(|e| format!("Failed to launch Balatro via native LOVE: {e}"))?;
