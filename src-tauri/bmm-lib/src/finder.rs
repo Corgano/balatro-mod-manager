@@ -306,6 +306,11 @@ pub fn is_balatro_running() -> bool {
         use libproc::proc_pid::name;
         use libproc::processes;
 
+        let balatro_roots: Vec<_> = crate::finder::get_balatro_paths()
+            .into_iter()
+            .map(|p| p.canonicalize().unwrap_or(p))
+            .collect();
+
         let current_pid = std::process::id() as i32;
         let self_exe_path = std::env::current_exe().ok();
         let self_exe_name = self_exe_path
@@ -352,8 +357,16 @@ pub fn is_balatro_running() -> bool {
                         continue;
                     }
 
-                    if name_lower.contains("balatro") || name_lower == "love" {
+                    if name_lower.contains("balatro") {
                         return true;
+                    }
+                    if name_lower == "love" {
+                        if let Ok(cwd) = std::fs::read_link(format!("/proc/{pid}/cwd")) {
+                            let cwd = cwd.canonicalize().unwrap_or(cwd);
+                            if balatro_roots.contains(&cwd) {
+                                return true;
+                            }
+                        }
                     }
                 }
             }

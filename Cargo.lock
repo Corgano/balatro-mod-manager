@@ -364,6 +364,7 @@ dependencies = [
  "flate2",
  "futures",
  "httpdate",
+ "libc",
  "log",
  "mockito",
  "open",

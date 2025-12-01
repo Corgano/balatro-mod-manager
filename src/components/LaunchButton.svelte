@@ -3,8 +3,20 @@
 	import LaunchAlertBox from "./LaunchAlertBox.svelte";
 import { addMessage } from "../lib/stores";
 import { lovelyPopupStore } from "../stores/modStore";
+import { onMount } from "svelte";
 
 let showAlert = false;
+let isLinux = false;
+
+onMount(async () => {
+	try {
+		const { platform } = await import("@tauri-apps/plugin-os");
+		const p = await platform();
+		isLinux = p.toLowerCase() === "linux";
+	} catch (_) {
+		isLinux = false;
+	}
+});
 
 async function doLaunch() {
   const path = await invoke("get_balatro_path");
@@ -16,34 +28,35 @@ async function doLaunch() {
       addMessage("Balatro is already running", "error");
       return;
     }
-    let is_steam_running: boolean = await invoke("check_steam_running");
-    if (!is_steam_running) {
-      showAlert = true;
-      return;
-    } else {
-      await invoke("launch_balatro");
-      return;
+    if (!isLinux) {
+      let is_steam_running: boolean = await invoke("check_steam_running");
+      if (!is_steam_running) {
+        showAlert = true;
+        return;
+      }
     }
-  } else {
-    await invoke("launch_balatro");
-    return;
   }
+
+  await invoke("launch_balatro");
+  return;
 }
 
 	const handleLaunch = async () => {
 		// Warn if Lovely injector is missing before any launch
-  try {
-    const present = await invoke<boolean>("is_lovely_installed");
-    if (!present) {
-      lovelyPopupStore.set({
-        visible: true,
-        source: 'launch',
-        onLaunchAnyway: async () => { await doLaunch(); },
-      });
-      return;
+  if (!isLinux) {
+    try {
+      const present = await invoke<boolean>("is_lovely_installed");
+      if (!present) {
+        lovelyPopupStore.set({
+          visible: true,
+          source: 'launch',
+          onLaunchAnyway: async () => { await doLaunch(); },
+        });
+        return;
+      }
+    } catch (_) {
+      // ignore detection errors, proceed
     }
-  } catch (_) {
-    // ignore detection errors, proceed
   }
   await doLaunch();
 };
