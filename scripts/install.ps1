@@ -9,6 +9,7 @@ $GREEN = "Green"
 $YELLOW = "Yellow"
 $BLUE = "Blue"
 $CYAN = "Cyan"
+$LOG_PATH = Join-Path $env:TEMP "bmm-install-$(Get-Date -Format 'yyyyMMddHHmmss').log"
 
 # Clean up function to ensure we always clean temp directory
 function Cleanup {
@@ -16,6 +17,28 @@ function Cleanup {
     if ($Directory -and (Test-Path $Directory)) {
         Write-Host "Cleaning up build directory..." -ForegroundColor $YELLOW
         Remove-Item $Directory -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+
+# Run a command, stream output, and persist it to a log file for debugging
+function Invoke-Step {
+    param(
+        [string]$Message,
+        [scriptblock]$Command
+    )
+
+    Write-Host $Message -ForegroundColor $YELLOW
+    Add-Content -Path $LOG_PATH -Value "`n[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] $Message"
+
+    & $Command 2>&1 | Tee-Object -FilePath $LOG_PATH -Append
+    $exitCode = $LASTEXITCODE
+
+    if ($exitCode -ne 0) {
+        $logTail = ""
+        if (Test-Path $LOG_PATH) {
+            $logTail = (Get-Content $LOG_PATH -Tail 40) -join "`n"
+        }
+        throw "$Message failed with exit code $exitCode.`n$logTail`nFull log: $LOG_PATH"
     }
 }
 
@@ -41,6 +64,7 @@ Write-Host @"
 Write-Host "Balatro Mod Manager Builder" -ForegroundColor $GREEN
 Write-Host "----------------------------------------"
 Write-Host "Build started at $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
+Write-Host "Build log: $LOG_PATH" -ForegroundColor $YELLOW
 
 # OS check
 if ($env:OS -ne "Windows_NT") {
@@ -71,7 +95,7 @@ try {
     $tauriVersionOutput = (cargo tauri --version) -join ""
     if ($tauriVersionOutput -match '(\d+\.\d+\.\d+)') {
         $TAURI_VERSION = $matches[1]
-        $REQUIRED_VERSION = "2.3.1"
+        $REQUIRED_VERSION = "2.9.0"
         
         # Convert versions to System.Version for proper comparison
         $currentVersion = [System.Version]$TAURI_VERSION
@@ -91,21 +115,38 @@ try {
     exit 1
 }
 
+# Check bun version (older Bun builds can break Vite)
+try {
+    $bunVersionOutput = (bun --version) -join ""
+    if ($bunVersionOutput -match '(\d+\.\d+\.\d+)') {
+        $BUN_VERSION = $matches[1]
+        $REQUIRED_BUN = "1.0.0"
+        $currentBun = [System.Version]$BUN_VERSION
+        $requiredBun = [System.Version]$REQUIRED_BUN
+
+        if ($currentBun -lt $requiredBun) {
+            Write-Host "Error: bun version $BUN_VERSION is too old. Please update to at least version $REQUIRED_BUN" -ForegroundColor $RED
+            exit 1
+        }
+        Write-Host "bun version $BUN_VERSION ✓" -ForegroundColor $GREEN
+    } else {
+        Write-Host "Warning: Unable to determine bun version. Continuing anyway." -ForegroundColor $YELLOW
+    }
+} catch {
+    Write-Host "Error checking bun version: $_" -ForegroundColor $RED
+    exit 1
+}
+
 # Create temp directory
 $BUILD_DIR = Join-Path $env:TEMP "balatro-mod-manager-$(Get-Date -Format 'yyyyMMddHHmmss')"
 Write-Host "Creating temporary build directory: ${BUILD_DIR}" -ForegroundColor $YELLOW
 New-Item -Path $BUILD_DIR -ItemType Directory -Force | Out-Null
 
 # Clone repository
-Write-Host "1. Cloning repository..." -ForegroundColor $YELLOW
 try {
-    # Use -q (quiet) to suppress git's progress output to stderr, which can cause
-    # issues with PowerShell's error handling when combined with $ErrorActionPreference = "Stop"
+    # Shallow clone keeps downloads small and avoids long paths in temp dirs
     $clonePath = Join-Path $BUILD_DIR "balatro-mod-manager"
-    git clone -q https://github.com/skyline69/balatro-mod-manager.git $clonePath
-    if ($LASTEXITCODE -ne 0) {
-        throw "Git clone failed with exit code $LASTEXITCODE"
-    }
+    Invoke-Step "1. Cloning repository..." { git clone --depth 1 https://github.com/skyline69/balatro-mod-manager.git $clonePath }
 } catch {
     Write-Host "Error during repository cloning: $_" -ForegroundColor $RED
     Cleanup -Directory $BUILD_DIR
@@ -119,32 +160,15 @@ try {
     
     Set-Location (Join-Path $BUILD_DIR "balatro-mod-manager")
     
-    Write-Host "2. Installing bun dependencies..." -ForegroundColor $YELLOW
-    $bunOutput = bun install 2>&1
-    if ($LASTEXITCODE -ne 0) { 
-        throw "Bun install failed: $bunOutput"
-    }
+    Invoke-Step "2. Installing bun dependencies..." { bun install }
+    Invoke-Step "3. Building frontend..." { bun run build }
 
-    Write-Host "3. Building frontend..." -ForegroundColor $YELLOW
-    $frontendOutput = bun run build 2>&1
-    if ($LASTEXITCODE -ne 0) { 
-        throw "Frontend build failed: $frontendOutput" 
-    }
-
-    Write-Host "4. Building Rust backend..." -ForegroundColor $YELLOW
-    Set-Location src-tauri
+    Push-Location src-tauri
     $env:SKIP_BUILD_SCRIPT = "1"
-    $cargoOutput = cargo build --release 2>&1
-    if ($LASTEXITCODE -ne 0) { 
-        throw "Cargo build failed: $cargoOutput" 
-    }
+    Invoke-Step "4. Building Rust backend..." { cargo build --release }
+    Pop-Location
 
-    Set-Location ..
-    Write-Host "5. Creating app bundle..." -ForegroundColor $YELLOW
-    $tauriOutput = cargo tauri build 2>&1
-    if ($LASTEXITCODE -ne 0) { 
-        throw "Tauri build failed: $tauriOutput" 
-    }
+    Invoke-Step "5. Creating app bundle..." { cargo tauri build }
     
     # Return to original location
     Set-Location $originalLocation
@@ -166,4 +190,3 @@ finally {
         Set-Location $originalLocation
     }
 }
-
