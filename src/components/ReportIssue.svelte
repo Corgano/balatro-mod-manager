@@ -3,6 +3,7 @@
   import { Bug } from "lucide-svelte";
   import { addMessage } from "$lib/stores";
   import { invoke } from "@tauri-apps/api/core";
+  import DiscordFab from "./DiscordFab.svelte";
 
   let { visible = $bindable(false) }: { visible?: boolean } = $props();
 
@@ -81,10 +82,13 @@
 
 <svelte:window on:keydown={handleWindowKeydown} />
 
-<!-- Floating report button -->
-<button class="report-fab" aria-label="Report an issue" onclick={() => (visible = true)}>
-  <Bug size={16} />
-</button>
+<!-- Floating report button + Discord link -->
+<div class="fab-group">
+  <button class="report-fab" aria-label="Report an issue" onclick={() => (visible = true)}>
+    <Bug size={16} />
+  </button>
+  <DiscordFab />
+</div>
 
 {#if visible}
   <div class="modal-background" transition:fade={{ duration: 100 }}>
@@ -145,24 +149,29 @@
 {/if}
 
 <style>
-  .report-fab {
+  .fab-group {
     position: fixed;
     left: 1rem;
-    bottom: 1rem; /* align with version text height */
+    bottom: 1rem;
+    display: flex;
+    gap: 0.6rem;
+    z-index: 1500;
+  }
+
+  .report-fab {
     width: 36px;
     height: 36px;
     border-radius: 50%;
-    background: #56a786;
-    outline: 2px solid #74cca8;
     border: none;
-    color: #fff;
     display: flex;
     align-items: center;
     justify-content: center;
     cursor: pointer;
     box-shadow: 0 2px 8px rgba(0,0,0,0.35);
-    z-index: 1500; /* Keep launcher above mod overlays */
     transition: transform 0.15s ease, opacity 0.15s ease;
+    background: #56a786;
+    outline: 2px solid #74cca8;
+    color: #fff;
   }
   .report-fab:hover { transform: scale(1.05); }
   .report-fab:active { transform: scale(0.98); }
