@@ -32,6 +32,7 @@ import { isLinuxPlatform } from "$lib/platform";
 	let currentSection = $state("mods");
 	let showSecurityPopup = $state(false); // Control visibility of the security popup
 	let isLinux = $state(false);
+	let hasMounted = $state(false);
 
 	$effect(() => {
 		// Cleanup
@@ -185,18 +186,8 @@ import { isLinuxPlatform } from "$lib/platform";
 
 	onMount(async () => {
 		isLinux = await isLinuxPlatform();
+		hasMounted = true;
 		handleRefresh();
-
-		// Load shader background lazily when enabled
-		$effect(() => {
-			if ($backgroundEnabled && !ShaderBackgroundComp && !isLinux) {
-				import("../../components/ShaderBackground.svelte")
-					.then((m) => {
-						ShaderBackgroundComp = m.default;
-					})
-					.catch(() => {});
-			}
-		});
 
 		// Check if we need to show the security popup on first launch
 		const isFirstLaunch = await invoke<boolean>(
@@ -249,6 +240,20 @@ import { isLinuxPlatform } from "$lib/platform";
 			} catch (_) {
 				// ignore detection errors
 			}
+		}
+	});
+
+	$effect(() => {
+		if (!hasMounted || isLinux) {
+			return;
+		}
+
+		if ($backgroundEnabled && !ShaderBackgroundComp) {
+			import("../../components/ShaderBackground.svelte")
+				.then((m) => {
+					ShaderBackgroundComp = m.default;
+				})
+				.catch(() => {});
 		}
 	});
 </script>
