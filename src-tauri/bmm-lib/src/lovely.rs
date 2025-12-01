@@ -1,5 +1,4 @@
 use crate::errors::AppError;
-#[cfg(target_os = "linux")]
 #[cfg(any(target_os = "windows", target_os = "linux"))]
 use std::fs::File;
 #[cfg(target_os = "linux")]
@@ -9,6 +8,8 @@ use std::fs::{self, File};
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
+#[cfg(target_os = "linux")]
+use std::process::Command;
 
 #[cfg(any(target_os = "windows", target_os = "linux"))]
 pub async fn ensure_version_dll_exists(game_path: &Path) -> Result<PathBuf, AppError> {
@@ -153,59 +154,29 @@ pub async fn ensure_love_binary() -> Result<(PathBuf, Option<PathBuf>), AppError
         return Ok((target_bin, lib_dir));
     }
 
-    download_love_tarball(&target_dir).await?;
-    // Try to locate the love binary inside the extracted tree.
-    let mut found = None;
-    // Common extracted structure: love-11.5-linux-x86_64/bin/love
-    let candidate = target_dir.join("love-11.5-linux-x86_64/bin/love");
-    if candidate.is_file() {
-        found = Some(candidate);
-    } else {
-        let mut stack = vec![target_dir.clone()];
-        while let Some(dir) = stack.pop() {
-            if let Ok(entries) = fs::read_dir(&dir) {
-                for entry in entries.flatten() {
-                    let path = entry.path();
-                    if path.is_dir() {
-                        stack.push(path);
-                    } else if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-                        if name == "love" && path.is_file() {
-                            found = Some(path);
-                            break;
-                        }
-                    }
-                }
-            }
-            if found.is_some() {
-                break;
-            }
-        }
+    download_love_appimage_and_extract(&target_dir).await?;
+    // Prefer extracted AppImage binary: love/bin/love
+    let bin = target_dir.join("bin/love");
+    if !bin.exists() {
+        return Err(AppError::InvalidState(
+            "LOVE AppImage extraction did not produce bin/love".to_string(),
+        ));
     }
 
-    let bin = found.ok_or_else(|| {
-        AppError::InvalidState("Failed to locate love binary after download".to_string())
-    })?;
     let perms = std::fs::Permissions::from_mode(0o755);
     std::fs::set_permissions(&bin, perms).map_err(|e| AppError::FileWrite {
         path: bin.clone(),
         source: e.to_string(),
     })?;
-    let lib_dir = bin
-        .parent()
-        .and_then(|p| p.parent())
-        .map(|p| p.join("lib"))
-        .filter(|p| p.is_dir());
-    // Create convenience symlink: ~/.config/Balatro/bins/love/bin/love -> extracted love
-    let convenient_bin = target_dir.join("bin/love");
-    if let Some(parent) = convenient_bin.parent() {
-        let _ = fs::create_dir_all(parent);
-    }
-    if convenient_bin.exists() {
-        let _ = fs::remove_file(&convenient_bin);
-    }
-    let _ = std::os::unix::fs::symlink(&bin, &convenient_bin);
-
-    Ok((convenient_bin, lib_dir))
+    let lib_dir = target_dir.join("lib");
+    Ok((
+        bin,
+        if lib_dir.is_dir() {
+            Some(lib_dir)
+        } else {
+            None
+        },
+    ))
 }
 
 #[cfg(target_os = "linux")]
@@ -243,34 +214,34 @@ pub async fn ensure_lovely_so_exists(game_path: &Path) -> Result<PathBuf, AppErr
 }
 
 #[cfg(target_os = "linux")]
-async fn download_love_tarball(target_dir: &Path) -> Result<(), AppError> {
+async fn download_love_appimage_and_extract(target_dir: &Path) -> Result<(), AppError> {
     // Pin to LOVE 11.5 linux x86_64 tarball (latest as of Balatro/Lovely expectations).
-    let tar_url =
-        "https://github.com/love2d/love/releases/download/11.5/love-11.5-linux-x86_64.tar.gz";
+    let appimage_url =
+        "https://github.com/love2d/love/releases/download/11.5/love-11.5-x86_64.AppImage";
 
-    let bytes = reqwest::get(tar_url)
+    let client = reqwest::Client::builder()
+        .user_agent("balatro-mod-manager")
+        .build()
+        .map_err(|e| AppError::Network(e.to_string()))?;
+
+    let bytes = client
+        .get(appimage_url)
+        .send()
         .await
-        .map_err(|e| AppError::Network(format!("Failed to download LOVE tarball: {e}")))?
+        .map_err(|e| AppError::Network(format!("Failed to download LOVE AppImage: {e}")))?
         .bytes()
         .await
-        .map_err(|e| AppError::Network(format!("Failed to read LOVE tarball bytes: {e}")))?;
+        .map_err(|e| AppError::Network(format!("Failed to read LOVE AppImage bytes: {e}")))?;
 
     let temp_dir = tempfile::tempdir().map_err(|e| AppError::FileWrite {
         path: PathBuf::from("temp directory"),
         source: e.to_string(),
     })?;
-    let temp_tar_gz = temp_dir.path().join("love.tar.gz");
-    fs::write(&temp_tar_gz, &bytes).map_err(|e| AppError::FileWrite {
-        path: temp_tar_gz.clone(),
+    let temp_appimage = temp_dir.path().join("love.AppImage");
+    fs::write(&temp_appimage, &bytes).map_err(|e| AppError::FileWrite {
+        path: temp_appimage.clone(),
         source: e.to_string(),
     })?;
-
-    let tar_gz = File::open(&temp_tar_gz).map_err(|e| AppError::FileRead {
-        path: temp_tar_gz.clone(),
-        source: e.to_string(),
-    })?;
-    let tar = flate2::read::GzDecoder::new(tar_gz);
-    let mut archive = tar::Archive::new(tar);
 
     if target_dir.exists() {
         fs::remove_dir_all(target_dir).map_err(|e| AppError::DirCreate {
@@ -283,10 +254,41 @@ async fn download_love_tarball(target_dir: &Path) -> Result<(), AppError> {
         source: e.to_string(),
     })?;
 
-    archive.unpack(target_dir).map_err(|e| AppError::FileRead {
-        path: temp_tar_gz.clone(),
+    // Extract the AppImage contents into target_dir/squashfs-root then move its contents up.
+    let mut extract = Command::new("sh");
+    extract.arg("-c").arg(format!(
+        "cd '{}' && APPIMAGE_EXTRACT_AND_RUN=1 '{}' --appimage-extract",
+        target_dir.display(),
+        temp_appimage.display()
+    ));
+    let status = extract
+        .status()
+        .map_err(|e| AppError::InvalidState(format!("Failed to extract LOVE AppImage: {e}")))?;
+    if !status.success() {
+        return Err(AppError::InvalidState(format!(
+            "LOVE AppImage extraction failed with status {status}"
+        )));
+    }
+
+    let squash_root = target_dir.join("squashfs-root");
+    if !squash_root.exists() {
+        return Err(AppError::InvalidState(
+            "LOVE AppImage extraction did not produce squashfs-root".to_string(),
+        ));
+    }
+
+    for entry in fs::read_dir(&squash_root).map_err(|e| AppError::DirCreate {
+        path: squash_root.clone(),
         source: e.to_string(),
-    })?;
+    })? {
+        if let Ok(ent) = entry {
+            let src = ent.path();
+            let dst = target_dir.join(ent.file_name());
+            let _ = fs::rename(&src, &dst);
+        }
+    }
+
+    let _ = fs::remove_dir_all(&squash_root);
 
     Ok(())
 }
