@@ -4,8 +4,9 @@
   "description": "Capability for the main window",
   "windows": ["main"],
   "permissions": [
-    "shell:allow-open",
-    "shell:default",
+    "opener:allow-open-path",
+    "opener:allow-reveal-item-in-dir",
+    "opener:default",
     "dialog:default",
     "fs:default",
     "fs:read-app-specific-dirs-recursive",

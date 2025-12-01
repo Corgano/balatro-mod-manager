@@ -63,9 +63,7 @@
     }
   },
   "plugins": {
-    "shell": {
-      "open": true
-    },
+    "opener": {},
     "window": {
       "create": true,
       "close": true,

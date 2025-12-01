@@ -79,44 +79,7 @@ import { browser } from "$app/environment";
 
 	async function openModsFolder() {
 		try {
-			// Get the mods folder path (config_dir/Balatro/Mods)
-			const modsFolderPath: string = await invoke("get_mods_folder");
-
-			// Get the parent directory (config_dir/Balatro) by finding the last path separator
-			const lastSeparatorIndex = Math.max(
-				modsFolderPath.lastIndexOf("/"),
-				modsFolderPath.lastIndexOf("\\"),
-			);
-			if (lastSeparatorIndex === -1) {
-				addMessage(
-					"Failed to determine the parent directory of the repository path.",
-					"error",
-				);
-				return;
-			}
-
-			const parentPath = modsFolderPath.substring(0, lastSeparatorIndex);
-			const separator = modsFolderPath.includes("/") ? "/" : "\\"; // Determine the separator used in the path
-
-			// Construct the mods path
-			const modsPath = `${parentPath}${separator}Mods`;
-
-			// Check if the path exists
-			const pathExists = await invoke("path_exists", { path: modsPath });
-
-			if (!pathExists) {
-				addMessage(
-					"Mods directory not found. It might not have been created yet.",
-					"warning",
-				);
-				addMessage(
-					"Install a mod using the mod manager to create the mods directory.",
-					"info",
-				);
-				return;
-			}
-
-			// Open the directory
+			const modsPath: string = await invoke("get_mods_folder");
 			await invoke("open_directory", { path: modsPath });
 		} catch (error) {
 			addMessage(`Failed to open mods directory: ${error}`, "error");
