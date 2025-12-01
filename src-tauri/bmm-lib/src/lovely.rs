@@ -242,6 +242,12 @@ async fn download_love_appimage_and_extract(target_dir: &Path) -> Result<(), App
         path: temp_appimage.clone(),
         source: e.to_string(),
     })?;
+    // Ensure the AppImage is executable before extraction.
+    let perms = std::fs::Permissions::from_mode(0o755);
+    std::fs::set_permissions(&temp_appimage, perms).map_err(|e| AppError::FileWrite {
+        path: temp_appimage.clone(),
+        source: e.to_string(),
+    })?;
 
     if target_dir.exists() {
         fs::remove_dir_all(target_dir).map_err(|e| AppError::DirCreate {
@@ -255,12 +261,11 @@ async fn download_love_appimage_and_extract(target_dir: &Path) -> Result<(), App
     })?;
 
     // Extract the AppImage contents into target_dir/squashfs-root then move its contents up.
-    let mut extract = Command::new("sh");
-    extract.arg("-c").arg(format!(
-        "cd '{}' && APPIMAGE_EXTRACT_AND_RUN=1 '{}' --appimage-extract",
-        target_dir.display(),
-        temp_appimage.display()
-    ));
+    let mut extract = Command::new(&temp_appimage);
+    extract
+        .arg("--appimage-extract")
+        .env("APPIMAGE_EXTRACT_AND_RUN", "1")
+        .current_dir(target_dir);
     let status = extract
         .status()
         .map_err(|e| AppError::InvalidState(format!("Failed to extract LOVE AppImage: {e}")))?;
