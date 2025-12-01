@@ -155,6 +155,7 @@
     bottom: 1rem;
     display: flex;
     gap: 0.6rem;
+    align-items: center;
     z-index: 1500;
   }
 
