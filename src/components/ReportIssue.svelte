@@ -161,7 +161,7 @@
     justify-content: center;
     cursor: pointer;
     box-shadow: 0 2px 8px rgba(0,0,0,0.35);
-    z-index: 1000;
+    z-index: 1500; /* Keep launcher above mod overlays */
     transition: transform 0.15s ease, opacity 0.15s ease;
   }
   .report-fab:hover { transform: scale(1.05); }
@@ -174,7 +174,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    z-index: 999;
+    z-index: 2000; /* Above mod view overlay */
   }
   .modal {
     background: #2d2d2d;
