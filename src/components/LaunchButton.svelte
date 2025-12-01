@@ -28,34 +28,35 @@ async function doLaunch() {
       addMessage("Balatro is already running", "error");
       return;
     }
-    let is_steam_running: boolean = await invoke("check_steam_running");
-    if (!is_steam_running && !isLinux) {
-      showAlert = true;
-      return;
-    } else {
-      await invoke("launch_balatro");
-      return;
+    if (!isLinux) {
+      let is_steam_running: boolean = await invoke("check_steam_running");
+      if (!is_steam_running) {
+        showAlert = true;
+        return;
+      }
     }
-  } else {
-    await invoke("launch_balatro");
-    return;
   }
+
+  await invoke("launch_balatro");
+  return;
 }
 
 	const handleLaunch = async () => {
 		// Warn if Lovely injector is missing before any launch
-  try {
-    const present = await invoke<boolean>("is_lovely_installed");
-    if (!present) {
-      lovelyPopupStore.set({
-        visible: true,
-        source: 'launch',
-        onLaunchAnyway: async () => { await doLaunch(); },
-      });
-      return;
+  if (!isLinux) {
+    try {
+      const present = await invoke<boolean>("is_lovely_installed");
+      if (!present) {
+        lovelyPopupStore.set({
+          visible: true,
+          source: 'launch',
+          onLaunchAnyway: async () => { await doLaunch(); },
+        });
+        return;
+      }
+    } catch (_) {
+      // ignore detection errors, proceed
     }
-  } catch (_) {
-    // ignore detection errors, proceed
   }
   await doLaunch();
 };

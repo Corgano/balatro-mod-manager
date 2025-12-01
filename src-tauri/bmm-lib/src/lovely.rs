@@ -285,7 +285,9 @@ async fn download_love_appimage_and_extract(target_dir: &Path) -> Result<(), App
     for ent in (fs::read_dir(&squash_root).map_err(|e| AppError::DirCreate {
         path: squash_root.clone(),
         source: e.to_string(),
-    })?).flatten() {
+    })?)
+    .flatten()
+    {
         let src = ent.path();
         let dst = target_dir.join(ent.file_name());
         let _ = fs::rename(&src, &dst);
