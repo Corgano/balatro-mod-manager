@@ -122,10 +122,46 @@ fn ensure_native_mod_dir_link() -> Result<(), String> {
         return Ok(());
     };
     let host_mods = host_config.join("Balatro").join("Mods");
-    let love_mods = dirs::data_dir()
-        .unwrap_or_else(|| PathBuf::from("/tmp"))
-        .join("love/Mods");
 
+    let link_mods = |love_mods: PathBuf| -> Result<(), String> {
+        if love_mods.exists() {
+            if love_mods.is_symlink() {
+                return Ok(());
+            }
+            warn!(
+                "LOVE mods path already exists and is not a symlink: {}",
+                love_mods.display()
+            );
+            return Ok(());
+        }
+
+        if let Some(parent) = love_mods.parent() {
+            if let Err(e) = fs::create_dir_all(parent) {
+                return Err(format!(
+                    "Failed to create LOVE mods parent {}: {}",
+                    parent.display(),
+                    e
+                ));
+            }
+        }
+
+        symlink(&host_mods, &love_mods).map_err(|e| {
+            format!(
+                "Failed to link LOVE mods dir {} -> {}: {}",
+                love_mods.display(),
+                host_mods.display(),
+                e
+            )
+        })?;
+        info!(
+            "Linked LOVE mods dir to host: {} -> {}",
+            love_mods.display(),
+            host_mods.display()
+        );
+        Ok(())
+    };
+
+    // Ensure host mods dir exists
     if let Err(e) = fs::create_dir_all(&host_mods) {
         warn!(
             "Failed to create host mods dir {}: {}",
@@ -134,40 +170,13 @@ fn ensure_native_mod_dir_link() -> Result<(), String> {
         );
     }
 
-    if love_mods.exists() {
-        if love_mods.is_symlink() {
-            return Ok(());
-        }
-        warn!(
-            "LOVE mods path already exists and is not a symlink: {}",
-            love_mods.display()
-        );
-        return Ok(());
+    // Link both data and config locations that LOVE may use
+    if let Some(data_dir) = dirs::data_dir() {
+        let love_mods_data = data_dir.join("love/Mods");
+        let _ = link_mods(love_mods_data);
     }
-
-    if let Some(parent) = love_mods.parent() {
-        if let Err(e) = fs::create_dir_all(parent) {
-            return Err(format!(
-                "Failed to create LOVE mods parent {}: {}",
-                parent.display(),
-                e
-            ));
-        }
-    }
-
-    symlink(&host_mods, &love_mods).map_err(|e| {
-        format!(
-            "Failed to link LOVE mods dir {} -> {}: {}",
-            love_mods.display(),
-            host_mods.display(),
-            e
-        )
-    })?;
-    info!(
-        "Linked LOVE mods dir to host: {} -> {}",
-        love_mods.display(),
-        host_mods.display()
-    );
+    let love_mods_config = host_config.join("love/Mods");
+    let _ = link_mods(love_mods_config);
 
     Ok(())
 }
