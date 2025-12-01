@@ -69,6 +69,20 @@ pub fn run() {
                 }
             }
 
+            // Ensure the Mods directory exists so installs and detection work on fresh setups.
+            if let Some(cfg_dir) = dirs::config_dir() {
+                let mods_dir = cfg_dir.join("Balatro").join("Mods");
+                if let Err(e) = std::fs::create_dir_all(&mods_dir) {
+                    log::warn!(
+                        "Failed to create mods directory at {}: {}",
+                        mods_dir.display(),
+                        e
+                    );
+                }
+            } else {
+                log::warn!("Could not resolve config directory to create Mods folder");
+            }
+
             tauri::async_runtime::spawn(async move {
                 let db = match Database::new() {
                     Ok(db) => db,

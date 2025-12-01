@@ -36,6 +36,7 @@ import { addMessage } from "$lib/stores";
 		forceRefreshCache,
 	} from "../../stores/modCache";
     import LazyImage from "../common/LazyImage.svelte";
+import { isLinuxPlatform } from "$lib/platform";
 
 	// Store to track which mods have updates available
 	// const updateAvailable = writable<Record<string, boolean>>({});
@@ -88,6 +89,7 @@ import { addMessage } from "$lib/stores";
 let renderedDescription = $state("");
 let descLoading = $state(false);
 	let isCheckingForUpdates = $state(false);
+	let isLinux = false;
 
 	// Add a local state variable for tracking enabled status
 	let isEnabled = $state(true);
@@ -355,19 +357,25 @@ let descLoading = $state(false);
 	};
 
 	const installMod = async (mod: Mod, isUpdate = false) => {
+		if (!isLinux) {
+			isLinux = await isLinuxPlatform();
+		}
+
 		// Extract the download functionality into a separate async function
 		const performDownload = async () => {
 			try {
 				loadingStates.update((s) => ({ ...s, [mod.title]: true }));
 
 				// Show a warning if Lovely injector is missing (do not block installation)
-				try {
-					const present = await invoke<boolean>("is_lovely_installed");
-					if (!present) {
-						lovelyPopupStore.set({ visible: true });
+				if (!isLinux) {
+					try {
+						const present = await invoke<boolean>("is_lovely_installed");
+						if (!present) {
+							lovelyPopupStore.set({ visible: true });
+						}
+					} catch (_) {
+						/* ignore */
 					}
-				} catch (_) {
-					/* ignore */
 				}
 
 				// Build dependencies list for the database
@@ -699,6 +707,7 @@ let descLoading = $state(false);
 	}
 
 	onMount(async () => {
+		isLinux = await isLinuxPlatform();
 		window.addEventListener("auxclick", handleAuxClick);
 
 		// Initial load of installed mods

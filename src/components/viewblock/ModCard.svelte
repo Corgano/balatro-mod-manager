@@ -11,8 +11,10 @@
 	import { invoke } from "@tauri-apps/api/core";
 	import { lovelyPopupStore } from "../../stores/modStore";
 	import { forceRefreshCache } from "../../stores/modCache";
-	import LazyImage from "../common/LazyImage.svelte";
+import LazyImage from "../common/LazyImage.svelte";
 	import { cardScale } from "../../stores/ui";
+import { onMount } from "svelte";
+import { isLinuxPlatform } from "$lib/platform";
 
 	interface Props {
 		mod: Mod;
@@ -36,6 +38,7 @@
 	let updateChecked = false;
 	let isEnabled = $state(true); // Default to enabled if not yet checked
 	let enabledChecked = false;
+	let isLinux = false;
 
 	// Load the enabled state whenever the mod changes or when installationStatus changes
 	$effect(() => {
@@ -55,6 +58,10 @@
 			updateChecked = true;
 			checkForUpdate(mod.title);
 		}
+	});
+
+	onMount(async () => {
+		isLinux = await isLinuxPlatform();
 	});
 
 	async function checkForUpdate(modName: string) {
@@ -180,13 +187,15 @@
 			loadingStates.update((s) => ({ ...s, [mod.title]: true }));
 
 			// Show a warning if Lovely injector is missing (do not block installation)
-			try {
-				const present = await invoke<boolean>("is_lovely_installed");
-				if (!present) {
-					lovelyPopupStore.set({ visible: true });
+			if (!isLinux) {
+				try {
+					const present = await invoke<boolean>("is_lovely_installed");
+					if (!present) {
+						lovelyPopupStore.set({ visible: true });
+					}
+				} catch (_) {
+					/* ignore */
 				}
-			} catch (_) {
-				/* ignore */
 			}
 
 			if (!url.startsWith("http")) {
@@ -228,13 +237,15 @@
 			setTimeout(() => checkModEnabled(mod.title), 500);
 
 			// After install, verify Lovely is still present
-			try {
-				const present = await invoke<boolean>("is_lovely_installed");
-				if (!present) {
-					lovelyPopupStore.set({ visible: true });
+			if (!isLinux) {
+				try {
+					const present = await invoke<boolean>("is_lovely_installed");
+					if (!present) {
+						lovelyPopupStore.set({ visible: true });
+					}
+				} catch (_) {
+					/* ignore */
 				}
-			} catch (_) {
-				/* ignore */
 			}
 		} catch (error) {
 			console.error("Failed to install mod:", error);

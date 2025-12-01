@@ -27,7 +27,7 @@ import { lovelyPopupStore } from "../../stores/modStore";
 import { cardScale } from "../../stores/ui";
 import { get } from "svelte/store";
 import ReportIssue from "../../components/ReportIssue.svelte";
-import { browser } from "$app/environment";
+import { isLinuxPlatform } from "$lib/platform";
 
 	let currentSection = $state("mods");
 	let showSecurityPopup = $state(false); // Control visibility of the security popup
@@ -184,6 +184,7 @@ import { browser } from "$app/environment";
 	}
 
 	onMount(async () => {
+		isLinux = await isLinuxPlatform();
 		handleRefresh();
 
 		// Load shader background lazily when enabled
@@ -209,52 +210,45 @@ import { browser } from "$app/environment";
 			}
 		}
 
-		// Check for Lovely update on every launch
-		try {
-			const present = await invoke<boolean>("is_lovely_installed");
-			if (!present) {
-				// Not installed: show install prompt and skip update prompt to avoid double popups.
-				lovelyPopupStore.set({ visible: true });
-			} else {
-				// Only check for updates when Lovely is already present.
-				try {
-					const latest = await invoke<string | null>("check_lovely_update");
-					if (latest) {
-						showWarningPopup.set({
-							visible: true,
-							message: `An update for Lovely (v${latest}) is available. Do you want to update?`,
-							onConfirm: async () => {
-								try {
-									const updated = await invoke<string>("update_lovely_to_latest");
-									addMessage(`Lovely updated to v${updated}`, "success");
-								} catch (e) {
-									addMessage(
-										`Failed to update Lovely: ${e instanceof Error ? e.message : String(e)}`,
-										"error",
-									);
-								}
-								showWarningPopup.update((p) => ({ ...p, visible: false }));
-							},
-							onCancel: () => {
-								showWarningPopup.update((p) => ({ ...p, visible: false }));
-							},
-						});
+		if (!isLinux) {
+			// Check for Lovely update on every launch (skip on Linux)
+			try {
+				const present = await invoke<boolean>("is_lovely_installed");
+				if (!present) {
+					// Not installed: show install prompt and skip update prompt to avoid double popups.
+					lovelyPopupStore.set({ visible: true });
+				} else {
+					// Only check for updates when Lovely is already present.
+					try {
+						const latest = await invoke<string | null>("check_lovely_update");
+						if (latest) {
+							showWarningPopup.set({
+								visible: true,
+								message: `An update for Lovely (v${latest}) is available. Do you want to update?`,
+								onConfirm: async () => {
+									try {
+										const updated = await invoke<string>("update_lovely_to_latest");
+										addMessage(`Lovely updated to v${updated}`, "success");
+									} catch (e) {
+										addMessage(
+											`Failed to update Lovely: ${e instanceof Error ? e.message : String(e)}`,
+											"error",
+										);
+									}
+									showWarningPopup.update((p) => ({ ...p, visible: false }));
+								},
+								onCancel: () => {
+									showWarningPopup.update((p) => ({ ...p, visible: false }));
+								},
+							});
+						}
+					} catch (e) {
+						console.warn("Lovely update check failed:", e);
 					}
-				} catch (e) {
-					console.warn("Lovely update check failed:", e);
 				}
+			} catch (_) {
+				// ignore detection errors
 			}
-		} catch (_) {
-			// ignore detection errors
-		}
-
-		if (browser) {
-			const plat =
-				document.documentElement.dataset.platform ||
-				(navigator.userAgent.toLowerCase().includes("linux")
-					? "linux"
-					: "");
-			isLinux = plat === "linux";
 		}
 	});
 </script>
