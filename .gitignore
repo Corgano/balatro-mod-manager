@@ -3,6 +3,10 @@ node_modules
 /build
 /.svelte-kit
 /package
+/build-dir
+/.flatpak-builder
+/repo
+/balatro-mod-manager.flatpak
 .env
 .env.*
 !.env.example

@@ -1,0 +1,8 @@
+[Desktop Entry]
+Name=Balatro Mod Manager
+Exec=balatro-mod-manager
+Icon=io.balatro.ModManager
+Terminal=false
+Type=Application
+Categories=Game;Utility;
+StartupWMClass=Balatro Mod Manager

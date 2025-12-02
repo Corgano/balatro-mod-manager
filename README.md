@@ -26,6 +26,26 @@ Scroll down to find **▸Assets** and download the right version of the installe
 - macOS: `Balatro.Mod.Manager_…_universal.dmg`
 - Linux: `Balatro.Mod.Manager_…_amd64.AppImage` (mark as executable if needed)
 
+## Flatpak (Steam Deck/Linux)
+
+- Install runtimes once (GNOME 47 + toolchain extensions):
+  ```bash
+  flatpak install org.gnome.Platform//47 org.gnome.Sdk//47 \
+    org.freedesktop.Sdk.Extension.node20//24.08 \
+    org.freedesktop.Sdk.Extension.rust-stable//24.08
+  ```
+- Build + bundle from this repo:
+  ```bash
+  flatpak-builder --force-clean --repo=repo build-dir packaging/flatpak/io.balatro.ModManager.json
+  flatpak build-bundle repo balatro-mod-manager.flatpak io.balatro.ModManager master
+  ```
+- Install/run (on the Deck or any Flatpak host):
+  ```bash
+  flatpak install --user balatro-mod-manager.flatpak
+  flatpak run io.balatro.ModManager
+  ```
+AppImage/Deb/RPM still land in `target/release/bundle/` during the Flatpak build if you need them.
+
 # [![Build](images/build.svg)](#build-prerequisites)
 
 Alternatively, if you would prefer to build Balatro Mod Manager yourself instead of downloading the [prebuilt installer](https://github.com/skyline69/balatro-mod-manager/releases/latest), Balatro Mod Manager can be compiled from source using the instructions below.
