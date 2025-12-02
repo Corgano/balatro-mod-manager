@@ -1,5 +1,6 @@
 module version_updater
    use iso_fortran_env, only: error_unit
+   use iso_c_binding, only: c_ptr, c_char, c_null_char, c_associated, c_f_pointer, c_int, c_long, c_short, c_int8_t
 !$ use omp_lib
    implicit none
 
@@ -14,6 +15,68 @@ module version_updater
    logical, save :: initialized = .false.
    logical, save :: is_windows = .false.
    character(len=1), save :: path_sep = '/'  ! Default to Unix-style
+
+   type, bind(C) :: dirent_type
+      integer(c_long) :: d_ino
+      integer(c_long) :: d_off
+      integer(c_short) :: d_reclen
+      integer(c_int8_t) :: d_type
+      character(kind=c_char) :: d_name(256)
+   end type dirent_type
+
+   type, bind(C) :: stat_type
+      integer(c_long) :: st_dev
+      integer(c_long) :: st_ino
+      integer(c_long) :: st_nlink
+      integer(c_int) :: st_mode
+      integer(c_int) :: st_uid
+      integer(c_int) :: st_gid
+      integer(c_long) :: st_rdev
+      integer(c_long) :: st_size
+      integer(c_long) :: st_blksize
+      integer(c_long) :: st_blocks
+      integer(c_long) :: st_atime
+      integer(c_long) :: st_atime_nsec
+      integer(c_long) :: st_mtime
+      integer(c_long) :: st_mtime_nsec
+      integer(c_long) :: st_ctime
+      integer(c_long) :: st_ctime_nsec
+   end type stat_type
+
+   integer(c_int), parameter :: S_IFMT = int(Z'F000', kind=c_int)
+   integer(c_int), parameter :: S_IFDIR = int(Z'4000', kind=c_int)
+   integer(c_int), parameter :: S_IFLNK = int(Z'A000', kind=c_int)
+   integer(c_int), parameter :: DT_DIR = 4
+   integer(c_int), parameter :: DT_REG = 8
+
+   interface
+      type(c_ptr) function opendir_c(name) bind(C, name="opendir")
+         import :: c_ptr, c_char
+         character(kind=c_char), dimension(*) :: name
+      end function opendir_c
+
+      type(c_ptr) function readdir_c(dirp) bind(C, name="readdir")
+         import :: c_ptr
+         type(c_ptr), value :: dirp
+      end function readdir_c
+
+      integer(c_int) function closedir_c(dirp) bind(C, name="closedir")
+         import :: c_int, c_ptr
+         type(c_ptr), value :: dirp
+      end function closedir_c
+
+      integer(c_int) function stat_c(path, buf) bind(C, name="stat")
+         import :: c_int, c_char, stat_type
+         character(kind=c_char), dimension(*) :: path
+         type(stat_type) :: buf
+      end function stat_c
+
+      integer(c_int) function lstat_c(path, buf) bind(C, name="lstat")
+         import :: c_int, c_char, stat_type
+         character(kind=c_char), dimension(*) :: path
+         type(stat_type) :: buf
+      end function lstat_c
+   end interface
 
 contains
 
@@ -248,11 +311,11 @@ contains
    subroutine process_directory(dir_path, version_no_v, version_with_v, update_to_bun)
       character(len=*), intent(in) :: dir_path, version_no_v, version_with_v
       logical, intent(in) :: update_to_bun
-      character(len=MAX_PATH_LEN) :: file_path, temp_file
-      integer :: io_stat, status, file_unit
-      logical :: file_exists, done
+      character(len=MAX_PATH_LEN) :: temp_file, base_name, lower_name
+      integer :: io_stat, temp_unit
+      logical :: file_exists, svelte_header_printed
       character(len=MAX_PATH_LEN), allocatable :: file_list(:)
-      integer :: file_count, i, temp_unit
+      integer :: file_count, i
 
       ! Initialize platform detection
       call init_platform()
@@ -262,59 +325,33 @@ contains
 
       write (*, '(a)') "Processing configuration files..."
 
-      ! Process each file type using cross-platform file discovery
+      svelte_header_printed = .false.
 
-      ! tauri.conf.json
-      call find_files(dir_path, "tauri.conf.json", file_list, file_count)
+      ! Single scan for all relevant files to minimize process spawning
+      call find_target_files(dir_path, file_list, file_count)
       if (file_count > 0) then
          do i = 1, file_count
-            call update_tauri_conf(file_list(i), version_no_v)
-         end do
-         deallocate (file_list)
-      end if
+            call get_basename(file_list(i), base_name)
+            lower_name = base_name
+            call to_lowercase(lower_name)
 
-      ! Cargo.toml
-      call find_files(dir_path, "Cargo.toml", file_list, file_count)
-      if (file_count > 0) then
-         do i = 1, file_count
-            call update_cargo_toml(file_list(i), version_no_v)
-         end do
-         deallocate (file_list)
-      end if
-
-      ! Cargo.lock
-      call find_files(dir_path, "Cargo.lock", file_list, file_count)
-      if (file_count > 0) then
-         do i = 1, file_count
-            call update_cargo_lock(file_list(i), version_no_v)
-         end do
-         deallocate (file_list)
-      end if
-
-      ! package.json
-      call find_files(dir_path, "package.json", file_list, file_count)
-      if (file_count > 0) then
-         do i = 1, file_count
-            call update_package_json(file_list(i), version_no_v, update_to_bun)
-         end do
-         deallocate (file_list)
-      end if
-
-      ! Flatpak metainfo
-      call find_files(dir_path, "io.balatro.ModManager.metainfo.xml", file_list, file_count)
-      if (file_count > 0) then
-         do i = 1, file_count
-            call update_flatpak_metainfo(file_list(i), version_no_v)
-         end do
-         deallocate (file_list)
-      end if
-
-      ! Svelte files
-      write (*, '(a)') "Processing Svelte files..."
-      call find_files(dir_path, "*.svelte", file_list, file_count)
-      if (file_count > 0) then
-         do i = 1, file_count
-            call update_svelte_file(file_list(i), version_with_v)
+            if (lower_name == "tauri.conf.json") then
+               call update_tauri_conf(trim(file_list(i)), version_no_v)
+            else if (lower_name == "cargo.toml") then
+               call update_cargo_toml(trim(file_list(i)), version_no_v)
+            else if (lower_name == "cargo.lock") then
+               call update_cargo_lock(trim(file_list(i)), version_no_v)
+            else if (lower_name == "package.json") then
+               call update_package_json(trim(file_list(i)), version_no_v, update_to_bun)
+            else if (lower_name == "io.balatro.modmanager.metainfo.xml") then
+               call update_flatpak_metainfo(trim(file_list(i)), version_no_v)
+            else if (ends_with(lower_name, ".svelte")) then
+               if (.not. svelte_header_printed) then
+                  write (*, '(a)') "Processing Svelte files..."
+                  svelte_header_printed = .true.
+               end if
+               call update_svelte_file(trim(file_list(i)), version_with_v)
+            end if
          end do
          deallocate (file_list)
       end if
@@ -327,82 +364,173 @@ contains
       end if
    end subroutine process_directory
 
-   ! Cross-platform file finder routine
-   subroutine find_files(dir_path, pattern, file_list, file_count)
-      character(len=*), intent(in) :: dir_path, pattern
+   subroutine find_target_files(dir_path, file_list, file_count)
+      character(len=*), intent(in) :: dir_path
       character(len=MAX_PATH_LEN), allocatable, intent(out) :: file_list(:)
       integer, intent(out) :: file_count
-      character(len=MAX_PATH_LEN) :: cmd, temp_file
-      integer :: io_stat, file_unit, alloc_stat
-      character(len=MAX_PATH_LEN) :: line
-      character(len=:), allocatable :: cmd_output
-      integer :: est_count, actual_count
 
-      ! Initialize platform detection
+      integer :: alloc_stat
+
       call init_platform()
 
-      ! Get a temporary file name
-      call get_temp_filename(temp_file)
-
-      ! Initial allocation for file list - we'll resize as needed
-      est_count = 100  ! Start with space for 100 files
-      allocate (file_list(est_count), stat=alloc_stat)
+      allocate (file_list(200), stat=alloc_stat)
       if (alloc_stat /= 0) then
          file_count = 0
          return
       end if
 
-      ! Use appropriate command for Windows or Unix-like systems
-      if (is_windows) then
-         ! Windows-compatible command using PowerShell
-         cmd = 'powershell -Command "Get-ChildItem -Path '''//trim(dir_path)// &
-               ''' -Filter '''//trim(pattern)//''' -Recurse -File | '// &
-               'Where-Object { $_.FullName -notmatch ''\\(\\.git|node_modules|\\.svelte-kit|'// &
-               'target|\\.deno)\\'' } | ForEach-Object { $_.FullName }" > "'// &
-               trim(temp_file)//'"'
-      else
-         ! Unix-compatible find command
-         cmd = 'find "'//trim(dir_path)//'" -name "'//trim(pattern)//'" '// &
-               '! -path "*/\.*" ! -path "*/node_modules/*" ! -path "*/.svelte-kit/*" '// &
-               '! -path "*/target/*" ! -path "*/.deno/*" -type f > "'// &
-               trim(temp_file)//'"'
-      end if
+      file_count = 0
+      call collect_files_recursive(trim(dir_path), file_list, file_count)
+   end subroutine find_target_files
 
-      ! Execute the command
-      call execute_command_line(trim(cmd), exitstat=io_stat)
-      if (io_stat /= 0) then
-         ! Command failed, try using Fortran directory traversal as fallback
-         call traverse_directory(trim(dir_path), trim(pattern), file_list, file_count)
-         return
-      end if
+   recursive subroutine collect_files_recursive(dir_path, file_list, file_count)
+      character(len=*), intent(in) :: dir_path
+      character(len=MAX_PATH_LEN), allocatable, intent(inout) :: file_list(:)
+      integer, intent(inout) :: file_count
 
-      ! Read the results
-      open (newunit=file_unit, file=trim(temp_file), status='old', action='read', iostat=io_stat)
-      if (io_stat /= 0) then
-         file_count = 0
-         return
-      end if
+      type(c_ptr) :: dirp, dent_ptr
+      type(dirent_type), pointer :: dent
+      character(len=256) :: entry_name
+      character(len=MAX_PATH_LEN) :: full_path
+      logical :: is_dir
+      integer(c_int) :: close_rc
 
-      ! Read files
-      actual_count = 0
+      dirp = opendir_c(trim(dir_path)//c_null_char)
+      if (.not. c_associated(dirp)) return
+
       do
-         read (file_unit, '(a)', iostat=io_stat) line
-         if (io_stat /= 0) exit
+         dent_ptr = readdir_c(dirp)
+         if (.not. c_associated(dent_ptr)) exit
 
-         actual_count = actual_count + 1
+         call c_f_pointer(dent_ptr, dent)
+         call cstring_to_fortran(dent%d_name, entry_name)
 
-         ! Resize array if needed
-         if (actual_count > est_count) then
-            call resize_file_list(file_list, est_count*2)
-            est_count = est_count*2
+         if (len_trim(entry_name) == 0) cycle
+         if (entry_name == "." .or. entry_name == "..") cycle
+
+         if (len_trim(dir_path) + 1 + len_trim(entry_name) <= MAX_PATH_LEN) then
+            full_path = trim(dir_path)//path_sep//trim(entry_name)
+         else
+            cycle
          end if
 
-         file_list(actual_count) = trim(line)
+         is_dir = is_directory(full_path, int(dent%d_type, kind=c_int))
+         if (is_dir) then
+            if (excluded_dir(entry_name)) cycle
+            call collect_files_recursive(trim(full_path), file_list, file_count)
+         else
+            if (is_target_file(entry_name)) then
+               file_count = file_count + 1
+               if (file_count > size(file_list)) call resize_file_list(file_list, max(2*size(file_list), file_count+50))
+               file_list(file_count) = trim(full_path)
+            end if
+         end if
       end do
 
-      close (file_unit, status='delete')
-      file_count = actual_count
-   end subroutine find_files
+      close_rc = closedir_c(dirp)
+   end subroutine collect_files_recursive
+
+   logical function excluded_dir(name)
+      character(len=*), intent(in) :: name
+      character(len=256) :: lower
+      lower = name
+      call to_lowercase(lower)
+
+      excluded_dir = lower == ".git" .or. lower == "node_modules" .or. lower == ".svelte-kit" .or. &
+                     lower == "target" .or. lower == ".deno" .or. lower == ".flatpak-builder" .or. &
+                     lower == ".bun" .or. lower == ".cargo" .or. lower == "build" .or. lower == "build-dir"
+   end function excluded_dir
+
+   logical function is_target_file(name)
+      character(len=*), intent(in) :: name
+      character(len=256) :: lower
+
+      lower = name
+      call to_lowercase(lower)
+
+      is_target_file = lower == "tauri.conf.json" .or. lower == "cargo.toml" .or. lower == "cargo.lock" .or. &
+                       lower == "package.json" .or. lower == "io.balatro.modmanager.metainfo.xml" .or. ends_with(lower, ".svelte")
+   end function is_target_file
+
+   logical function is_directory(path, d_type_hint)
+      character(len=*), intent(in) :: path
+      integer(c_int), intent(in) :: d_type_hint
+      type(stat_type) :: st
+      integer(c_int) :: rc
+
+      rc = lstat_c(trim(path)//c_null_char, st)
+      if (rc /= 0) then
+         is_directory = .false.
+      else
+         if (iand(st%st_mode, S_IFMT) == S_IFLNK) then
+            is_directory = .false.
+         else
+            is_directory = iand(st%st_mode, S_IFMT) == S_IFDIR
+         end if
+      end if
+   end function is_directory
+
+   subroutine cstring_to_fortran(cstr, fstr)
+      character(kind=c_char), intent(in) :: cstr(*)
+      character(len=*), intent(out) :: fstr
+      integer :: i
+
+      fstr = ''
+      do i = 1, len(fstr)
+         if (cstr(i) == c_null_char) exit
+         fstr(i:i) = achar(iachar(cstr(i)))
+      end do
+   end subroutine cstring_to_fortran
+
+
+   subroutine get_basename(path, name)
+      character(len=*), intent(in) :: path
+      character(len=*), intent(out) :: name
+      integer :: i, last_sep, path_len
+
+      name = ''
+      path_len = len_trim(path)
+      last_sep = 0
+      do i = path_len, 1, -1
+         if (path(i:i) == '/' .or. path(i:i) == '\') then
+            last_sep = i
+            exit
+         end if
+      end do
+
+      if (last_sep > 0 .and. last_sep < path_len) then
+         name = path(last_sep + 1:path_len)
+      else
+         name = path(1:path_len)
+      end if
+   end subroutine get_basename
+
+   subroutine to_lowercase(str)
+      character(len=*), intent(inout) :: str
+      integer :: i, str_len
+
+      str_len = len_trim(str)
+      do i = 1, str_len
+         if (str(i:i) >= 'A' .and. str(i:i) <= 'Z') then
+            str(i:i) = achar(iachar(str(i:i)) + 32)
+         end if
+      end do
+   end subroutine to_lowercase
+
+   logical function ends_with(str, suffix)
+      character(len=*), intent(in) :: str, suffix
+      integer :: str_len, suffix_len, start_pos
+
+      str_len = len_trim(str)
+      suffix_len = len_trim(suffix)
+      if (suffix_len == 0 .or. suffix_len > str_len) then
+         ends_with = .false.
+         return
+      end if
+
+      start_pos = str_len - suffix_len + 1
+      ends_with = str(start_pos:str_len) == suffix(1:suffix_len)
+   end function ends_with
 
    ! Helper to resize the file list array
    subroutine resize_file_list(file_list, new_size)
@@ -423,30 +551,6 @@ contains
       ! Replace old array with new one
       call move_alloc(temp_list, file_list)
    end subroutine resize_file_list
-
-   ! Fallback directory traversal implementation using Fortran intrinsics
-   subroutine traverse_directory(dir_path, pattern, file_list, file_count)
-      character(len=*), intent(in) :: dir_path, pattern
-      character(len=MAX_PATH_LEN), allocatable, intent(out) :: file_list(:)
-      integer, intent(out) :: file_count
-      character(len=MAX_PATH_LEN) :: item_path
-      character(len=256) :: item_name
-      logical :: is_dir
-      integer :: stat, est_count
-
-      ! Initialize
-      file_count = 0
-      est_count = 100
-      allocate (file_list(est_count))
-
-      ! This is a simplified version - in a real implementation,
-      ! you would recursively traverse through subdirectories
-      ! and apply pattern matching using Fortran string operations
-
-      ! For now, just set empty result since full implementation
-      ! would be very complex and beyond the scope of this example
-      file_count = 0
-   end subroutine traverse_directory
 
    ! Generate a cross-platform temporary filename
    subroutine get_temp_filename(filename)
