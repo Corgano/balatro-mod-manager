@@ -369,24 +369,65 @@ contains
       character(len=MAX_PATH_LEN), allocatable, intent(out) :: file_list(:)
       integer, intent(out) :: file_count
 
-      integer :: alloc_stat
+      character(len=MAX_PATH_LEN) :: temp_file, cmd, line
+      integer :: io_stat, file_unit, alloc_stat
+      integer :: est_count, actual_count
 
       call init_platform()
+      call get_temp_filename(temp_file)
 
-      allocate (file_list(200), stat=alloc_stat)
+      est_count = 200
+      allocate (file_list(est_count), stat=alloc_stat)
       if (alloc_stat /= 0) then
          file_count = 0
          return
       end if
 
-      file_count = 0
-      call collect_files_recursive(trim(dir_path), file_list, file_count)
+      if (is_windows) then
+         cmd = 'powershell -Command "Get-ChildItem -Path '''//trim(dir_path)//''' -Recurse -File | '// &
+               'Where-Object { $_.FullName -notmatch ''\\(\\.git|node_modules|\\.svelte-kit|target|\\.deno|\\.flatpak-builder|\\.bun|\\.cargo|build|build-dir)\\'' '// &
+               '-and ( @(''tauri.conf.json'',''Cargo.toml'',''Cargo.lock'',''package.json'',''io.balatro.ModManager.metainfo.xml'') -contains $_.Name -or $_.Extension -eq ''.svelte'' ) } | '// &
+               'ForEach-Object { $_.FullName }" > "'//trim(temp_file)//'"'
+      else
+         cmd = 'find "'//trim(dir_path)//'" -type d \( -name ".git" -o -name "node_modules" -o -name ".svelte-kit" -o -name "target" -o -name ".deno" -o -name ".flatpak-builder" -o -name ".bun" -o -name ".cargo" -o -name "build" -o -name "build-dir" \) -prune '// &
+               '-o -type f \( -name "tauri.conf.json" -o -name "Cargo.toml" -o -name "Cargo.lock" -o -name "package.json" -o -name "io.balatro.ModManager.metainfo.xml" -o -name "*.svelte" \) -print > "'//trim(temp_file)//'"'
+      end if
+
+      call execute_command_line(trim(cmd), exitstat=io_stat)
+      if (io_stat /= 0) then
+         file_count = 0
+         call collect_files_recursive(trim(dir_path), file_list, file_count)
+         return
+      end if
+
+      open (newunit=file_unit, file=trim(temp_file), status='old', action='read', iostat=io_stat)
+      if (io_stat /= 0) then
+         file_count = 0
+         return
+      end if
+
+      actual_count = 0
+      do
+         read (file_unit, '(a)', iostat=io_stat) line
+         if (io_stat /= 0) exit
+
+         actual_count = actual_count + 1
+         if (actual_count > size(file_list)) then
+            call resize_file_list(file_list, max(2*size(file_list), actual_count + 50))
+         end if
+
+         file_list(actual_count) = trim(line)
+      end do
+
+      close (file_unit, status='delete')
+      file_count = actual_count
    end subroutine find_target_files
 
-   recursive subroutine collect_files_recursive(dir_path, file_list, file_count)
+   recursive subroutine collect_files_recursive(dir_path, file_list, file_count, depth)
       character(len=*), intent(in) :: dir_path
       character(len=MAX_PATH_LEN), allocatable, intent(inout) :: file_list(:)
       integer, intent(inout) :: file_count
+      integer, intent(in), optional :: depth
 
       type(c_ptr) :: dirp, dent_ptr
       type(dirent_type), pointer :: dent
@@ -394,6 +435,10 @@ contains
       character(len=MAX_PATH_LEN) :: full_path
       logical :: is_dir
       integer(c_int) :: close_rc
+      integer :: level
+
+      level = 0
+      if (present(depth)) level = depth
 
       dirp = opendir_c(trim(dir_path)//c_null_char)
       if (.not. c_associated(dirp)) return
@@ -407,6 +452,7 @@ contains
 
          if (len_trim(entry_name) == 0) cycle
          if (entry_name == "." .or. entry_name == "..") cycle
+         if (excluded_dir(entry_name)) cycle
 
          if (len_trim(dir_path) + 1 + len_trim(entry_name) <= MAX_PATH_LEN) then
             full_path = trim(dir_path)//path_sep//trim(entry_name)
@@ -416,8 +462,7 @@ contains
 
          is_dir = is_directory(full_path, int(dent%d_type, kind=c_int))
          if (is_dir) then
-            if (excluded_dir(entry_name)) cycle
-            call collect_files_recursive(trim(full_path), file_list, file_count)
+            call collect_files_recursive(trim(full_path), file_list, file_count, level + 1)
          else
             if (is_target_file(entry_name)) then
                file_count = file_count + 1
@@ -432,13 +477,18 @@ contains
 
    logical function excluded_dir(name)
       character(len=*), intent(in) :: name
-      character(len=256) :: lower
+      character(len=256) :: lower, trimmed
+
       lower = name
       call to_lowercase(lower)
+      trimmed = trim(adjustl(lower))
 
-      excluded_dir = lower == ".git" .or. lower == "node_modules" .or. lower == ".svelte-kit" .or. &
-                     lower == "target" .or. lower == ".deno" .or. lower == ".flatpak-builder" .or. &
-                     lower == ".bun" .or. lower == ".cargo" .or. lower == "build" .or. lower == "build-dir"
+      select case (trimmed)
+      case (".git", "node_modules", ".svelte-kit", "target", ".deno", ".flatpak-builder", ".bun", ".cargo", "build", "build-dir")
+         excluded_dir = .true.
+      case default
+         excluded_dir = .false.
+      end select
    end function excluded_dir
 
    logical function is_target_file(name)
