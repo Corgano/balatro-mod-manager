@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.balatro.ModManager</id>
+  <name>Balatro Mod Manager</name>
+  <summary>Install and manage Balatro mods</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+  <launchable type="desktop-id">io.balatro.ModManager.desktop</launchable>
+  <developer_name>skyline69</developer_name>
+  <provides>
+    <binary>balatro-mod-manager</binary>
+  </provides>
+  <description>
+    <p>Balatro Mod Manager lets you install, update, and manage Balatro mods with one-click installs, built-in backups, and automatic Lovely setup.</p>
+    <ul>
+      <li>Browse and install curated mods with version tracking.</li>
+      <li>Detect and manage your existing mods and keep Lovely current.</li>
+      <li>Backup/restore mod lists and quickly clean up broken installs.</li>
+      <li>Steam Deck friendly: works in Gaming/Desktop mode with no extra system packages.</li>
+    </ul>
+  </description>
+  <url type="homepage">https://github.com/skyline69/balatro-mod-manager</url>
+  <releases>
+    <release version="0.3.0"/>
+  </releases>
+</component>

@@ -1,0 +1,68 @@
+{
+  "app-id": "io.balatro.ModManager",
+  "runtime": "org.gnome.Platform",
+  "runtime-version": "47",
+  "sdk": "org.gnome.Sdk",
+  "sdk-extensions": [
+    "org.freedesktop.Sdk.Extension.node20",
+    "org.freedesktop.Sdk.Extension.rust-stable"
+  ],
+  "command": "balatro-mod-manager",
+  "finish-args": [
+    "--share=ipc",
+    "--socket=fallback-x11",
+    "--socket=wayland",
+    "--device=dri",
+    "--share=network",
+    "--filesystem=xdg-config/Balatro",
+    "--filesystem=xdg-data/Balatro",
+    "--filesystem=home/.local/share/Steam",
+    "--filesystem=home/.steam"
+  ],
+  "modules": [
+    {
+      "name": "balatro-mod-manager",
+      "buildsystem": "simple",
+      "build-options": {
+        "append-path": "/usr/lib/sdk/node20/bin:/usr/lib/sdk/rust-stable/bin",
+        "env": {
+          "CARGO_TARGET_DIR": "/run/build/balatro-mod-manager/target",
+          "npm_config_cache": "/run/build/balatro-mod-manager/.npm",
+          "NPM_CONFIG_FUND": "false",
+          "NPM_CONFIG_AUDIT": "false"
+        },
+        "build-args": [
+          "--share=network"
+        ]
+      },
+      "build-commands": [
+        "cd /run/build/balatro-mod-manager && export CARGO_HOME=/run/build/balatro-mod-manager/.cargo && export PATH=\"$CARGO_HOME/bin:$PATH\" && curl -L --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh | bash",
+        "cd /run/build/balatro-mod-manager && export CARGO_HOME=/run/build/balatro-mod-manager/.cargo && export PATH=\"$CARGO_HOME/bin:$PATH\" && cargo binstall tauri-cli -y --force",
+        "cd /run/build/balatro-mod-manager && export BUN_INSTALL=/run/build/balatro-mod-manager/.bun && curl -fsSL https://bun.sh/install | bash",
+        "cd /run/build/balatro-mod-manager && export BUN_INSTALL=/run/build/balatro-mod-manager/.bun && export PATH=\"$BUN_INSTALL/bin:$PATH\" && bun install",
+        "cd /run/build/balatro-mod-manager && export BUN_INSTALL=/run/build/balatro-mod-manager/.bun && export PATH=\"$BUN_INSTALL/bin:$PATH\" && bun run build",
+        "cd /run/build/balatro-mod-manager/src-tauri && export CARGO_HOME=/run/build/balatro-mod-manager/.cargo && export BUN_INSTALL=/run/build/balatro-mod-manager/.bun && export PATH=\"$BUN_INSTALL/bin:$CARGO_HOME/bin:$PATH\" && cargo tauri build --bundles deb rpm appimage",
+        "cd /run/build/balatro-mod-manager && install -Dm755 target/release/BMM /app/bin/balatro-mod-manager",
+        "install -Dm644 packaging/flatpak/io.balatro.ModManager.desktop /app/share/applications/io.balatro.ModManager.desktop",
+        "install -Dm644 packaging/flatpak/io.balatro.ModManager.metainfo.xml /app/share/metainfo/io.balatro.ModManager.metainfo.xml",
+        "install -Dm644 src-tauri/icons/512x512.png /app/share/icons/hicolor/512x512/apps/io.balatro.ModManager.png"
+      ],
+      "sources": [
+        {
+          "type": "dir",
+          "path": "../..",
+          "dest": ".",
+          "skip": [
+            ".flatpak-builder",
+            ".git",
+            "build",
+            "node_modules",
+            "repo",
+            "squashfs-root",
+            "target"
+          ]
+        }
+      ]
+    }
+  ]
+}
