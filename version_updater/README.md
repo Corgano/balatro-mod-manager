@@ -13,6 +13,7 @@ Version Updater recursively scans your project directory and updates version str
   - `Cargo.toml`
   - `Cargo.lock` (balatro-mod-manager package)
   - `package.json`
+  - `packaging/flatpak/io.balatro.ModManager.metainfo.xml`
   - Svelte files containing version elements
 - Intelligent version handling (removes `v` prefix for certain files)
 - Preserves file formatting and structure

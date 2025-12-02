@@ -150,6 +150,7 @@ contains
       write (*, '(a)') "  - Cargo.toml"
       write (*, '(a)') "  - Cargo.lock (balatro-mod-manager package)"
       write (*, '(a)') "  - package.json"
+      write (*, '(a)') "  - Flatpak metainfo (io.balatro.ModManager.metainfo.xml)"
       write (*, '(a)') "  - All .svelte files containing specific version elements"
       write (*, '(a)') ""
       write (*, '(a)') "Notes:"
@@ -295,6 +296,15 @@ contains
       if (file_count > 0) then
          do i = 1, file_count
             call update_package_json(file_list(i), version_no_v, update_to_bun)
+         end do
+         deallocate (file_list)
+      end if
+
+      ! Flatpak metainfo
+      call find_files(dir_path, "io.balatro.ModManager.metainfo.xml", file_list, file_count)
+      if (file_count > 0) then
+         do i = 1, file_count
+            call update_flatpak_metainfo(file_list(i), version_no_v)
          end do
          deallocate (file_list)
       end if
@@ -779,6 +789,48 @@ contains
          write (*, '(a,a)') "Updated version in: ", trim(file_path)
       end if
    end subroutine update_package_json
+
+   subroutine update_flatpak_metainfo(file_path, version_str)
+      character(len=*), intent(in) :: file_path, version_str
+      character(len=MAX_BUFFER_SIZE) :: content
+      integer :: io_stat, content_len, pos_release, pos_version, ver_start, ver_end
+      logical :: file_exists
+
+      inquire (file=file_path, exist=file_exists)
+      if (.not. file_exists) return
+
+      call read_file_content(file_path, content, content_len, io_stat)
+      if (io_stat /= 0) then
+         write (error_unit, '(a,a)') "Error: Could not read file: ", trim(file_path)
+         return
+      end if
+
+      pos_release = index(content(1:content_len), '<release')
+      if (pos_release == 0) return
+
+      pos_version = index(content(pos_release:content_len), 'version="')
+      if (pos_version == 0) return
+
+      pos_version = pos_release + pos_version - 1
+      ver_start = pos_version + 9  ! After version="
+      ver_end = index(content(ver_start:content_len), '"')
+      if (ver_end == 0) return
+
+      ver_end = ver_start + ver_end - 1
+
+      if (content_len - (ver_end - ver_start) + len_trim(version_str) <= MAX_BUFFER_SIZE) then
+         content = content(1:ver_start - 1)//trim(version_str)//content(ver_end:content_len)
+         content_len = content_len - (ver_end - ver_start) + len_trim(version_str)
+
+         call write_file_content(file_path, content, content_len, io_stat)
+         if (io_stat /= 0) then
+            write (error_unit, '(a,a)') "Error: Could not write to file: ", trim(file_path)
+            return
+         end if
+
+         write (*, '(a,a)') "Updated: ", trim(file_path)
+      end if
+   end subroutine update_flatpak_metainfo
 
    subroutine update_svelte_file(file_path, version_str)
       use iso_fortran_env, only: error_unit
