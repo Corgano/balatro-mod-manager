@@ -5,6 +5,14 @@
 fn configure_display_backend() -> Option<String> {
     use std::env;
 
+    let set_env_if_absent = |key: &str, value: &str| {
+        if env::var_os(key).is_none() {
+            // Safety: called during startup before any threads are spawned, so mutating the
+            // process environment is safe.
+            unsafe { env::set_var(key, value) };
+        }
+    };
+
     let on_wayland = env::var_os("WAYLAND_DISPLAY").is_some()
         || matches!(
             env::var("XDG_SESSION_TYPE"),
@@ -25,15 +33,9 @@ fn configure_display_backend() -> Option<String> {
 
     // Prefer XWayland when available to avoid Wayland protocol errors seen during startup.
     if env::var_os("DISPLAY").is_some() {
-        if env::var_os("WINIT_UNIX_BACKEND").is_none() {
-            env::set_var("WINIT_UNIX_BACKEND", "x11");
-        }
-        if env::var_os("GDK_BACKEND").is_none() {
-            env::set_var("GDK_BACKEND", "x11");
-        }
-        if env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none() {
-            env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
-        }
+        set_env_if_absent("WINIT_UNIX_BACKEND", "x11");
+        set_env_if_absent("GDK_BACKEND", "x11");
+        set_env_if_absent("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
         return Some(
             "Wayland session detected; forcing X11 backend to avoid compositor protocol errors. \
              Set BMM_ALLOW_WAYLAND=1 to keep native Wayland."
@@ -41,9 +43,7 @@ fn configure_display_backend() -> Option<String> {
         );
     }
 
-    if env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none() {
-        env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
-    }
+    set_env_if_absent("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
     Some(
         "Wayland session detected without X11; leaving Wayland enabled (set WINIT_UNIX_BACKEND/GDK_BACKEND manually if needed)."
             .into(),

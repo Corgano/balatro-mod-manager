@@ -151,15 +151,13 @@ pub fn run() {
                             for b in lower.as_bytes() {
                                 sum = sum.wrapping_mul(1099511628211).wrapping_add(*b as u64);
                             }
-                            if let Ok(meta) = path.metadata() {
-                                if let Ok(mtime) = meta.modified() {
-                                    if let Ok(dur) = mtime.duration_since(std::time::UNIX_EPOCH) {
+                            if let Ok(meta) = path.metadata()
+                                && let Ok(mtime) = meta.modified()
+                                    && let Ok(dur) = mtime.duration_since(std::time::UNIX_EPOCH) {
                                         sum = sum
                                             .wrapping_mul(1099511628211)
                                             .wrapping_add(dur.as_secs());
                                     }
-                                }
-                            }
                         }
                     }
                     Some(sum)

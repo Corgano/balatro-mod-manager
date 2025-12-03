@@ -259,17 +259,13 @@ pub async fn restore_from_backup(path: String) -> Result<(), String> {
                     .map_err(|e| format!("Failed to read metadata file: {e}"))?,
             )
             .map_err(|e| format!("Failed to parse metadata: {e}"))?;
-            if let Some(original_path) = metadata.get("original_path").and_then(|v| v.as_str()) {
-                if original_path == path.to_string_lossy() {
-                    if let Some(backup_time) = metadata.get("backup_time").and_then(|v| v.as_u64())
-                    {
-                        if backup_time > latest_time {
+            if let Some(original_path) = metadata.get("original_path").and_then(|v| v.as_str())
+                && original_path == path.to_string_lossy()
+                    && let Some(backup_time) = metadata.get("backup_time").and_then(|v| v.as_u64())
+                        && backup_time > latest_time {
                             latest_time = backup_time;
                             latest_backup = Some(entry.path());
                         }
-                    }
-                }
-            }
         }
     }
 
@@ -313,12 +309,11 @@ pub async fn remove_backup(path: String) -> Result<(), String> {
                     .map_err(|e| format!("Failed to read metadata file: {e}"))?,
             )
             .map_err(|e| format!("Failed to parse metadata: {e}"))?;
-            if let Some(original_path) = metadata.get("original_path").and_then(|v| v.as_str()) {
-                if original_path == path.to_string_lossy() {
+            if let Some(original_path) = metadata.get("original_path").and_then(|v| v.as_str())
+                && original_path == path.to_string_lossy() {
                     std::fs::remove_dir_all(entry.path())
                         .map_err(|e| format!("Failed to remove backup: {e}"))?;
                 }
-            }
         }
     }
     Ok(())

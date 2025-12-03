@@ -62,8 +62,7 @@ pub async fn open_directory(app: tauri::AppHandle, path: String) -> Result<(), S
             if let Ok(output) = Command::new("wslpath")
                 .args(["-w", path_buf.to_string_lossy().as_ref()])
                 .output()
-            {
-                if output.status.success() {
+                && output.status.success() {
                     let win_path = String::from_utf8_lossy(&output.stdout).trim().to_string();
                     let status = Command::new("powershell.exe")
                         .args(["-NoProfile", "-Command", "Start-Process", &win_path])
@@ -72,7 +71,6 @@ pub async fn open_directory(app: tauri::AppHandle, path: String) -> Result<(), S
                         return Ok(());
                     }
                 }
-            }
         }
 
         // Desktop Linux fallback: try xdg-open directly for clearer error
@@ -228,11 +226,10 @@ pub async fn check_custom_balatro(
     let path_buf = PathBuf::from(&path);
 
     let mut candidate = path_buf.clone();
-    if candidate.is_file() {
-        if let Some(parent) = candidate.parent() {
+    if candidate.is_file()
+        && let Some(parent) = candidate.parent() {
             candidate = parent.to_path_buf();
         }
-    }
 
     if let Some(balatro) = bmm_lib::balamod::Balatro::from_custom_path(candidate) {
         let canonical = balatro.path.to_string_lossy().into_owned();

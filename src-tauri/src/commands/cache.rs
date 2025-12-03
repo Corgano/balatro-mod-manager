@@ -59,27 +59,25 @@ pub async fn clear_cache() -> Result<(), String> {
         }
     };
     let mod_index_cache_dir = config_dir.join("Balatro").join("mod_index_cache");
-    if mod_index_cache_dir.exists() {
-        if let Err(e) = std::fs::remove_dir_all(&mod_index_cache_dir) {
+    if mod_index_cache_dir.exists()
+        && let Err(e) = std::fs::remove_dir_all(&mod_index_cache_dir) {
             errors.push(format!(
                 "Failed to clear mod index cache at {}: {}",
                 mod_index_cache_dir.display(),
                 e
             ));
         }
-    }
 
     // Clear UI assets cache (thumbnails/descriptions)
     let mod_assets_dir = config_dir.join("Balatro").join("mod_assets");
-    if mod_assets_dir.exists() {
-        if let Err(e) = std::fs::remove_dir_all(&mod_assets_dir) {
+    if mod_assets_dir.exists()
+        && let Err(e) = std::fs::remove_dir_all(&mod_assets_dir) {
             errors.push(format!(
                 "Failed to clear mod assets at {}: {}",
                 mod_assets_dir.display(),
                 e
             ));
         }
-    }
 
     if errors.is_empty() {
         Ok(())

@@ -173,11 +173,10 @@ pub async fn fetch_gitlab_mods_archive() -> Result<Vec<ArchiveModItem>, String> 
     let fetch_start = Instant::now();
     for (idx, u) in urls.iter().enumerate() {
         let mut req = client.get(u.clone());
-        if let Some(c) = &existing_cache {
-            if let Some(et) = &c.etag {
+        if let Some(c) = &existing_cache
+            && let Some(et) = &c.etag {
                 req = req.header(IF_NONE_MATCH, et);
             }
-        }
         match req.send().await {
             Ok(resp) => {
                 if resp.status().as_u16() == 304 {
@@ -194,11 +193,10 @@ pub async fn fetch_gitlab_mods_archive() -> Result<Vec<ArchiveModItem>, String> 
                     continue;
                 }
                 if resp.status().is_success() {
-                    if let Some(et) = resp.headers().get(reqwest::header::ETAG) {
-                        if let Ok(s) = et.to_str() {
+                    if let Some(et) = resp.headers().get(reqwest::header::ETAG)
+                        && let Ok(s) = et.to_str() {
                             received_etag = Some(s.to_string());
                         }
-                    }
                     match resp.bytes().await {
                         Ok(b) => {
                             bytes_opt = Some(b.to_vec());
@@ -374,11 +372,10 @@ pub async fn fetch_gitlab_mods() -> Result<Vec<ArchiveModItem>, String> {
         match req.send().await {
             Ok(resp) => {
                 if resp.status().as_u16() == 304 {
-                    if let Ok(f) = std::fs::File::open(&cache_file) {
-                        if let Ok(parsed) = serde_json::from_reader::<_, IndexFileV1>(f) {
+                    if let Ok(f) = std::fs::File::open(&cache_file)
+                        && let Ok(parsed) = serde_json::from_reader::<_, IndexFileV1>(f) {
                             return Ok(parsed.mods);
                         }
-                    }
                     // No cache to use; try next URL without etag
                     etag = None;
                     continue;
@@ -476,10 +473,10 @@ pub async fn fetch_gitlab_mods_meta_only() -> Result<Vec<ArchiveModItem>, String
                     ),
                 ];
                 for url in &paths {
-                    if let Ok(resp) = client.get(url).send().await {
-                        if resp.status().is_success() {
-                            if let Ok(text) = resp.text().await {
-                                if let Ok(meta) = serde_json::from_str::<ModMeta>(&text) {
+                    if let Ok(resp) = client.get(url).send().await
+                        && resp.status().is_success()
+                            && let Ok(text) = resp.text().await
+                                && let Ok(meta) = serde_json::from_str::<ModMeta>(&text) {
                                     let image_url = format!(
                                         "{}/mods/{}/thumbnail.jpg",
                                         if image_branch == "main" {
@@ -496,9 +493,6 @@ pub async fn fetch_gitlab_mods_meta_only() -> Result<Vec<ArchiveModItem>, String
                                         image_url,
                                     });
                                 }
-                            }
-                        }
-                    }
                 }
                 None
             }
@@ -711,17 +705,15 @@ pub async fn get_description_cached_or_remote(
         format!("{}/mods/{}/description.md", GITLAB_RAW_MASTER, enc),
     ];
     for url in &candidates {
-        if let Ok(resp) = client.get(url).send().await {
-            if resp.status().is_success() {
-                if let Ok(text) = resp.text().await {
+        if let Ok(resp) = client.get(url).send().await
+            && resp.status().is_success()
+                && let Ok(text) = resp.text().await {
                     // Cache for future sessions regardless of install state
                     if let Err(e) = std::fs::write(&path, &text) {
                         log::warn!("Failed to cache description for {}: {}", title, e);
                     }
                     return Ok(text);
                 }
-            }
-        }
     }
     Err(format!("Description not found for {}", dir_name))
 }
@@ -812,11 +804,10 @@ fn parse_lfs_pointer(ptr_text: &str) -> Option<(String, u64)> {
             } else {
                 oid = Some(val.to_string());
             }
-        } else if let Some(rest) = line.strip_prefix("size ") {
-            if let Ok(n) = rest.trim().parse::<u64>() {
+        } else if let Some(rest) = line.strip_prefix("size ")
+            && let Ok(n) = rest.trim().parse::<u64>() {
                 size = Some(n);
             }
-        }
     }
     match (oid, size) {
         (Some(o), Some(s)) => Some((o, s)),
@@ -838,23 +829,16 @@ async fn fetch_pointer_for_thumb(
             "https://gitlab.com/api/v4/projects/{}/repository/files/{}/?ref={}",
             project_enc, file_enc, b
         );
-        if let Ok(resp) = client.get(&url).send().await {
-            if resp.status().is_success() {
-                if let Ok(meta) = resp.json::<GitLabFileContent>().await {
-                    if meta.encoding.to_lowercase() == "base64" {
-                        if let Ok(bytes) =
+        if let Ok(resp) = client.get(&url).send().await
+            && resp.status().is_success()
+                && let Ok(meta) = resp.json::<GitLabFileContent>().await
+                    && meta.encoding.to_lowercase() == "base64"
+                        && let Ok(bytes) =
                             base64::engine::general_purpose::STANDARD.decode(meta.content)
-                        {
-                            if let Ok(text) = String::from_utf8(bytes) {
-                                if let Some((oid, size)) = parse_lfs_pointer(&text) {
+                            && let Ok(text) = String::from_utf8(bytes)
+                                && let Some((oid, size)) = parse_lfs_pointer(&text) {
                                     return Some((oid, size));
                                 }
-                            }
-                        }
-                    }
-                }
-            }
-        }
     }
     None
 }
@@ -1083,9 +1067,9 @@ pub async fn batch_fetch_thumbnails_lfs(inputs: Vec<ModThumbInput>) -> Result<u3
                             req = req.header(k, v);
                         }
                     }
-                    if let Ok(resp) = req.send().await {
-                        if resp.status().is_success() {
-                            if let Ok(bytes) = resp.bytes().await {
+                    if let Ok(resp) = req.send().await
+                        && resp.status().is_success()
+                            && let Ok(bytes) = resp.bytes().await {
                                 let mut count = 0u32;
                                 for t in &titles {
                                     let slug = safe_slug(t);
@@ -1096,8 +1080,6 @@ pub async fn batch_fetch_thumbnails_lfs(inputs: Vec<ModThumbInput>) -> Result<u3
                                 }
                                 return count;
                             }
-                        }
-                    }
                     0u32
                 }
             })

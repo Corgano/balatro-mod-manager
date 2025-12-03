@@ -94,11 +94,10 @@ impl ThumbnailManager {
         if file_exists_for_title(&title) {
             return;
         }
-        if let Ok(mut set) = self.enqueued.lock() {
-            if !set.insert(title.clone()) {
+        if let Ok(mut set) = self.enqueued.lock()
+            && !set.insert(title.clone()) {
                 return; // already queued
             }
-        }
         let _ = self.tx.try_send(ThumbReq {
             title,
             url,
@@ -178,8 +177,8 @@ fn jitter(base: Duration) -> Duration {
 
 fn retry_after_delay(headers: &reqwest::header::HeaderMap) -> Option<Duration> {
     use reqwest::header::RETRY_AFTER;
-    if let Some(val) = headers.get(RETRY_AFTER) {
-        if let Ok(s) = val.to_str() {
+    if let Some(val) = headers.get(RETRY_AFTER)
+        && let Ok(s) = val.to_str() {
             // Either seconds or HTTP-date
             if let Ok(secs) = s.trim().parse::<u64>() {
                 return Some(Duration::from_secs(secs));
@@ -191,7 +190,6 @@ fn retry_after_delay(headers: &reqwest::header::HeaderMap) -> Option<Duration> {
                 }
             }
         }
-    }
     None
 }
 
