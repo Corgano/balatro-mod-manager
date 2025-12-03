@@ -245,11 +245,10 @@ impl Balatro {
 
 #[cfg(not(target_os = "macos"))]
 fn normalize_non_mac_install_path(path: PathBuf) -> PathBuf {
-    if path.is_file() {
-        if let Some(parent) = path.parent() {
+    if path.is_file()
+        && let Some(parent) = path.parent() {
             return parent.to_path_buf();
         }
-    }
     path
 }
 

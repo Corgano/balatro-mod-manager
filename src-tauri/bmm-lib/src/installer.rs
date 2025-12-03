@@ -475,11 +475,10 @@ pub fn uninstall_mod(path: PathBuf) -> Result<(), AppError> {
 
     validate_uninstall_path(&path, &mods_dir)?;
 
-    if let Some(dir_name) = path.file_name().and_then(|n| n.to_str()) {
-        if dir_name.starts_with("Steamodded-smods-") {
+    if let Some(dir_name) = path.file_name().and_then(|n| n.to_str())
+        && dir_name.starts_with("Steamodded-smods-") {
             log::info!("Uninstalling Steamodded variant: {dir_name}");
         }
-    }
 
     fs::remove_dir_all(&path).map_err(|e| AppError::FileWrite {
         path,

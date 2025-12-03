@@ -43,15 +43,14 @@ impl DiscordRpcManager {
 
                 if !enabled {
                     // If disabled, close any existing connection
-                    if let Ok(mut client_guard) = manager_clone.client.lock() {
-                        if let Some(client) = client_guard.as_mut() {
+                    if let Ok(mut client_guard) = manager_clone.client.lock()
+                        && let Some(client) = client_guard.as_mut() {
                             log::info!("Closing Discord connection (disabled)");
                             if let Err(e) = client.close() {
                                 log::error!("Failed to close connection: {e}");
                             }
                             *client_guard = None;
                         }
-                    }
                     continue;
                 }
 
@@ -123,11 +122,10 @@ impl DiscordRpcManager {
             if !enabled {
                 log::info!("Disabling Discord RPC, closing connection");
                 if let Ok(mut client_guard) = self.client.lock() {
-                    if let Some(client) = client_guard.as_mut() {
-                        if let Err(e) = client.close() {
+                    if let Some(client) = client_guard.as_mut()
+                        && let Err(e) = client.close() {
                             log::error!("Failed to close Discord RPC connection: {e}");
                         }
-                    }
                     *client_guard = None;
                 }
             }

@@ -282,8 +282,8 @@ impl ModInstaller {
 
         while let Some(entry) = entries.next_entry().await? {
             let path = entry.path();
-            if path.is_dir() {
-                if let Some(dir_name) = path.file_name().and_then(|n| n.to_str()) {
+            if path.is_dir()
+                && let Some(dir_name) = path.file_name().and_then(|n| n.to_str()) {
                     // Match both Steamodded and specific commit formats
                     if dir_name.to_lowercase().contains("steamodded")
                         || dir_name.starts_with("smods-")
@@ -294,7 +294,6 @@ impl ModInstaller {
                         tokio_fs::remove_dir_all(&path).await?;
                     }
                 }
-            }
         }
 
         if !found {

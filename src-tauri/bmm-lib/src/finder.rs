@@ -183,14 +183,13 @@ pub fn get_balatro_paths() -> Vec<PathBuf> {
     let mut paths: Vec<PathBuf> = vec![];
 
     // Prefer custom DB path first
-    if let Ok(db) = Database::new() {
-        if let Ok(Some(custom_path)) = db.get_installation_path() {
+    if let Ok(db) = Database::new()
+        && let Ok(Some(custom_path)) = db.get_installation_path() {
             let p = PathBuf::from(&custom_path);
             if p.exists() {
                 paths.push(p);
             }
         }
-    }
 
     let mut steam_roots: Vec<PathBuf> = Vec::new();
     let mut seen_roots: HashSet<String> = HashSet::new();
@@ -245,11 +244,10 @@ pub fn is_steam_running() -> bool {
 
         if let Ok(pids) = processes::pids_by_type(processes::ProcFilter::All) {
             for pid in pids {
-                if let Ok(name) = name(pid as i32) {
-                    if name.to_lowercase().contains("steam") {
+                if let Ok(name) = name(pid as i32)
+                    && name.to_lowercase().contains("steam") {
                         return true;
                     }
-                }
             }
         }
         false
@@ -333,22 +331,20 @@ pub fn is_balatro_running() -> bool {
                         if let (Some(self_path), Ok(proc_path)) = (
                             &self_exe_path,
                             std::fs::read_link(format!("/proc/{pid}/exe")),
-                        ) {
-                            if proc_path == *self_path {
+                        )
+                            && proc_path == *self_path {
                                 continue;
                             }
-                        }
                     }
 
                     // Linux can truncate binary names; skip anything that matches our own executable name or obvious variants.
-                    if let Some(self_name) = self_exe_name.as_deref() {
-                        if name_lower == self_name
+                    if let Some(self_name) = self_exe_name.as_deref()
+                        && (name_lower == self_name
                             || self_name.starts_with(&name_lower)
-                            || name_lower.starts_with(self_name)
+                            || name_lower.starts_with(self_name))
                         {
                             continue;
                         }
-                    }
                     if name_lower.contains("balatro-mod")
                         || name_lower.contains("balatro mod")
                         || name_lower.contains("balatro_mod")
@@ -360,14 +356,13 @@ pub fn is_balatro_running() -> bool {
                     if name_lower.contains("balatro") {
                         return true;
                     }
-                    if name_lower == "love" {
-                        if let Ok(cwd) = std::fs::read_link(format!("/proc/{pid}/cwd")) {
+                    if name_lower == "love"
+                        && let Ok(cwd) = std::fs::read_link(format!("/proc/{pid}/cwd")) {
                             let cwd = cwd.canonicalize().unwrap_or(cwd);
                             if balatro_roots.contains(&cwd) {
                                 return true;
                             }
                         }
-                    }
                 }
             }
         }
