@@ -458,8 +458,7 @@ async fn download_lovely_linux(target_path: &Path) -> Result<(), AppError> {
     })?;
     let temp_tar_gz = temp_dir.path().join("lovely.tar.gz");
 
-    let url =
-        "https://github.com/ethangreen-dev/lovely-injector/releases/latest/download/lovely-x86_64-unknown-linux-gnu.tar.gz";
+    let url = "https://github.com/ethangreen-dev/lovely-injector/releases/latest/download/lovely-x86_64-unknown-linux-gnu.tar.gz";
     log::info!("Downloading lovely injector for Linux from {}", url);
 
     let resp = reqwest::get(url)

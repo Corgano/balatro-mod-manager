@@ -45,7 +45,7 @@ pub async fn list_gitlab_mods() -> Result<Vec<String>, String> {
 
 #[tauri::command]
 pub async fn get_gitlab_file(path: &str) -> Result<String, String> {
-    use tokio::time::{sleep, Duration};
+    use tokio::time::{Duration, sleep};
 
     // Encode path by segments so slashes remain
     let encoded: String = path
@@ -174,9 +174,10 @@ pub async fn fetch_gitlab_mods_archive() -> Result<Vec<ArchiveModItem>, String> 
     for (idx, u) in urls.iter().enumerate() {
         let mut req = client.get(u.clone());
         if let Some(c) = &existing_cache
-            && let Some(et) = &c.etag {
-                req = req.header(IF_NONE_MATCH, et);
-            }
+            && let Some(et) = &c.etag
+        {
+            req = req.header(IF_NONE_MATCH, et);
+        }
         match req.send().await {
             Ok(resp) => {
                 if resp.status().as_u16() == 304 {
@@ -194,9 +195,10 @@ pub async fn fetch_gitlab_mods_archive() -> Result<Vec<ArchiveModItem>, String> 
                 }
                 if resp.status().is_success() {
                     if let Some(et) = resp.headers().get(reqwest::header::ETAG)
-                        && let Ok(s) = et.to_str() {
-                            received_etag = Some(s.to_string());
-                        }
+                        && let Ok(s) = et.to_str()
+                    {
+                        received_etag = Some(s.to_string());
+                    }
                     match resp.bytes().await {
                         Ok(b) => {
                             bytes_opt = Some(b.to_vec());
@@ -373,9 +375,10 @@ pub async fn fetch_gitlab_mods() -> Result<Vec<ArchiveModItem>, String> {
             Ok(resp) => {
                 if resp.status().as_u16() == 304 {
                     if let Ok(f) = std::fs::File::open(&cache_file)
-                        && let Ok(parsed) = serde_json::from_reader::<_, IndexFileV1>(f) {
-                            return Ok(parsed.mods);
-                        }
+                        && let Ok(parsed) = serde_json::from_reader::<_, IndexFileV1>(f)
+                    {
+                        return Ok(parsed.mods);
+                    }
                     // No cache to use; try next URL without etag
                     etag = None;
                     continue;
@@ -452,7 +455,7 @@ pub async fn fetch_gitlab_mods_meta_only() -> Result<Vec<ArchiveModItem>, String
     let image_branch = branch_used.unwrap_or("main");
 
     // 2) Concurrently fetch only meta.json for each mod (description is deferred)
-    use futures::{stream, StreamExt};
+    use futures::{StreamExt, stream};
     let concurrency = 12usize;
     let results = stream::iter(mod_dirs.into_iter())
         .map(|dir| {
@@ -475,24 +478,25 @@ pub async fn fetch_gitlab_mods_meta_only() -> Result<Vec<ArchiveModItem>, String
                 for url in &paths {
                     if let Ok(resp) = client.get(url).send().await
                         && resp.status().is_success()
-                            && let Ok(text) = resp.text().await
-                                && let Ok(meta) = serde_json::from_str::<ModMeta>(&text) {
-                                    let image_url = format!(
-                                        "{}/mods/{}/thumbnail.jpg",
-                                        if image_branch == "main" {
-                                            GITLAB_RAW_MAIN
-                                        } else {
-                                            GITLAB_RAW_MASTER
-                                        },
-                                        urlencoding::encode(&dir_clone)
-                                    );
-                                    return Some(ArchiveModItem {
-                                        dir_name: dir_clone,
-                                        meta,
-                                        description: String::new(), // defer heavy descriptions
-                                        image_url,
-                                    });
-                                }
+                        && let Ok(text) = resp.text().await
+                        && let Ok(meta) = serde_json::from_str::<ModMeta>(&text)
+                    {
+                        let image_url = format!(
+                            "{}/mods/{}/thumbnail.jpg",
+                            if image_branch == "main" {
+                                GITLAB_RAW_MAIN
+                            } else {
+                                GITLAB_RAW_MASTER
+                            },
+                            urlencoding::encode(&dir_clone)
+                        );
+                        return Some(ArchiveModItem {
+                            dir_name: dir_clone,
+                            meta,
+                            description: String::new(), // defer heavy descriptions
+                            image_url,
+                        });
+                    }
                 }
                 None
             }
@@ -707,13 +711,14 @@ pub async fn get_description_cached_or_remote(
     for url in &candidates {
         if let Ok(resp) = client.get(url).send().await
             && resp.status().is_success()
-                && let Ok(text) = resp.text().await {
-                    // Cache for future sessions regardless of install state
-                    if let Err(e) = std::fs::write(&path, &text) {
-                        log::warn!("Failed to cache description for {}: {}", title, e);
-                    }
-                    return Ok(text);
-                }
+            && let Ok(text) = resp.text().await
+        {
+            // Cache for future sessions regardless of install state
+            if let Err(e) = std::fs::write(&path, &text) {
+                log::warn!("Failed to cache description for {}: {}", title, e);
+            }
+            return Ok(text);
+        }
     }
     Err(format!("Description not found for {}", dir_name))
 }
@@ -805,9 +810,10 @@ fn parse_lfs_pointer(ptr_text: &str) -> Option<(String, u64)> {
                 oid = Some(val.to_string());
             }
         } else if let Some(rest) = line.strip_prefix("size ")
-            && let Ok(n) = rest.trim().parse::<u64>() {
-                size = Some(n);
-            }
+            && let Ok(n) = rest.trim().parse::<u64>()
+        {
+            size = Some(n);
+        }
     }
     match (oid, size) {
         (Some(o), Some(s)) => Some((o, s)),
@@ -831,21 +837,21 @@ async fn fetch_pointer_for_thumb(
         );
         if let Ok(resp) = client.get(&url).send().await
             && resp.status().is_success()
-                && let Ok(meta) = resp.json::<GitLabFileContent>().await
-                    && meta.encoding.to_lowercase() == "base64"
-                        && let Ok(bytes) =
-                            base64::engine::general_purpose::STANDARD.decode(meta.content)
-                            && let Ok(text) = String::from_utf8(bytes)
-                                && let Some((oid, size)) = parse_lfs_pointer(&text) {
-                                    return Some((oid, size));
-                                }
+            && let Ok(meta) = resp.json::<GitLabFileContent>().await
+            && meta.encoding.to_lowercase() == "base64"
+            && let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(meta.content)
+            && let Ok(text) = String::from_utf8(bytes)
+            && let Some((oid, size)) = parse_lfs_pointer(&text)
+        {
+            return Some((oid, size));
+        }
     }
     None
 }
 
 #[tauri::command]
 pub async fn batch_fetch_thumbnails_lfs(inputs: Vec<ModThumbInput>) -> Result<u32, String> {
-    use futures::{stream, StreamExt};
+    use futures::{StreamExt, stream};
 
     // Ensure output directory exists early
     let (thumbs_dir, _) = ensure_assets_dirs()?;
@@ -1069,17 +1075,18 @@ pub async fn batch_fetch_thumbnails_lfs(inputs: Vec<ModThumbInput>) -> Result<u3
                     }
                     if let Ok(resp) = req.send().await
                         && resp.status().is_success()
-                            && let Ok(bytes) = resp.bytes().await {
-                                let mut count = 0u32;
-                                for t in &titles {
-                                    let slug = safe_slug(t);
-                                    let path = thumbs_dir_cloned.join(format!("{slug}.jpg"));
-                                    if std::fs::write(&path, &bytes).is_ok() {
-                                        count += 1;
-                                    }
-                                }
-                                return count;
+                        && let Ok(bytes) = resp.bytes().await
+                    {
+                        let mut count = 0u32;
+                        for t in &titles {
+                            let slug = safe_slug(t);
+                            let path = thumbs_dir_cloned.join(format!("{slug}.jpg"));
+                            if std::fs::write(&path, &bytes).is_ok() {
+                                count += 1;
                             }
+                        }
+                        return count;
+                    }
                     0u32
                 }
             })

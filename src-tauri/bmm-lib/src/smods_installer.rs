@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use dirs;
 use log::info;
 use reqwest::header::{HeaderMap, HeaderValue, USER_AGENT};
@@ -283,17 +283,18 @@ impl ModInstaller {
         while let Some(entry) = entries.next_entry().await? {
             let path = entry.path();
             if path.is_dir()
-                && let Some(dir_name) = path.file_name().and_then(|n| n.to_str()) {
-                    // Match both Steamodded and specific commit formats
-                    if dir_name.to_lowercase().contains("steamodded")
-                        || dir_name.starts_with("smods-")
-                        || dir_name.starts_with("Steamodded-smods-")
-                    {
-                        found = true;
-                        info!("Removing mod directory: {path:?}");
-                        tokio_fs::remove_dir_all(&path).await?;
-                    }
+                && let Some(dir_name) = path.file_name().and_then(|n| n.to_str())
+            {
+                // Match both Steamodded and specific commit formats
+                if dir_name.to_lowercase().contains("steamodded")
+                    || dir_name.starts_with("smods-")
+                    || dir_name.starts_with("Steamodded-smods-")
+                {
+                    found = true;
+                    info!("Removing mod directory: {path:?}");
+                    tokio_fs::remove_dir_all(&path).await?;
                 }
+            }
         }
 
         if !found {

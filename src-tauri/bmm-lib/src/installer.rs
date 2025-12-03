@@ -1,7 +1,7 @@
 use crate::errors::AppError;
 use flate2::read::GzDecoder;
-use reqwest::header::{CONTENT_DISPOSITION, CONTENT_TYPE};
 use reqwest::Client;
+use reqwest::header::{CONTENT_DISPOSITION, CONTENT_TYPE};
 use std::fs;
 use std::io::Read;
 use std::io::{self, Cursor};
@@ -476,9 +476,10 @@ pub fn uninstall_mod(path: PathBuf) -> Result<(), AppError> {
     validate_uninstall_path(&path, &mods_dir)?;
 
     if let Some(dir_name) = path.file_name().and_then(|n| n.to_str())
-        && dir_name.starts_with("Steamodded-smods-") {
-            log::info!("Uninstalling Steamodded variant: {dir_name}");
-        }
+        && dir_name.starts_with("Steamodded-smods-")
+    {
+        log::info!("Uninstalling Steamodded variant: {dir_name}");
+    }
 
     fs::remove_dir_all(&path).map_err(|e| AppError::FileWrite {
         path,
@@ -545,8 +546,8 @@ mod tests {
     #[test]
     fn handle_zip_extracts_root_files() {
         use std::io::Write;
-        use zip::write::FileOptions;
         use zip::ZipWriter;
+        use zip::write::FileOptions;
 
         let mut buf: Vec<u8> = Vec::new();
         {
@@ -570,8 +571,8 @@ mod tests {
     #[test]
     fn handle_zip_extracts_folder_structure() {
         use std::io::Write;
-        use zip::write::FileOptions;
         use zip::ZipWriter;
+        use zip::write::FileOptions;
 
         let mut buf: Vec<u8> = Vec::new();
         {

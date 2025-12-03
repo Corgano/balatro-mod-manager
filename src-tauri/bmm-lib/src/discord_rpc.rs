@@ -1,4 +1,4 @@
-use discord_rich_presence::{activity, DiscordIpc, DiscordIpcClient};
+use discord_rich_presence::{DiscordIpc, DiscordIpcClient, activity};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
@@ -44,13 +44,14 @@ impl DiscordRpcManager {
                 if !enabled {
                     // If disabled, close any existing connection
                     if let Ok(mut client_guard) = manager_clone.client.lock()
-                        && let Some(client) = client_guard.as_mut() {
-                            log::info!("Closing Discord connection (disabled)");
-                            if let Err(e) = client.close() {
-                                log::error!("Failed to close connection: {e}");
-                            }
-                            *client_guard = None;
+                        && let Some(client) = client_guard.as_mut()
+                    {
+                        log::info!("Closing Discord connection (disabled)");
+                        if let Err(e) = client.close() {
+                            log::error!("Failed to close connection: {e}");
                         }
+                        *client_guard = None;
+                    }
                     continue;
                 }
 
@@ -123,9 +124,10 @@ impl DiscordRpcManager {
                 log::info!("Disabling Discord RPC, closing connection");
                 if let Ok(mut client_guard) = self.client.lock() {
                     if let Some(client) = client_guard.as_mut()
-                        && let Err(e) = client.close() {
-                            log::error!("Failed to close Discord RPC connection: {e}");
-                        }
+                        && let Err(e) = client.close()
+                    {
+                        log::error!("Failed to close Discord RPC connection: {e}");
+                    }
                     *client_guard = None;
                 }
             }

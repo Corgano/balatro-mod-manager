@@ -138,13 +138,14 @@ fn ensure_native_mod_dir_link() -> Result<(), String> {
         }
 
         if let Some(parent) = love_mods.parent()
-            && let Err(e) = fs::create_dir_all(parent) {
-                return Err(format!(
-                    "Failed to create LOVE mods parent {}: {}",
-                    parent.display(),
-                    e
-                ));
-            }
+            && let Err(e) = fs::create_dir_all(parent)
+        {
+            return Err(format!(
+                "Failed to create LOVE mods parent {}: {}",
+                parent.display(),
+                e
+            ));
+        }
 
         symlink(&host_mods, &love_mods).map_err(|e| {
             format!(
@@ -251,14 +252,15 @@ pub async fn launch_balatro(state: tauri::State<'_, AppState>) -> Result<(), Str
     // Refresh Lovely if a newer version is available
     if let Ok(latest) = get_latest_lovely_version().await
         && let Ok(db) = state.db.lock()
-            && let Ok(current) = db.get_lovely_version()
-                && current.as_deref() != Some(latest.as_str()) {
-                    let _ = db.set_lovely_version(&latest);
-                    if let Some(config_dir) = dirs::config_dir() {
-                        let _ = remove_file(config_dir.join("Balatro/bins/liblovely.so"));
-                    }
-                    let _ = remove_file(path.join("liblovely.so"));
-                }
+        && let Ok(current) = db.get_lovely_version()
+        && current.as_deref() != Some(latest.as_str())
+    {
+        let _ = db.set_lovely_version(&latest);
+        if let Some(config_dir) = dirs::config_dir() {
+            let _ = remove_file(config_dir.join("Balatro/bins/liblovely.so"));
+        }
+        let _ = remove_file(path.join("liblovely.so"));
+    }
 
     let lovely_so = ensure_lovely_so_exists(&path)
         .await
@@ -371,12 +373,13 @@ pub async fn get_talisman_versions() -> Result<Vec<String>, String> {
 #[tauri::command]
 pub async fn get_latest_steamodded_release() -> Result<String, String> {
     if let Ok(Some(versions)) = cache::load_versions_cache("steamodded")
-        && !versions.is_empty() {
-            let version = &versions[0];
-            return Ok(format!(
-                "https://github.com/Steamodded/smods/archive/refs/tags/{version}.zip"
-            ));
-        }
+        && !versions.is_empty()
+    {
+        let version = &versions[0];
+        return Ok(format!(
+            "https://github.com/Steamodded/smods/archive/refs/tags/{version}.zip"
+        ));
+    }
 
     let installer = ModInstaller::new(ModType::Steamodded);
     installer

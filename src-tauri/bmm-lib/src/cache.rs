@@ -1,7 +1,7 @@
 use crate::errors::AppError;
+use flate2::Compression;
 use flate2::read::GzDecoder;
 use flate2::write::GzEncoder;
-use flate2::Compression;
 use serde::{Deserialize, Serialize};
 use serde_repr::*;
 use std::fs::File;

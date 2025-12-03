@@ -16,9 +16,9 @@ use std::path::PathBuf;
 #[cfg(target_os = "windows")]
 use sysinfo::System;
 #[cfg(target_os = "windows")]
-use winreg::enums::*;
-#[cfg(target_os = "windows")]
 use winreg::RegKey;
+#[cfg(target_os = "windows")]
+use winreg::enums::*;
 
 #[cfg(target_os = "windows")]
 fn read_path_from_registry() -> Result<String, std::io::Error> {
@@ -184,12 +184,13 @@ pub fn get_balatro_paths() -> Vec<PathBuf> {
 
     // Prefer custom DB path first
     if let Ok(db) = Database::new()
-        && let Ok(Some(custom_path)) = db.get_installation_path() {
-            let p = PathBuf::from(&custom_path);
-            if p.exists() {
-                paths.push(p);
-            }
+        && let Ok(Some(custom_path)) = db.get_installation_path()
+    {
+        let p = PathBuf::from(&custom_path);
+        if p.exists() {
+            paths.push(p);
         }
+    }
 
     let mut steam_roots: Vec<PathBuf> = Vec::new();
     let mut seen_roots: HashSet<String> = HashSet::new();
@@ -245,9 +246,10 @@ pub fn is_steam_running() -> bool {
         if let Ok(pids) = processes::pids_by_type(processes::ProcFilter::All) {
             for pid in pids {
                 if let Ok(name) = name(pid as i32)
-                    && name.to_lowercase().contains("steam") {
-                        return true;
-                    }
+                    && name.to_lowercase().contains("steam")
+                {
+                    return true;
+                }
             }
         }
         false
@@ -331,10 +333,10 @@ pub fn is_balatro_running() -> bool {
                         if let (Some(self_path), Ok(proc_path)) = (
                             &self_exe_path,
                             std::fs::read_link(format!("/proc/{pid}/exe")),
-                        )
-                            && proc_path == *self_path {
-                                continue;
-                            }
+                        ) && proc_path == *self_path
+                        {
+                            continue;
+                        }
                     }
 
                     // Linux can truncate binary names; skip anything that matches our own executable name or obvious variants.
@@ -342,9 +344,9 @@ pub fn is_balatro_running() -> bool {
                         && (name_lower == self_name
                             || self_name.starts_with(&name_lower)
                             || name_lower.starts_with(self_name))
-                        {
-                            continue;
-                        }
+                    {
+                        continue;
+                    }
                     if name_lower.contains("balatro-mod")
                         || name_lower.contains("balatro mod")
                         || name_lower.contains("balatro_mod")
@@ -357,12 +359,13 @@ pub fn is_balatro_running() -> bool {
                         return true;
                     }
                     if name_lower == "love"
-                        && let Ok(cwd) = std::fs::read_link(format!("/proc/{pid}/cwd")) {
-                            let cwd = cwd.canonicalize().unwrap_or(cwd);
-                            if balatro_roots.contains(&cwd) {
-                                return true;
-                            }
+                        && let Ok(cwd) = std::fs::read_link(format!("/proc/{pid}/cwd"))
+                    {
+                        let cwd = cwd.canonicalize().unwrap_or(cwd);
+                        if balatro_roots.contains(&cwd) {
+                            return true;
                         }
+                    }
                 }
             }
         }

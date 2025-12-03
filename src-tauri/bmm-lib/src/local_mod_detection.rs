@@ -81,9 +81,10 @@ pub fn detect_manual_mods_cached(
     let fp = compute_fingerprint(&mods_dir);
     if let Ok(mut guard) = DETECTION_CACHE.lock() {
         if let Some((cached_fp, cached_mods)) = &*guard
-            && cached_fp == &fp {
-                return Ok(cached_mods.clone());
-            }
+            && cached_fp == &fp
+        {
+            return Ok(cached_mods.clone());
+        }
         // Miss: compute fresh
         let fresh = detect_manual_mods(db, cached_catalog_mods)?;
         *guard = Some((fp, fresh.clone()));
@@ -326,10 +327,11 @@ fn scan_for_json_files(dir_path: &Path) -> Result<Vec<PathBuf>, String> {
         }
 
         if let Some(name) = path.file_name().and_then(|n| n.to_str())
-            && preferred.iter().any(|p| name.eq_ignore_ascii_case(p)) {
-                preferred_files.push(path.clone());
-                continue;
-            }
+            && preferred.iter().any(|p| name.eq_ignore_ascii_case(p))
+        {
+            preferred_files.push(path.clone());
+            continue;
+        }
 
         if path.extension().and_then(|e| e.to_str()) == Some("json") {
             fallback_json.push(path);
@@ -707,32 +709,33 @@ fn detect_mod_in_directory(mod_path: &Path) -> Result<Option<DetectedMod>, Strin
     // Check for Thunderstore manifest.json first
     let manifest_path = mod_path.join("manifest.json");
     if manifest_path.exists()
-        && let Some(detected_mod) = parse_thunderstore_manifest(&manifest_path, mod_path)? {
-            // If this is Steamodded, return it immediately
-            if detected_mod.name.to_lowercase() == "steamodded" {
+        && let Some(detected_mod) = parse_thunderstore_manifest(&manifest_path, mod_path)?
+    {
+        // If this is Steamodded, return it immediately
+        if detected_mod.name.to_lowercase() == "steamodded" {
+            return Ok(Some(detected_mod));
+        }
+
+        // For other mods, we'll store it and continue checking other formats
+        // in case there's a more detailed mod definition
+        let thunderstore_mod = detected_mod;
+
+        // Check for other JSON files that might have more information
+        let json_files = scan_for_json_files(mod_path)?;
+        for json_path in &json_files {
+            // Skip the manifest we already processed
+            if json_path == &manifest_path {
+                continue;
+            }
+
+            if let Some(detected_mod) = parse_mod_json(json_path, mod_path)? {
                 return Ok(Some(detected_mod));
             }
-
-            // For other mods, we'll store it and continue checking other formats
-            // in case there's a more detailed mod definition
-            let thunderstore_mod = detected_mod;
-
-            // Check for other JSON files that might have more information
-            let json_files = scan_for_json_files(mod_path)?;
-            for json_path in &json_files {
-                // Skip the manifest we already processed
-                if json_path == &manifest_path {
-                    continue;
-                }
-
-                if let Some(detected_mod) = parse_mod_json(json_path, mod_path)? {
-                    return Ok(Some(detected_mod));
-                }
-            }
-
-            // If we didn't find a better mod definition, use the Thunderstore one
-            return Ok(Some(thunderstore_mod));
         }
+
+        // If we didn't find a better mod definition, use the Thunderstore one
+        return Ok(Some(thunderstore_mod));
+    }
 
     // Special handling for Steamodded with various folder names
     let dir_name_lower = dir_name.to_lowercase();
@@ -773,9 +776,10 @@ fn detect_mod_in_directory(mod_path: &Path) -> Result<Option<DetectedMod>, Strin
     // Look for any Lua file with the same name as the directory
     let lua_path = mod_path.join(format!("{dir_name}.lua"));
     if lua_path.exists()
-        && let Some(detected_mod) = parse_mod_lua_header(&lua_path, mod_path)? {
-            return Ok(Some(detected_mod));
-        }
+        && let Some(detected_mod) = parse_mod_lua_header(&lua_path, mod_path)?
+    {
+        return Ok(Some(detected_mod));
+    }
 
     // Special handling for mod packages that have a structure like:
     // ModName/Mods/ModName/ModName.lua
@@ -783,9 +787,10 @@ fn detect_mod_in_directory(mod_path: &Path) -> Result<Option<DetectedMod>, Strin
     let potential_lua_path = potential_mod_dir.join(format!("{dir_name}.lua"));
 
     if potential_lua_path.exists()
-        && let Some(detected_mod) = parse_mod_lua_header(&potential_lua_path, mod_path)? {
-            return Ok(Some(detected_mod));
-        }
+        && let Some(detected_mod) = parse_mod_lua_header(&potential_lua_path, mod_path)?
+    {
+        return Ok(Some(detected_mod));
+    }
 
     // If we have a Mods directory with content, this might be a mod package
     let mods_dir = mod_path.join("Mods");
@@ -823,10 +828,12 @@ fn detect_mod_in_directory(mod_path: &Path) -> Result<Option<DetectedMod>, Strin
         let entry = entry.map_err(|e| format!("Failed to read directory entry: {e}"))?;
         let path = entry.path();
 
-        if path.is_file() && path.extension().and_then(|ext| ext.to_str()) == Some("lua")
-            && let Some(detected_mod) = parse_mod_lua_header(&path, mod_path)? {
-                return Ok(Some(detected_mod));
-            }
+        if path.is_file()
+            && path.extension().and_then(|ext| ext.to_str()) == Some("lua")
+            && let Some(detected_mod) = parse_mod_lua_header(&path, mod_path)?
+        {
+            return Ok(Some(detected_mod));
+        }
     }
 
     // No mod configuration found
@@ -1108,14 +1115,16 @@ fn parse_mod_lua_header(lua_path: &Path, mod_path: &Path) -> Result<Option<Detec
 
     // If we couldn't find required fields, try to infer from the directory/file name
     if name.is_empty()
-        && let Some(file_name) = lua_path.file_stem().and_then(|s| s.to_str()) {
-            name = file_name.to_string();
-        }
+        && let Some(file_name) = lua_path.file_stem().and_then(|s| s.to_str())
+    {
+        name = file_name.to_string();
+    }
 
     if id.is_empty()
-        && let Some(file_name) = lua_path.file_stem().and_then(|s| s.to_str()) {
-            id = file_name.replace(" ", "");
-        }
+        && let Some(file_name) = lua_path.file_stem().and_then(|s| s.to_str())
+    {
+        id = file_name.replace(" ", "");
+    }
 
     if author.is_empty() {
         author.push("Unknown".to_string());

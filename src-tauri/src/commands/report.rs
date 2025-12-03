@@ -1,4 +1,4 @@
-use base64::{engine::general_purpose::STANDARD, Engine as _};
+use base64::{Engine as _, engine::general_purpose::STANDARD};
 use serde::Serialize;
 use std::fs;
 use sysinfo::System;
@@ -385,22 +385,24 @@ fn detect_cpu() -> String {
             .arg("-c")
             .arg("lscpu | grep 'Model name' | cut -d: -f2")
             .output()
-            && out.status.success() {
-                let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
-                if !s.is_empty() {
-                    return s;
-                }
+            && out.status.success()
+        {
+            let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            if !s.is_empty() {
+                return s;
             }
+        }
         if let Ok(out) = Command::new("sh")
             .arg("-c")
             .arg("grep -m1 'model name' /proc/cpuinfo | cut -d: -f2")
             .output()
-            && out.status.success() {
-                let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
-                if !s.is_empty() {
-                    return s;
-                }
+            && out.status.success()
+        {
+            let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            if !s.is_empty() {
+                return s;
             }
+        }
     }
     "Unknown".to_string()
 }

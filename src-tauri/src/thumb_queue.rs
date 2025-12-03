@@ -2,8 +2,8 @@ use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 
 use reqwest::StatusCode;
-use tokio::sync::{mpsc, Semaphore};
-use tokio::time::{sleep, Duration};
+use tokio::sync::{Semaphore, mpsc};
+use tokio::time::{Duration, sleep};
 
 /// Background thumbnail fetch request
 #[derive(Clone, Debug)]
@@ -95,9 +95,10 @@ impl ThumbnailManager {
             return;
         }
         if let Ok(mut set) = self.enqueued.lock()
-            && !set.insert(title.clone()) {
-                return; // already queued
-            }
+            && !set.insert(title.clone())
+        {
+            return; // already queued
+        }
         let _ = self.tx.try_send(ThumbReq {
             title,
             url,
@@ -178,18 +179,19 @@ fn jitter(base: Duration) -> Duration {
 fn retry_after_delay(headers: &reqwest::header::HeaderMap) -> Option<Duration> {
     use reqwest::header::RETRY_AFTER;
     if let Some(val) = headers.get(RETRY_AFTER)
-        && let Ok(s) = val.to_str() {
-            // Either seconds or HTTP-date
-            if let Ok(secs) = s.trim().parse::<u64>() {
-                return Some(Duration::from_secs(secs));
-            }
-            if let Ok(target) = httpdate::parse_http_date(s) {
-                // Convert to duration from now; guard against past
-                if let Ok(diff) = target.duration_since(std::time::SystemTime::now()) {
-                    return Some(diff);
-                }
+        && let Ok(s) = val.to_str()
+    {
+        // Either seconds or HTTP-date
+        if let Ok(secs) = s.trim().parse::<u64>() {
+            return Some(Duration::from_secs(secs));
+        }
+        if let Ok(target) = httpdate::parse_http_date(s) {
+            // Convert to duration from now; guard against past
+            if let Ok(diff) = target.duration_since(std::time::SystemTime::now()) {
+                return Some(diff);
             }
         }
+    }
     None
 }
 

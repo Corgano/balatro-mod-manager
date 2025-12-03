@@ -8,7 +8,7 @@ use std::io::{BufReader, Cursor, Read, Write};
 use std::path::Path;
 use std::path::PathBuf;
 use zip::ZipArchive;
-use zip::{write::FileOptions, CompressionMethod, ZipWriter};
+use zip::{CompressionMethod, ZipWriter, write::FileOptions};
 
 #[derive(Clone, Debug)]
 pub struct Balatro {
@@ -246,9 +246,10 @@ impl Balatro {
 #[cfg(not(target_os = "macos"))]
 fn normalize_non_mac_install_path(path: PathBuf) -> PathBuf {
     if path.is_file()
-        && let Some(parent) = path.parent() {
-            return parent.to_path_buf();
-        }
+        && let Some(parent) = path.parent()
+    {
+        return parent.to_path_buf();
+    }
     path
 }
 
@@ -397,7 +398,9 @@ pub fn get_save_dir(linux_native: bool) -> PathBuf {
             save_dir = format!("{home}/.local/share/love/Balatro");
         } else {
             let home = std::env::var("HOME").unwrap();
-            save_dir = format!("{home}/.local/share/Steam/steamapps/compatdata/2379780/pfx/drive_c/users/steamuser/AppData/Roaming/Balatro");
+            save_dir = format!(
+                "{home}/.local/share/Steam/steamapps/compatdata/2379780/pfx/drive_c/users/steamuser/AppData/Roaming/Balatro"
+            );
         }
     }
 
