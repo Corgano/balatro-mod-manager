@@ -14,6 +14,7 @@
     "--socket=wayland",
     "--device=dri",
     "--share=network",
+    "--socket=pulseaudio",
     "--filesystem=xdg-config/Balatro",
     "--filesystem=xdg-data/Balatro",
     "--filesystem=home/.local/share/Steam",
