@@ -27,8 +27,12 @@ Scroll down to find **▸Assets** and download the right version of the installe
 - Linux: `Balatro.Mod.Manager_…_amd64.AppImage` (mark as executable if needed)
 
 ## Flatpak (Steam Deck/Linux)
-> You need [flatpak-builder](https://docs.flatpak.org/de/latest/flatpak-builder.html) for this
-
+> You need [flatpak-builder](https://docs.flatpak.org/de/latest/flatpak-builder.html) for this. 
+- Run from a local checkout:
+  ```bash
+  git clone https://github.com/skyline69/balatro-mod-manager.git
+  cd balatro-mod-manager
+  ```
 - Install runtimes once (GNOME 47 + toolchain extensions):
   ```bash
   flatpak install org.gnome.Platform//47 org.gnome.Sdk//47 \
