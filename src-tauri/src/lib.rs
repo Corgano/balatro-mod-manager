@@ -335,6 +335,7 @@ pub fn run() {
             commands::detection::backup_local_mod,
             commands::detection::restore_from_backup,
             commands::detection::remove_backup,
+            commands::external::open_external_url,
             exit_application
         ])
         .run(tauri::generate_context!());
