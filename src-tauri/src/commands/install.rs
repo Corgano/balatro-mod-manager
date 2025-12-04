@@ -120,10 +120,12 @@ fn strip_wrapper_env(cmd: &mut Command) {
 
 #[cfg(target_os = "linux")]
 fn ensure_native_mod_dir_link() -> Result<(), String> {
-    let Some(host_config) = dirs::config_dir() else {
+    // Prefer host config/data paths even inside Flatpak, so mods/logs live on the host.
+    let Some(home_dir) = dirs::home_dir() else {
         return Ok(());
     };
-    let host_mods = host_config.join("Balatro").join("Mods");
+    let host_config = home_dir.join(".config").join("Balatro");
+    let host_mods = host_config.join("Mods");
 
     let link_mods = |love_mods: PathBuf| -> Result<(), String> {
         if love_mods.exists() {
@@ -173,10 +175,8 @@ fn ensure_native_mod_dir_link() -> Result<(), String> {
     }
 
     // Link both data and config locations that LOVE may use
-    if let Some(data_dir) = dirs::data_dir() {
-        let love_mods_data = data_dir.join("love/Mods");
-        let _ = link_mods(love_mods_data);
-    }
+    let love_mods_data = home_dir.join(".local/share/love/Mods");
+    let _ = link_mods(love_mods_data);
     let love_mods_config = host_config.join("love/Mods");
     let _ = link_mods(love_mods_config);
 
@@ -308,6 +308,23 @@ pub async fn launch_balatro(state: tauri::State<'_, AppState>) -> Result<(), Str
         .current_dir(&path)
         .arg("Balatro.love")
         .env("LD_PRELOAD", &lovely_so);
+    // Use host config dir so mods/logs live outside the Flatpak sandbox.
+    if let Some(home) = dirs::home_dir() {
+        let host_config = home.join(".config").join("Balatro");
+        let _ = fs::create_dir_all(&host_config);
+        if env::var("FLATPAK_ID").is_ok() || env::var("XDG_CONFIG_HOME").is_err() {
+            love_cmd.env("XDG_CONFIG_HOME", &host_config);
+        }
+    }
+    // Nudge SDL to a usable video backend inside Flatpak without hard-forcing X11
+    // when it's unavailable. If DISPLAY exists, prefer X11; otherwise fall back to Wayland.
+    if env::var("SDL_VIDEODRIVER").is_err() && env::var("FLATPAK_ID").is_ok() {
+        if env::var("DISPLAY").is_ok() {
+            love_cmd.env("SDL_VIDEODRIVER", "x11");
+        } else if env::var("WAYLAND_DISPLAY").is_ok() {
+            love_cmd.env("SDL_VIDEODRIVER", "wayland");
+        }
+    }
     if let Some(ref lib_dir) = love_lib_path {
         love_cmd.env("LD_LIBRARY_PATH", lib_dir);
     }
