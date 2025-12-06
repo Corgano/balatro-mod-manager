@@ -1,5 +1,6 @@
-use std::io::Cursor;
-use std::path::PathBuf;
+use std::fs::File;
+use std::io::{Cursor, Read, Seek};
+use std::path::{Path, PathBuf};
 
 use flate2::read::GzDecoder;
 use tar::Archive;
@@ -22,13 +23,12 @@ pub async fn process_dropped_file(path: String) -> Result<String, String> {
         .to_str()
         .ok_or_else(|| "Invalid file name".to_string())?;
 
-    let mut file =
-        std::fs::File::open(file_path).map_err(|e| format!("Failed to open file: {e}"))?;
-    let mut buffer = Vec::new();
-    std::io::Read::read_to_end(&mut file, &mut buffer)
-        .map_err(|e| format!("Failed to read file: {e}"))?;
+    let file = File::open(file_path).map_err(|e| format!("Failed to open file: {e}"))?;
 
-    process_mod_archive(file_name.to_string(), buffer).await
+    let mod_dir = extract_archive_from_reader(file_name, file, &mods_dir)
+        .map_err(|e| format!("Failed to extract archive: {e}"))?;
+
+    Ok(mod_dir.to_string_lossy().to_string())
 }
 
 #[tauri::command]
@@ -39,31 +39,8 @@ pub async fn process_mod_archive(filename: String, data: Vec<u8>) -> Result<Stri
     std::fs::create_dir_all(&mods_dir)
         .map_err(|e| format!("Failed to create mods directory: {e}"))?;
 
-    let mod_dir_name = filename
-        .trim_end_matches(".zip")
-        .trim_end_matches(".tar.gz")
-        .trim_end_matches(".tgz")
-        .trim_end_matches(".tar")
-        .to_string();
-    let mod_dir = mods_dir.join(&mod_dir_name);
-
-    if mod_dir.exists() {
-        std::fs::remove_dir_all(&mod_dir)
-            .map_err(|e| format!("Failed to remove existing mod directory: {e}"))?;
-    }
-
     let cursor = Cursor::new(data);
-    if filename.ends_with(".zip") {
-        extract_zip_from_memory(cursor, &mod_dir)?;
-    } else if filename.ends_with(".tar") {
-        extract_tar_from_memory(cursor, &mod_dir)?;
-    } else if filename.ends_with(".tar.gz") || filename.ends_with(".tgz") {
-        extract_tar_gz_from_memory(cursor, &mod_dir)?;
-    } else {
-        return Err(
-            "Unsupported file format. Only ZIP, TAR, and TAR.GZ are supported.".to_string(),
-        );
-    }
+    let mod_dir = extract_archive_from_reader(&filename, cursor, &mods_dir)?;
 
     if let Ok(entries) = std::fs::read_dir(&mod_dir) {
         let dirs: Vec<_> = entries
@@ -97,11 +74,44 @@ pub async fn process_mod_archive(filename: String, data: Vec<u8>) -> Result<Stri
     Ok(mod_dir.to_string_lossy().to_string())
 }
 
-fn extract_zip_from_memory(cursor: Cursor<Vec<u8>>, target_dir: &PathBuf) -> Result<(), String> {
+fn extract_archive_from_reader<R: Read + Seek>(
+    filename: &str,
+    reader: R,
+    mods_dir: &std::path::Path,
+) -> Result<PathBuf, String> {
+    let mod_dir_name = filename
+        .trim_end_matches(".zip")
+        .trim_end_matches(".tar.gz")
+        .trim_end_matches(".tgz")
+        .trim_end_matches(".tar")
+        .to_string();
+    let mod_dir = mods_dir.join(&mod_dir_name);
+
+    if mod_dir.exists() {
+        std::fs::remove_dir_all(&mod_dir)
+            .map_err(|e| format!("Failed to remove existing mod directory: {e}"))?;
+    }
+
+    if filename.ends_with(".zip") {
+        extract_zip(reader, &mod_dir)?;
+    } else if filename.ends_with(".tar") {
+        extract_tar(reader, &mod_dir)?;
+    } else if filename.ends_with(".tar.gz") || filename.ends_with(".tgz") {
+        extract_tar_gz(reader, &mod_dir)?;
+    } else {
+        return Err(
+            "Unsupported file format. Only ZIP, TAR, and TAR.GZ are supported.".to_string(),
+        );
+    }
+
+    Ok(mod_dir)
+}
+
+fn extract_zip<R: Read + Seek>(reader: R, target_dir: &Path) -> Result<(), String> {
     std::fs::create_dir_all(target_dir)
         .map_err(|e| format!("Failed to create target directory: {e}"))?;
     let mut archive =
-        ZipArchive::new(cursor).map_err(|e| format!("Failed to open ZIP archive: {e}"))?;
+        ZipArchive::new(reader).map_err(|e| format!("Failed to open ZIP archive: {e}"))?;
     for i in 0..archive.len() {
         let mut file = archive
             .by_index(i)
@@ -131,10 +141,10 @@ fn extract_zip_from_memory(cursor: Cursor<Vec<u8>>, target_dir: &PathBuf) -> Res
     Ok(())
 }
 
-fn extract_tar_from_memory(cursor: Cursor<Vec<u8>>, target_dir: &PathBuf) -> Result<(), String> {
+fn extract_tar<R: Read>(reader: R, target_dir: &Path) -> Result<(), String> {
     std::fs::create_dir_all(target_dir)
         .map_err(|e| format!("Failed to create target directory: {e}"))?;
-    let mut archive = Archive::new(cursor);
+    let mut archive = Archive::new(reader);
     for entry in archive
         .entries()
         .map_err(|e| format!("Failed to read TAR entries: {e}"))?
@@ -155,10 +165,10 @@ fn extract_tar_from_memory(cursor: Cursor<Vec<u8>>, target_dir: &PathBuf) -> Res
     Ok(())
 }
 
-fn extract_tar_gz_from_memory(cursor: Cursor<Vec<u8>>, target_dir: &PathBuf) -> Result<(), String> {
+fn extract_tar_gz<R: Read>(reader: R, target_dir: &Path) -> Result<(), String> {
     std::fs::create_dir_all(target_dir)
         .map_err(|e| format!("Failed to create target directory: {e}"))?;
-    let gz = GzDecoder::new(cursor);
+    let gz = GzDecoder::new(reader);
     let mut archive = Archive::new(gz);
     for entry in archive
         .entries()

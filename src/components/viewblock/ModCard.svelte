@@ -34,8 +34,6 @@ import { isLinuxPlatform } from "$lib/platform";
 		deferImages = false,
 	}: Props = $props();
 
-	// Check if an update is available when component mounts
-	let updateChecked = false;
 	let isEnabled = $state(true); // Default to enabled if not yet checked
 	let enabledChecked = false;
 	let isLinux = false;
@@ -52,32 +50,9 @@ import { isLinuxPlatform } from "$lib/platform";
 		}
 	});
 
-	// Initial load of update status (installed-only to reduce network calls)
-	$effect(() => {
-		if (!updateChecked && $installationStatus[mod.title]) {
-			updateChecked = true;
-			checkForUpdate(mod.title);
-		}
-	});
-
 	onMount(async () => {
 		isLinux = await isLinuxPlatform();
 	});
-
-	async function checkForUpdate(modName: string) {
-		try {
-			const hasUpdate = await invoke<boolean>("mod_update_available", {
-				modName,
-			});
-
-			updateAvailableStore.update((updates: Record<string, boolean>) => ({
-				...updates,
-				[modName]: hasUpdate,
-			}));
-		} catch (error) {
-			console.error("Failed to check for updates:", error);
-		}
-	}
 
 	async function checkModEnabled(modName: string) {
 		try {

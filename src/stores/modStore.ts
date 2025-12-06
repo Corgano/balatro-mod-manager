@@ -139,6 +139,66 @@ export const currentJokerView = writable<Mod | null>(null);
 export const searchResults = writable<Mod[]>([]);
 export const modsStore = writable<Mod[]>([]);
 
+let persistSuspended = false;
+let persistPending = false;
+export async function withModsCachePersistenceSuspended<T>(
+  fn: () => Promise<T>,
+) {
+  persistSuspended = true;
+  try {
+    return await fn();
+  } finally {
+    persistSuspended = false;
+    if (persistPending) {
+      persistPending = false;
+      try {
+        const current = await new Promise<Mod[]>((resolve) =>
+          modsStore.subscribe((v) => {
+            resolve(v);
+          })(),
+        );
+        persistModsCache(current);
+      } catch (_) {
+        // ignore
+      }
+    }
+  }
+}
+
+function persistModsCache(value: Mod[]) {
+  try {
+    const slim = value.map((m) => ({
+      title: m.title,
+      categories: m.categories,
+      colors: m.colors,
+      requires_steamodded: m.requires_steamodded,
+      requires_talisman: m.requires_talisman,
+      publisher: m.publisher,
+      repo: m.repo,
+      downloadURL: m.downloadURL,
+      folderName: m.folderName ?? null,
+      version: m.version ?? null,
+      installed: m.installed,
+      last_updated: m.last_updated,
+      _dirName: m._dirName,
+      _installedPath: m._installedPath,
+      // omit description and image fields (largest strings)
+    }));
+
+    localStorage.setItem("mods-cache", JSON.stringify(slim));
+    const now = Date.now();
+    localStorage.setItem("mods-cache-ts", String(now));
+    catalogLastRefreshed.set(now);
+  } catch (e) {
+    try {
+      localStorage.removeItem("mods-cache");
+      localStorage.removeItem("mods-cache-ts");
+    } catch (_) {
+      // ignore
+    }
+  }
+}
+
 // Background catalog loading state and last refresh time
 export const catalogLoading = writable(false);
 export const catalogLastRefreshed = writable<number | null>(null);
@@ -162,40 +222,19 @@ if (typeof window !== "undefined") {
     // ignore cache read errors
   }
 
+  let persistTimer: number | null = null;
   modsStore.subscribe((value) => {
-    try {
-      // Store a slimmed cache to avoid exceeding localStorage limits.
-      const slim = value.map((m) => ({
-        title: m.title,
-        categories: m.categories,
-        colors: m.colors,
-        requires_steamodded: m.requires_steamodded,
-        requires_talisman: m.requires_talisman,
-        publisher: m.publisher,
-        repo: m.repo,
-        downloadURL: m.downloadURL,
-        folderName: m.folderName ?? null,
-        version: m.version ?? null,
-        installed: m.installed,
-        last_updated: m.last_updated,
-        _dirName: m._dirName,
-        _installedPath: m._installedPath,
-        // omit description and image fields (largest strings)
-      }));
-
-      localStorage.setItem("mods-cache", JSON.stringify(slim));
-      const now = Date.now();
-      localStorage.setItem("mods-cache-ts", String(now));
-      catalogLastRefreshed.set(now);
-    } catch (e) {
-      // On quota errors, clear heavy entries to prevent repeated failures.
-      try {
-        localStorage.removeItem("mods-cache");
-        localStorage.removeItem("mods-cache-ts");
-      } catch (_) {
-        // ignore
-      }
+    if (persistTimer) {
+      clearTimeout(persistTimer);
     }
+    // Debounce cache writes to avoid thrashing localStorage during hydration.
+    persistTimer = window.setTimeout(() => {
+      if (persistSuspended) {
+        persistPending = true;
+        return;
+      }
+      persistModsCache(value);
+    }, 250);
   });
 }
 

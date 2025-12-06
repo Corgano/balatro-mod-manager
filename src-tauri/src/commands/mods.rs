@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 use crate::state::AppState;
 use bmm_lib::errors::AppError;
 use rayon::prelude::*;
+use std::collections::HashMap;
 use std::fs;
 
 #[tauri::command]
@@ -171,4 +172,46 @@ pub async fn toggle_mod_enabled_by_path(mod_path: String, enabled: bool) -> Resu
     }
 
     Ok(())
+}
+
+/// Return an enabled/disabled map for all installed mods in the DB plus provided local paths.
+#[tauri::command]
+pub async fn enabled_state_map(
+    state: tauri::State<'_, AppState>,
+    local_paths: Option<Vec<String>>,
+) -> Result<HashMap<String, bool>, String> {
+    let mut out: HashMap<String, bool> = HashMap::new();
+
+    // DB-installed mods
+    let db = state
+        .db
+        .lock()
+        .map_err(|_| AppError::LockPoisoned("Database lock poisoned".to_string()))?;
+    let installed_mods = db.get_installed_mods().map_err(|e| e.to_string())?;
+    for m in installed_mods {
+        let p = PathBuf::from(&m.path);
+        let ignore = p.join(".lovelyignore");
+        let enabled = !ignore.exists();
+        out.insert(m.name, enabled);
+    }
+
+    // Local mods passed from frontend
+    if let Some(paths) = local_paths {
+        for p in paths {
+            let path = PathBuf::from(&p);
+            let name = path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or_default()
+                .to_string();
+            if name.is_empty() {
+                continue;
+            }
+            let ignore = path.join(".lovelyignore");
+            let enabled = !ignore.exists();
+            out.insert(name, enabled);
+        }
+    }
+
+    Ok(out)
 }

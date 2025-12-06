@@ -29,7 +29,11 @@
 	} from "../../stores/modStore";
 	import type { LocalMod, Mod } from "../../stores/modStore";
 	import { Category } from "../../stores/modStore";
-	import { modsStore, installationStatus } from "../../stores/modStore";
+import {
+	modsStore,
+	installationStatus,
+	withModsCachePersistenceSuspended,
+} from "../../stores/modStore";
 	import { catalogLoading } from "../../stores/modStore";
 	import type { InstalledMod } from "../../stores/modStore";
 	import { invoke, convertFileSrc } from "@tauri-apps/api/core";
@@ -121,23 +125,8 @@ import { openExternal } from "$lib/opener";
 				}
 			}
 
-			// Then check local mods
-			for (const mod of localMods) {
-				try {
-					const isEnabled = await invoke<boolean>(
-						"is_mod_enabled_by_path",
-						{
-							modPath: mod.path,
-						},
-					);
-					modEnabledStore.update((s) => ({
-						...s,
-						[mod.name]: isEnabled,
-					}));
-				} catch (error) {
-					console.error(`Failed to check local mod status: ${error}`);
-				}
-			}
+			// Then check local mods via batch
+			await refreshEnabledState();
 
 			// Update filtered lists
 			updateEnabledDisabledLists();
@@ -155,34 +144,7 @@ import { openExternal } from "$lib/opener";
 			isLoadingLocalMods = true;
 			try {
 				localMods = await invoke("get_detected_local_mods");
-
-				// Check enabled status for each local mod
-				for (const mod of localMods) {
-					try {
-						const isEnabled = await invoke<boolean>(
-							"is_mod_enabled_by_path",
-							{
-								modPath: mod.path,
-							},
-						);
-						modEnabledStore.update((s) => ({
-							...s,
-							[mod.name]: isEnabled,
-						}));
-					} catch (error) {
-						console.error(
-							`Failed to check if local mod ${mod.name} is enabled:`,
-							error,
-						);
-						modEnabledStore.update((s) => ({
-							...s,
-							[mod.name]: true, // Default to enabled
-						}));
-					}
-				}
-
-				// Filter local mods by enabled status
-				updateEnabledDisabledLists();
+				await refreshEnabledState();
 			} catch (error) {
 				console.error("Failed to load local mods:", error);
 				addMessage(`Failed to load local mods: ${error}`, "error");
@@ -345,15 +307,19 @@ const { handleDependencyCheck, mod } = $props<{
 
 				// After mods load, update install status and local mods if needed
 				try {
-					await Promise.all(
-						$modsStore.map(async (mod) => {
-							const status = await checkIfModIsInstalled(mod);
-							installationStatus.update((s) => ({
-								...s,
-								[mod.title]: status,
-							}));
-						}),
+					const installed = await fetchCachedMods();
+					const installedSet = new Set(
+						installed.map((mod) => mod.name.toLowerCase()),
 					);
+					installationStatus.set(
+						Object.fromEntries(
+							$modsStore.map((mod) => [
+								mod.title,
+								installedSet.has(mod.title.toLowerCase()),
+							]),
+						),
+					);
+					await refreshUpdatesMap();
 				} catch (error) {
 					console.error("Install status check failed:", error);
 				}
@@ -948,14 +914,13 @@ const { handleDependencyCheck, mod } = $props<{
 
 			// Re-apply local thumbnails for installed mods (non-blocking)
 			fillInstalledThumbnails($modsStore).catch(() => {});
-			// Use cached descriptions immediately for the current page
-			try { await fillCachedDescriptionsVisibleFirst(); } catch { /* ignore */ }
-			// Ensure visible page has descriptions even without cache
-			try { await fillDescriptionsVisibleFirst(); } catch { /* ignore */ }
-			// Continue filling cached descriptions for the rest (non-blocking)
-			fillCachedDescriptions($modsStore).catch(() => {});
-			// Then fetch any remaining missing ones remotely
-			fillDescriptions(mods).catch((e) => console.warn("desc fill failed", e));
+			// Suspend cache persistence during description hydration to avoid thrashing localStorage
+			await withModsCachePersistenceSuspended(async () => {
+				try { await fillCachedDescriptionsVisibleFirst(); } catch { /* ignore */ }
+				try { await fillDescriptionsVisibleFirst(); } catch { /* ignore */ }
+				fillCachedDescriptions($modsStore).catch(() => {});
+				fillDescriptions(mods).catch((e) => console.warn("desc fill failed", e));
+			});
 			addMessage("All mods loaded", "success");
 		} catch (error) {
 			console.error("Failed to refresh catalog:", error);
@@ -980,7 +945,19 @@ const { handleDependencyCheck, mod } = $props<{
                     .filter((i) => i.image_url && /^https?:\/\//i.test(i.image_url))
                     .map((i) => ({ title: i.meta.title, url: i.image_url }));
                 if (thumbItems.length > 0) {
-                    invoke("enqueue_thumbnails", { items: thumbItems }).catch(() => {});
+                    const seen = new Set<string>();
+                    const filtered = thumbItems.filter((t) => {
+                        if (seen.has(t.title)) return false;
+                        seen.add(t.title);
+                        const existing = $modsStore.find((m) => m.title === t.title);
+                        if (existing && existing.image && !existing.image.endsWith("cover.jpg")) {
+                            return false;
+                        }
+                        return true;
+                    });
+                    if (filtered.length > 0) {
+                        invoke("enqueue_thumbnails", { items: filtered }).catch(() => {});
+                    }
                 }
             } catch (_) { /* ignore */ }
             const mods: Mod[] = items.map((item) => {
@@ -1083,14 +1060,12 @@ const { handleDependencyCheck, mod } = $props<{
 
 			// Also kick off thumbnails/descriptions
 			fillInstalledThumbnails($modsStore).catch(() => {});
-			// Use cached descriptions immediately for the current page
-			try { await fillCachedDescriptionsVisibleFirst(); } catch { /* ignore */ }
-			// Ensure visible page has descriptions even without cache
-			try { await fillDescriptionsVisibleFirst(); } catch { /* ignore */ }
-			// Continue filling cached descriptions for the rest
-			fillCachedDescriptions($modsStore).catch(() => {});
-			// Then fetch remaining ones remotely
-			fillDescriptions(mods).catch(() => {});
+			await withModsCachePersistenceSuspended(async () => {
+				try { await fillCachedDescriptionsVisibleFirst(); } catch { /* ignore */ }
+				try { await fillDescriptionsVisibleFirst(); } catch { /* ignore */ }
+				fillCachedDescriptions($modsStore).catch(() => {});
+				fillDescriptions(mods).catch(() => {});
+			});
 		} finally {
 			catalogLoading.set(false);
 		}
@@ -1100,6 +1075,20 @@ const { handleDependencyCheck, mod } = $props<{
 		// Limit concurrent requests to avoid 429s and prioritize detail view
 		const limit = 6;
 		let i = 0;
+		const updates: { title: string; description: string }[] = [];
+		const applyBatch = () => {
+			if (updates.length === 0) return;
+			const batch = updates.splice(0, updates.length);
+			modsStore.update((arr) => {
+				// Build a map for quick lookup
+				const map = new Map(batch.map((b) => [b.title, b.description]));
+				return arr.map((item) =>
+					map.has(item.title)
+						? { ...item, description: map.get(item.title) || "" }
+						: item,
+				);
+			});
+		};
 		async function worker() {
 			while (true) {
 				const idx = i++;
@@ -1115,15 +1104,7 @@ const { handleDependencyCheck, mod } = $props<{
 						"get_description_cached_or_remote",
 						{ title: m.title, dirName: dir },
 					);
-					// Update store reactively
-					modsStore.update((arr) => {
-						const pos = arr.findIndex((x) => x.title === m.title);
-						if (pos >= 0) {
-                    arr = arr.slice();
-                    arr[pos] = { ...arr[pos], description: text };
-						}
-						return arr;
-					});
+					updates.push({ title: m.title, description: text });
 				} catch (_) {
 					// ignore per-mod desc failures
 				} finally {
@@ -1134,6 +1115,7 @@ const { handleDependencyCheck, mod } = $props<{
 		await Promise.all(
 			new Array(Math.min(limit, mods.length)).fill(0).map(worker),
 		);
+		applyBatch();
 	}
 
 	async function fillDescriptionsVisibleFirst() {
@@ -1149,6 +1131,19 @@ const { handleDependencyCheck, mod } = $props<{
 		if (candidates.length === 0) return;
 		const limit = 4;
 		let i = 0;
+		const updates: { title: string; description: string }[] = [];
+		const applyBatch = () => {
+			if (updates.length === 0) return;
+			const batch = updates.splice(0, updates.length);
+			modsStore.update((arr) => {
+				const map = new Map(batch.map((b) => [b.title, b.description]));
+				return arr.map((item) =>
+					map.has(item.title)
+						? { ...item, description: map.get(item.title) || "" }
+						: item,
+				);
+			});
+		};
 		visibleFirstRunning = true;
 		async function worker() {
 			while (true) {
@@ -1162,14 +1157,7 @@ const { handleDependencyCheck, mod } = $props<{
 						"get_description_cached_or_remote",
 						{ title: c.title, dirName: c.dir }
 					);
-					modsStore.update((arr) => {
-						const pos = arr.findIndex((x) => x.title === c.title);
-						if (pos >= 0) {
-							arr = arr.slice();
-							arr[pos] = { ...arr[pos], description: text };
-						}
-						return arr;
-					});
+					updates.push({ title: c.title, description: text });
 				} catch (_) {
 					// ignore
 				} finally {
@@ -1180,6 +1168,7 @@ const { handleDependencyCheck, mod } = $props<{
 		await Promise.all(
 			new Array(Math.min(limit, candidates.length)).fill(0).map(() => worker()),
 		);
+		applyBatch();
 		visibleFirstRunning = false;
 	}
 
@@ -1187,6 +1176,19 @@ const { handleDependencyCheck, mod } = $props<{
 		// Only reads local cache; no network. Gentle concurrency.
 		const limit = 12;
 		let i = 0;
+		const updates: { title: string; description: string }[] = [];
+		const applyBatch = () => {
+			if (updates.length === 0) return;
+			const batch = updates.splice(0, updates.length);
+			modsStore.update((arr) => {
+				const map = new Map(batch.map((b) => [b.title, b.description]));
+				return arr.map((item) =>
+					map.has(item.title)
+						? { ...item, description: map.get(item.title) || "" }
+						: item,
+				);
+			});
+		};
 		async function worker() {
 			while (true) {
 				const idx = i++;
@@ -1199,14 +1201,7 @@ const { handleDependencyCheck, mod } = $props<{
 						{ title: m.title },
 					);
                         if (cached) {
-                            modsStore.update((arr) => {
-                                const pos = arr.findIndex((x) => x.title === m.title);
-                                if (pos >= 0) {
-                                    arr = arr.slice();
-                                    arr[pos] = { ...arr[pos], description: cached };
-                                }
-                                return arr;
-                            });
+							updates.push({ title: m.title, description: cached });
                         }
 				} catch (_) {
 					// ignore
@@ -1216,6 +1211,7 @@ const { handleDependencyCheck, mod } = $props<{
 		await Promise.all(
 			new Array(Math.min(limit, mods.length)).fill(0).map(() => worker()),
 		);
+		applyBatch();
 	}
 
 	async function fillCachedDescriptionsVisibleFirst() {
@@ -1229,6 +1225,19 @@ const { handleDependencyCheck, mod } = $props<{
 		if (candidates.length === 0) return;
 		const limit = 8;
 		let i = 0;
+		const updates: { title: string; description: string }[] = [];
+		const applyBatch = () => {
+			if (updates.length === 0) return;
+			const batch = updates.splice(0, updates.length);
+			modsStore.update((arr) => {
+				const map = new Map(batch.map((b) => [b.title, b.description]));
+				return arr.map((item) =>
+					map.has(item.title)
+						? { ...item, description: map.get(item.title) || "" }
+						: item,
+				);
+			});
+		};
 		async function worker() {
 			while (true) {
 				const idx = i++;
@@ -1242,14 +1251,7 @@ const { handleDependencyCheck, mod } = $props<{
 						{ title },
 					);
                         if (cached) {
-                            modsStore.update((arr) => {
-                                const pos = arr.findIndex((x) => x.title === title);
-                                if (pos >= 0) {
-                                    arr = arr.slice();
-                                    arr[pos] = { ...arr[pos], description: cached };
-                                }
-                                return arr;
-                            });
+							updates.push({ title, description: cached });
                         }
 				} catch (_) {
 					// ignore
@@ -1259,6 +1261,7 @@ const { handleDependencyCheck, mod } = $props<{
 		await Promise.all(
 			new Array(Math.min(limit, candidates.length)).fill(0).map(() => worker()),
 		);
+		applyBatch();
 	}
 
 	async function fillInstalledThumbnails(mods: Mod[]) {
@@ -1583,25 +1586,57 @@ onDestroy(() => {
 			await forceRefreshCache();
 			installedMods = await fetchCachedMods();
 
-			// Update installation status for all mods in the store
-			for (const mod of $modsStore) {
-				const installedMod = installedMods.find(
-					(m) => m.name === mod.title,
-				);
-				const isInstalled = installedMod !== undefined;
-				installationStatus.update((s) => ({
-					...s,
-					[mod.title]: isInstalled,
-				}));
-			}
+			// Update installation status for all mods in one batch to avoid excess reactivity churn
+			const installedSet = new Set(
+				installedMods.map((m) => m.name.toLowerCase()),
+			);
+			installationStatus.set(
+				Object.fromEntries(
+					$modsStore.map((mod) => [
+						mod.title,
+						installedSet.has(mod.title.toLowerCase()),
+					]),
+				),
+			);
 
 			// Filter mods by enabled status
 			updateEnabledDisabledLists();
 
 			// Ensure enabled/disabled state is populated for catalog mods
 			await handleModToggled();
+
+			// Refresh update availability in one batch
+			refreshUpdatesMap().catch(() => {});
+			await refreshEnabledState();
 		} catch (error) {
 			console.error("Failed to refresh installed mods:", error);
+		}
+	}
+
+	async function refreshUpdatesMap() {
+		try {
+			const map = await invoke<Record<string, boolean>>(
+				"mods_updates_map",
+			);
+			updateAvailableStore.set(map);
+		} catch (error) {
+			console.warn("Failed to refresh updates map:", error);
+		}
+	}
+
+	async function refreshEnabledState() {
+		try {
+			const localPaths = localMods.map((m) => m.path);
+			const map = await invoke<Record<string, boolean>>(
+				"enabled_state_map",
+				{
+					localPaths,
+				},
+			);
+			modEnabledStore.set(map);
+			updateEnabledDisabledLists();
+		} catch (error) {
+			console.warn("Failed to refresh enabled state map:", error);
 		}
 	}
 

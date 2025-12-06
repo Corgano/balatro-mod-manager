@@ -88,7 +88,6 @@ import { openExternal } from "$lib/opener";
 	let loadingVersions = $state(false);
 let renderedDescription = $state("");
 let descLoading = $state(false);
-	let isCheckingForUpdates = $state(false);
 	let isLinux = false;
 
 	// Add a local state variable for tracking enabled status
@@ -113,26 +112,6 @@ let descLoading = $state(false);
 	interface internalModLinkData {
 		isMod: boolean;
 		modName: string;
-	}
-
-	async function checkForUpdate(modName: string) {
-		if (isCheckingForUpdates) return;
-
-		isCheckingForUpdates = true;
-		try {
-			const hasUpdate = await invoke<boolean>("mod_update_available", {
-				modName,
-			});
-
-			updateAvailableStore.update((updates: Record<string, boolean>) => ({
-				...updates,
-				[modName]: hasUpdate,
-			}));
-		} catch (error) {
-			console.error("Failed to check for updates:", error);
-		} finally {
-			isCheckingForUpdates = false;
-		}
 	}
 
 	function isInternalModLink(url: string): internalModLinkData {
@@ -626,11 +605,6 @@ let descLoading = $state(false);
 				...s,
 				[mod.title]: status,
 			}));
-
-			// If the mod is installed, check for updates
-			if (status) {
-				checkForUpdate(mod.title);
-			}
 		}, 0);
 
 		return status;

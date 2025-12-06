@@ -164,13 +164,12 @@ pub async fn fetch_gitlab_mods_archive() -> Result<Vec<ArchiveModItem>, String> 
         ),
     ];
 
-    // Download archive bytes
-    let mut bytes_opt: Option<Vec<u8>> = None;
+    // Download archive stream
     use reqwest::header::IF_NONE_MATCH;
     let client = reqwest::Client::new();
     let mut used_branch: Option<&'static str> = None;
     let mut received_etag: Option<String> = None;
-    let fetch_start = Instant::now();
+    let mut response_stream: Option<reqwest::Response> = None;
     for (idx, u) in urls.iter().enumerate() {
         let mut req = client.get(u.clone());
         if let Some(c) = &existing_cache
@@ -199,20 +198,9 @@ pub async fn fetch_gitlab_mods_archive() -> Result<Vec<ArchiveModItem>, String> 
                     {
                         received_etag = Some(s.to_string());
                     }
-                    match resp.bytes().await {
-                        Ok(b) => {
-                            bytes_opt = Some(b.to_vec());
-                            used_branch = Some(if idx == 0 { "main" } else { "master" });
-                            log::info!(
-                                "GitLab archive downloaded: {} bytes in {} ms (branch: {})",
-                                bytes_opt.as_ref().map(|v| v.len()).unwrap_or(0),
-                                fetch_start.elapsed().as_millis(),
-                                used_branch.unwrap_or("main")
-                            );
-                            break;
-                        }
-                        Err(e) => return Err(format!("Failed to read archive: {}", e)),
-                    }
+                    used_branch = Some(if idx == 0 { "main" } else { "master" });
+                    response_stream = Some(resp);
+                    break;
                 } else {
                     log::debug!("GitLab archive status {} for {}", resp.status(), u);
                     continue;
@@ -225,14 +213,36 @@ pub async fn fetch_gitlab_mods_archive() -> Result<Vec<ArchiveModItem>, String> 
         }
     }
 
-    let bytes = match bytes_opt {
-        Some(b) => b,
+    let resp = match response_stream {
+        Some(r) => r,
         None => return Err("Failed to fetch GitLab archive for main/master".into()),
     };
 
-    // Decompress and iterate entries
+    // Stream download to a temp file to avoid holding the full archive in memory.
+    let tmp_path = cache_dir.join("mods_archive.tmp");
+    {
+        use tokio::io::AsyncWriteExt;
+        use tokio_stream::StreamExt;
+        let mut file = tokio::fs::File::create(&tmp_path)
+            .await
+            .map_err(|e| format!("Failed to create temp archive file: {e}"))?;
+        let mut stream = resp.bytes_stream();
+        while let Some(chunk) = stream.next().await {
+            let bytes = chunk.map_err(|e| format!("Download error: {e}"))?;
+            file.write_all(&bytes)
+                .await
+                .map_err(|e| format!("Failed writing archive: {e}"))?;
+        }
+        file.sync_all()
+            .await
+            .map_err(|e| format!("Failed to flush archive: {e}"))?;
+    }
+
+    // Decompress and iterate entries from disk
     let parse_start = Instant::now();
-    let gz = GzDecoder::new(std::io::Cursor::new(bytes));
+    let file =
+        std::fs::File::open(&tmp_path).map_err(|e| format!("Failed to reopen archive: {e}"))?;
+    let gz = GzDecoder::new(file);
     let mut archive = Archive::new(gz);
 
     // Collect per-mod pieces we care about
@@ -336,6 +346,9 @@ pub async fn fetch_gitlab_mods_archive() -> Result<Vec<ArchiveModItem>, String> 
     if let Ok(f) = std::fs::File::create(&cache_file) {
         let _ = serde_json::to_writer_pretty(f, &cache);
     }
+
+    // Clean up temp archive
+    let _ = std::fs::remove_file(&tmp_path);
 
     Ok(out)
 }
