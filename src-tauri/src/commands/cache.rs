@@ -240,6 +240,7 @@ pub struct ModsStateSummary {
 pub async fn mods_state_summary(
     state: tauri::State<'_, AppState>,
     local_paths: Option<Vec<String>>,
+    catalog_titles: Option<Vec<String>>,
 ) -> Result<ModsStateSummary, String> {
     use std::collections::HashMap;
     use std::path::PathBuf;
@@ -308,7 +309,7 @@ pub async fn mods_state_summary(
         }
     }
 
-    // Cached thumbnails and descriptions for installed mods
+    // Cached thumbnails and descriptions for installed mods and visible catalog mods
     let mut thumbnails: HashMap<String, String> = HashMap::new();
     let mut descriptions: HashMap<String, String> = HashMap::new();
     if let Ok((thumbs_dir, desc_dir)) = ensure_assets_dirs() {
@@ -326,6 +327,29 @@ pub async fn mods_state_summary(
                 && let Ok(text) = std::fs::read_to_string(&desc_path)
             {
                 descriptions.insert(m.name.clone(), text);
+            }
+        }
+
+        if let Some(titles) = catalog_titles {
+            for title in titles {
+                let slug = safe_slug(&title);
+                let thumb_path = thumbs_dir.join(format!("{slug}.jpg"));
+                if !thumbnails.contains_key(&title)
+                    && thumb_path.exists()
+                    && let Some(s) = thumb_path.to_str()
+                {
+                    thumbnails.insert(title.clone(), s.to_string());
+                }
+
+                if descriptions.contains_key(&title) {
+                    continue;
+                }
+                let desc_path = desc_dir.join(format!("{slug}.md"));
+                if desc_path.exists()
+                    && let Ok(text) = std::fs::read_to_string(&desc_path)
+                {
+                    descriptions.insert(title, text);
+                }
             }
         }
     }

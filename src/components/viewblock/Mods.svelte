@@ -1641,7 +1641,10 @@ onDestroy(() => {
 				updates: Record<string, boolean>;
 				thumbnails: Record<string, string>;
 				descriptions: Record<string, string>;
-			}>("mods_state_summary", { localPaths });
+			}>("mods_state_summary", {
+				localPaths,
+				catalogTitles: paginatedMods.map((m) => m.title),
+			});
 
 			installedMods = summary.installed.map((m) => ({
 				name: m.name,
