@@ -55,7 +55,26 @@ fn configure_display_backend() -> Option<String> {
     None
 }
 
+#[cfg(target_os = "macos")]
+fn scrub_dyld_injection_env() {
+    // When a global DYLD_INSERT_LIBRARIES/related env is set (e.g., from game launchers),
+    // the manager process itself can get preloaded with external libs and crash on startup.
+    for key in [
+        "DYLD_INSERT_LIBRARIES",
+        "DYLD_LIBRARY_PATH",
+        "DYLD_FRAMEWORK_PATH",
+        "DYLD_FALLBACK_LIBRARY_PATH",
+    ] {
+        // Safety: called during startup before threads spawn, so mutating process env is safe.
+        unsafe {
+            std::env::remove_var(key);
+        }
+    }
+}
+
 fn main() {
+    #[cfg(target_os = "macos")]
+    scrub_dyld_injection_env();
     #[cfg(target_os = "linux")]
     let backend_note = configure_display_backend();
     let _ = fix_path_env::fix();
