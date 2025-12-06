@@ -80,7 +80,7 @@ import { openExternal } from "$lib/opener";
 	let paginating = $state(false);
 	let paginationIdleTimer: number | null = null;
 	let hydrationTimer: number | null = null;
-let hydrationPending = false;
+	let hydrationPending = false;
 let isLinux = false;
 let modsScrollContainer: HTMLDivElement | null = $state(null);
 let scrollIdleTimer: number | null = null;
@@ -89,6 +89,8 @@ let renderLimit = $state(60);
 const renderChunk = 24;
 let renderLimitLocal = $state(60);
 const renderChunkLocal = 24;
+let gridSentinel: HTMLDivElement | null = $state(null);
+let localSentinel: HTMLDivElement | null = $state(null);
 
 	async function handleModUninstalled() {
 		// Refresh the local mods list
@@ -133,7 +135,7 @@ const renderChunkLocal = 24;
 			}
 
 			// Then check local mods via batch
-			await refreshEnabledState();
+			// (summary refresh handles local + catalog states)
 
 			// Update filtered lists
 			updateEnabledDisabledLists();
@@ -151,7 +153,7 @@ const renderChunkLocal = 24;
 			isLoadingLocalMods = true;
 			try {
 				localMods = await invoke("get_detected_local_mods");
-				await refreshEnabledState();
+				await refreshStateSummary();
 			} catch (error) {
 				console.error("Failed to load local mods:", error);
 				addMessage(`Failed to load local mods: ${error}`, "error");
@@ -170,17 +172,6 @@ const renderChunkLocal = 24;
         }
     });
 
-	async function checkIfModIsInstalled(mod: Mod) {
-		if (!mod?.title) return false;
-		// Use checkModInCache (from modCache.ts) which takes a string title
-		const status = await checkModInCache(mod.title);
-		installationStatus.update((s) => ({
-			...s,
-			[mod.title]: status,
-		}));
-		return status;
-	}
-
 const { handleDependencyCheck, mod } = $props<{
     handleDependencyCheck: (
         requirements: DependencyCheck,
@@ -188,18 +179,6 @@ const { handleDependencyCheck, mod } = $props<{
     ) => void;
     mod: Mod | null;
 }>();
-
-	async function updateInstallStatus(mod: Mod | undefined) {
-		if (!mod) return;
-		const status: boolean = await checkIfModIsInstalled(mod);
-		installationStatus.update((s) => ({ ...s, [mod.title]: status }));
-	}
-
-	$effect(() => {
-		if (mod) {
-			updateInstallStatus(mod);
-		}
-	});
 
 	// Update the pagination functions to reset scroll position when switching pages
 	function nextPage() {
@@ -326,7 +305,6 @@ const { handleDependencyCheck, mod } = $props<{
 							]),
 						),
 					);
-					await refreshUpdatesMap();
 				} catch (error) {
 					console.error("Install status check failed:", error);
 				}
@@ -372,12 +350,48 @@ const { handleDependencyCheck, mod } = $props<{
 				installedModsRefresh = (async () => {
 					await refreshInstalledMods();
 					await getLocalMods();
+					await refreshStateSummary();
 				})().finally(() => {
 					installedModsRefresh = null;
 				});
 			}
 			return installedModsRefresh;
 		};
+		// Intersection observers to extend render window near bottom
+		onMount(() => {
+			if (typeof IntersectionObserver !== "undefined") {
+				if (gridSentinel) {
+					observer = new IntersectionObserver((entries) => {
+						for (const entry of entries) {
+							if (entry.isIntersecting) {
+								renderLimit = Math.min(
+									renderLimit + renderChunk,
+									paginatedMods.length,
+								);
+							}
+						}
+					}, { root: modsScrollContainer, rootMargin: "200px" });
+					observer.observe(gridSentinel);
+				}
+				if (localSentinel) {
+					observerLocal = new IntersectionObserver((entries) => {
+						for (const entry of entries) {
+							if (entry.isIntersecting) {
+								const localMax = Math.max(
+									enabledLocalMods.length,
+									disabledLocalMods.length,
+								);
+								renderLimitLocal = Math.min(
+									renderLimitLocal + renderChunkLocal,
+									localMax,
+								);
+							}
+						}
+					}, { root: modsScrollContainer, rootMargin: "200px" });
+					observerLocal.observe(localSentinel);
+				}
+			}
+		});
 
 		// Lazy-load SearchView when needed
 			$effect(() => {
@@ -413,6 +427,10 @@ const { handleDependencyCheck, mod } = $props<{
 					clearTimeout(scrollIdleTimer);
 					scrollIdleTimer = null;
 				}
+				try {
+					observer?.disconnect();
+					observerLocal?.disconnect();
+				} catch (_) { /* ignore */ }
 				try {
 					if (typeof unlistenModsChanged === "function") unlistenModsChanged();
 				} catch (err) {
@@ -1468,25 +1486,6 @@ const { handleDependencyCheck, mod } = $props<{
 		isUserScrolling = true;
 		if (scrollIdleTimer) clearTimeout(scrollIdleTimer);
 		const delay = isLinux ? 240 : 160;
-		const target = modsScrollContainer;
-		if (target) {
-			const remaining =
-				target.scrollHeight - target.scrollTop - target.clientHeight;
-			if (remaining < 400) {
-				renderLimit = Math.min(
-					renderLimit + renderChunk,
-					paginatedMods.length,
-				);
-				const localMax = Math.max(
-					enabledLocalMods.length,
-					disabledLocalMods.length,
-				);
-				renderLimitLocal = Math.min(
-					renderLimitLocal + renderChunkLocal,
-					localMax,
-				);
-			}
-		}
 		scrollIdleTimer = window.setTimeout(() => {
 			isUserScrolling = false;
 			if (hydrationPending) scheduleHydration();
@@ -1573,6 +1572,8 @@ $effect(() => {
         disabledLocalMods.length,
     );
     renderLimitLocal = Math.min(60, localMax || 60);
+    if (observer && gridSentinel) observer.observe(gridSentinel);
+    if (observerLocal && localSentinel) observerLocal.observe(localSentinel);
     scheduleHydration();
 });
 
@@ -1595,6 +1596,8 @@ onDestroy(() => {
 	let visibleDisabledLocal = $derived(
 		disabledLocalMods.slice(0, renderLimitLocal),
 	);
+	let observer: IntersectionObserver | null = null;
+	let observerLocal: IntersectionObserver | null = null;
 
 	function scheduleHydration() {
 		hydrationPending = true;
@@ -1623,11 +1626,30 @@ onDestroy(() => {
 	async function refreshInstalledMods() {
 		try {
 			await forceRefreshCache();
-			installedMods = await fetchCachedMods();
+			await refreshStateSummary();
+		} catch (error) {
+			console.error("Failed to refresh installed mods:", error);
+		}
+	}
 
-			// Update installation status for all mods in one batch to avoid excess reactivity churn
+	async function refreshStateSummary() {
+		try {
+			const localPaths = localMods.map((m) => m.path);
+			const summary = await invoke<{
+				installed: { name: string; path: string }[];
+				enabled: Record<string, boolean>;
+				updates: Record<string, boolean>;
+				thumbnails: Record<string, string>;
+				descriptions: Record<string, string>;
+			}>("mods_state_summary", { localPaths });
+
+			installedMods = summary.installed.map((m) => ({
+				name: m.name,
+				path: m.path,
+			}));
+
 			const installedSet = new Set(
-				installedMods.map((m) => m.name.toLowerCase()),
+				summary.installed.map((m) => m.name.toLowerCase()),
 			);
 			installationStatus.set(
 				Object.fromEntries(
@@ -1637,47 +1659,33 @@ onDestroy(() => {
 					]),
 				),
 			);
-
-			// Filter mods by enabled status
-			updateEnabledDisabledLists();
-
-			// Ensure enabled/disabled state is populated for catalog mods
-			await handleModToggled();
-
-			// Refresh update availability in one batch
-			refreshUpdatesMap().catch(() => {});
-			await refreshEnabledState();
-		} catch (error) {
-			console.error("Failed to refresh installed mods:", error);
-		}
-	}
-
-	async function refreshUpdatesMap() {
-		try {
-			const map = await invoke<Record<string, boolean>>(
-				"mods_updates_map",
-			);
-			updateAvailableStore.set(map);
-		} catch (error) {
-			console.warn("Failed to refresh updates map:", error);
-		}
-	}
-
-	async function refreshEnabledState() {
-		try {
-			const localPaths = localMods.map((m) => m.path);
-			const map = await invoke<Record<string, boolean>>(
-				"enabled_state_map",
-				{
-					localPaths,
-				},
-			);
-			modEnabledStore.set(map);
+			modEnabledStore.set(summary.enabled || {});
+			updateAvailableStore.set(summary.updates || {});
+			// Apply cached thumbnails for installed mods
+			const thumbMap = summary.thumbnails || {};
+			if (Object.keys(thumbMap).length > 0) {
+				modsStore.update((arr) =>
+					arr.map((m) => {
+						const p = thumbMap[m.title];
+						if (p) {
+							return {
+								...m,
+								image: convertFileSrc(p),
+								imageFallback: convertFileSrc(p),
+							};
+						}
+						return m;
+					}),
+				);
+			}
+			if (summary.descriptions && Object.keys(summary.descriptions).length > 0) {
+				setDescriptions(summary.descriptions);
+			}
 			updateEnabledDisabledLists();
 		} catch (error) {
-			console.warn("Failed to refresh enabled state map:", error);
+			console.warn("Failed to refresh state summary:", error);
 		}
-	}
+	} 
 
 	async function openModsFolder() {
 		try {
@@ -1865,13 +1873,18 @@ onDestroy(() => {
 									</p>
 								</div>
 								<div class="mods-grid local-mods-grid">
-							{#each visibleEnabledLocal as mod (mod.name)}
-								<LocalModCard
-									{mod}
-									onUninstall={handleModUninstalled}
-									onToggleEnabled={handleModToggled}
-								/>
+									{#each visibleEnabledLocal as mod (mod.name)}
+										<LocalModCard
+											{mod}
+											onUninstall={handleModUninstalled}
+											onToggleEnabled={handleModToggled}
+										/>
 									{/each}
+									<div
+										bind:this={localSentinel}
+										class="render-sentinel"
+										aria-hidden="true"
+									></div>
 								</div>
 							{/if}
 
@@ -1890,13 +1903,18 @@ onDestroy(() => {
 									</p>
 								</div>
 								<div class="mods-grid local-mods-grid">
-							{#each visibleDisabledLocal as mod (mod.name)}
-								<LocalModCard
-									{mod}
-									onUninstall={handleModUninstalled}
-									onToggleEnabled={handleModToggled}
-								/>
+									{#each visibleDisabledLocal as mod (mod.name)}
+										<LocalModCard
+											{mod}
+											onUninstall={handleModUninstalled}
+											onToggleEnabled={handleModToggled}
+										/>
 									{/each}
+									<div
+										bind:this={localSentinel}
+										class="render-sentinel"
+										aria-hidden="true"
+									></div>
 								</div>
 							{/if}
 
@@ -2196,6 +2214,11 @@ onDestroy(() => {
 	.open-folder-button:hover {
 		background: #45a049;
 		transform: translateY(-2px);
+	}
+
+	.render-sentinel {
+		width: 100%;
+		height: 1px;
 	}
 
 	.open-folder-button:active {

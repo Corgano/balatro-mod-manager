@@ -57,6 +57,7 @@
   let localFileFallback: string | null = null;
   let triedLocalFileFallback = false;
   const cacheUrlMemo = new Map<string, string | null>();
+  const thumbMemo = new Map<string, string>();
 
   function releaseSlot() {
     if (releaseCurrent) {
@@ -319,7 +320,7 @@
     triedLocalFileFallback = false;
     releaseSlot();
     // Schedule a one-shot cache recheck: background queue may fetch it soon
-    if (enableCache && cacheTitle && cacheRecheckTimer === null) {
+    if (enableCache && cacheTitle && cacheRecheckTimer === null && !thumbMemo.has(cacheTitle)) {
       cacheRecheckTimer = setTimeout(async () => {
         cacheRecheckTimer = null;
         try {
@@ -472,12 +473,34 @@
     const srcStr = src?.trim() || "";
     // Always try cached thumbnail when a cacheTitle is provided
     if (enableCache && cacheTitle && cacheTitle.trim().length > 0) {
+      if (thumbMemo.has(cacheTitle)) {
+        const cached = thumbMemo.get(cacheTitle)!;
+        const resolved = cached.startsWith("http://") || cached.startsWith("https://")
+          ? cached
+          : convertFileSrc(cached, "asset");
+        if (resolved) {
+          triedFallback = false;
+          usingDefault = false;
+          localFileFallback = resolved;
+          triedLocalFileFallback = false;
+          currentSrc = resolved;
+          // Data URLs should be considered loaded immediately
+          clearTimer();
+          loading = false;
+          loaded = true;
+          showSpinner = false;
+          releaseSlot();
+          dispatch("load");
+          return;
+        }
+      }
       try {
         const cached = await invoke<string | null>(
           "get_cached_thumbnail_by_title",
           { title: cacheTitle }
         );
         if (cached) {
+          thumbMemo.set(cacheTitle, cached);
           const resolved = cached.startsWith("http://") || cached.startsWith("https://")
             ? cached
             : convertFileSrc(cached, "asset");

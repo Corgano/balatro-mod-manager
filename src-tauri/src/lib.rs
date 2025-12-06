@@ -327,6 +327,7 @@ pub fn run() {
             commands::mods::enabled_state_map,
             commands::cache::mod_update_available,
             commands::cache::mods_updates_map,
+            commands::cache::mods_state_summary,
             commands::install::cascade_uninstall,
             commands::install::force_remove_mod,
             commands::install::get_dependents,
