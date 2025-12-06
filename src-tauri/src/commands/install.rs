@@ -47,7 +47,7 @@ fn get_installation_and_console(
 pub async fn launch_balatro(state: tauri::State<'_, AppState>) -> Result<(), String> {
     let (path_str, lovely_console_enabled) = get_installation_and_console(&state)?;
     let path = PathBuf::from(path_str);
-    let _balatro = bmm_lib::balamod::Balatro::from_custom_path(path.clone())
+    let balatro = bmm_lib::balamod::Balatro::from_custom_path(path.clone())
         .ok_or_else(|| "Stored Balatro path is no longer valid".to_string())?;
 
     let lovely_path = map_error(lovely::ensure_lovely_exists().await)?;

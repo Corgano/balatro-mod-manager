@@ -1,4 +1,5 @@
 use std::path::{Path, PathBuf};
+#[cfg(target_os = "linux")]
 use std::process::Command;
 
 use crate::state::AppState;
@@ -6,6 +7,7 @@ use crate::util::map_error;
 use bmm_lib::balamod::find_balatros;
 use bmm_lib::errors::AppError;
 use bmm_lib::local_mod_detection;
+#[cfg(target_os = "linux")]
 use tauri_plugin_opener::OpenerExt;
 
 #[tauri::command]
@@ -24,11 +26,14 @@ pub async fn open_directory(app: tauri::AppHandle, path: String) -> Result<(), S
         ));
     }
 
-    let path_str = path_buf.to_string_lossy().into_owned();
     let mut errors: Vec<String> = Vec::new();
+
+    #[cfg(not(target_os = "linux"))]
+    let _ = app;
 
     #[cfg(target_os = "linux")]
     {
+        let path_str = path_buf.to_string_lossy().into_owned();
         let is_flatpak = std::env::var_os("FLATPAK_ID").is_some();
         let host_path = if is_flatpak {
             // Map sandbox config path to host config path for openers that run on the host
