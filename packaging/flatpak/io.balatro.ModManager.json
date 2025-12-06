@@ -35,9 +35,7 @@
           "NPM_CONFIG_FUND": "false",
           "NPM_CONFIG_AUDIT": "false"
         },
-        "build-args": [
-          "--share=network"
-        ]
+        "build-args": ["--share=network"]
       },
       "build-commands": [
         "cd /run/build/balatro-mod-manager && export CARGO_HOME=/run/build/balatro-mod-manager/.cargo && export PATH=\"$CARGO_HOME/bin:$PATH\" && curl -L --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh | bash",

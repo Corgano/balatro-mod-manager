@@ -375,7 +375,16 @@ pub fn is_balatro_running() -> bool {
 
 #[cfg(test)]
 mod tests {
+    use std::ffi::OsStr;
     use tempfile::tempdir;
+
+    fn set_var(key: &str, val: impl AsRef<OsStr>) {
+        unsafe { std::env::set_var(key, val) };
+    }
+
+    fn remove_var(key: &str) {
+        unsafe { std::env::remove_var(key) };
+    }
 
     #[test]
     fn test_get_installed_mods_filters_lovely_dirs() {
@@ -383,9 +392,9 @@ mod tests {
         // Redirect config dir to temp using XDG_CONFIG_HOME and HOME (for macOS)
         let original_cfg = std::env::var_os("XDG_CONFIG_HOME");
         let original_home = std::env::var_os("HOME");
-        std::env::set_var("XDG_CONFIG_HOME", tmp.path());
+        set_var("XDG_CONFIG_HOME", tmp.path());
         if cfg!(target_os = "macos") {
-            std::env::set_var("HOME", tmp.path());
+            set_var("HOME", tmp.path());
         }
 
         let mods_root = dirs::config_dir().unwrap().join("Balatro").join("Mods");
@@ -412,12 +421,12 @@ mod tests {
 
         // restore environment
         match original_cfg {
-            Some(val) => std::env::set_var("XDG_CONFIG_HOME", val),
-            None => std::env::remove_var("XDG_CONFIG_HOME"),
+            Some(val) => set_var("XDG_CONFIG_HOME", val),
+            None => remove_var("XDG_CONFIG_HOME"),
         }
         match original_home {
-            Some(val) => std::env::set_var("HOME", val),
-            None => std::env::remove_var("HOME"),
+            Some(val) => set_var("HOME", val),
+            None => remove_var("HOME"),
         }
     }
 }

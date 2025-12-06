@@ -27,7 +27,9 @@ Scroll down to find **▸Assets** and download the right version of the installe
 - Linux: `Balatro.Mod.Manager_…_amd64.AppImage` (mark as executable if needed)
 
 ## Flatpak (Steam Deck/Linux)
-> You need [flatpak-builder](https://docs.flatpak.org/de/latest/flatpak-builder.html) for this. 
+
+> You need [flatpak-builder](https://docs.flatpak.org/de/latest/flatpak-builder.html) for this.
+
 - Run from a local checkout:
   ```bash
   git clone https://github.com/skyline69/balatro-mod-manager.git
@@ -49,7 +51,7 @@ Scroll down to find **▸Assets** and download the right version of the installe
   flatpak install --user balatro-mod-manager.flatpak
   flatpak run io.balatro.ModManager
   ```
-AppImage/Deb/RPM still land in `target/release/bundle/` during the Flatpak build if you need them.
+  AppImage/Deb/RPM still land in `target/release/bundle/` during the Flatpak build if you need them.
 
 # [![Build](images/build.svg)](#build-prerequisites)
 
