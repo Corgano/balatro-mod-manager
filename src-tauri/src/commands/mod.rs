@@ -1,11 +1,11 @@
 pub mod cache;
 pub mod detection;
+pub mod external;
 pub mod import;
 pub mod install;
 pub mod lovely;
 pub mod mods;
 pub mod paths;
-pub mod external;
 pub mod repo;
 pub mod report;
 pub mod settings;
