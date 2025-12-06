@@ -14,7 +14,10 @@ export async function openExternal(url: string): Promise<void> {
     return;
   } catch (error) {
     // fall through to plugin/window fallback
-    console.warn("open_external_url failed, falling back to opener plugin", error);
+    console.warn(
+      "open_external_url failed, falling back to opener plugin",
+      error,
+    );
   }
 
   try {
@@ -26,6 +29,9 @@ export async function openExternal(url: string): Promise<void> {
       return;
     }
     console.error("Failed to open external URL", error);
-    addMessage("Failed to open link. Please check your browser configuration.", "error");
+    addMessage(
+      "Failed to open link. Please check your browser configuration.",
+      "error",
+    );
   }
 }

@@ -183,6 +183,31 @@ import { isLinuxPlatform } from "$lib/platform";
 	}
 
 	async function installModFromURL(url: string, folder_name: string = "") {
+		const wasInstalled = Boolean($installationStatus[mod.title]);
+		let desiredEnabledState = true;
+
+		if (wasInstalled) {
+			let previousEnabled = $modEnabledStore[mod.title];
+			if (previousEnabled === undefined) {
+				try {
+					previousEnabled = await invoke<boolean>("is_mod_enabled", {
+						modName: mod.title,
+					});
+				} catch (error) {
+					console.error(
+						`Failed to read existing enabled state for ${mod.title}:`,
+						error,
+					);
+				}
+			}
+
+			if (previousEnabled !== undefined) {
+				desiredEnabledState = previousEnabled;
+			} else {
+				desiredEnabledState = isEnabled;
+			}
+		}
+
 		try {
 			loadingStates.update((s) => ({ ...s, [mod.title]: true }));
 
@@ -226,12 +251,11 @@ import { isLinuxPlatform } from "$lib/platform";
 				[mod.title]: false,
 			}));
 
-			// Set newly installed mod as enabled by default
 			modEnabledStore.update((enabledMods) => ({
 				...enabledMods,
-				[mod.title]: true,
+				[mod.title]: desiredEnabledState,
 			}));
-			isEnabled = true;
+			isEnabled = desiredEnabledState;
 
 			// Manually check mod enabled status after installation
 			setTimeout(() => checkModEnabled(mod.title), 500);

@@ -95,6 +95,7 @@ pub async fn install_mod(url: String, folder_name: Option<String>) -> Result<Pat
 
     // Uninstall old mod folder if it exists
     let target_dir = mod_dir.join(&mod_name);
+    let was_disabled = target_dir.join(".lovelyignore").exists();
     if target_dir.exists() {
         log::info!("Uninstalling existing mod at: {target_dir:?}");
         uninstall_mod(target_dir.clone())?;
@@ -107,6 +108,11 @@ pub async fn install_mod(url: String, folder_name: Option<String>) -> Result<Pat
         ArchiveKind::Tar => handle_tar(file, &mod_dir, &mod_name)?,
         ArchiveKind::TarGz => handle_tar_gz(file, &mod_dir, &mod_name)?,
     };
+
+    if was_disabled {
+        log::info!("Restoring disabled state for {}", installed_path.display());
+        apply_disabled_marker(&installed_path)?;
+    }
 
     log::info!("Mod installed successfully at: {installed_path:?}");
     Ok(installed_path)
@@ -465,6 +471,34 @@ fn ensure_safe_path(base: &Path, path: &Path) -> Result<(), AppError> {
     }
 }
 
+fn apply_disabled_marker(mod_path: &Path) -> Result<(), AppError> {
+    let entries = fs::read_dir(mod_path).map_err(|e| AppError::FileRead {
+        path: mod_path.to_path_buf(),
+        source: e.to_string(),
+    })?;
+
+    for entry in entries {
+        let entry = entry.map_err(|e| AppError::FileRead {
+            path: mod_path.to_path_buf(),
+            source: e.to_string(),
+        })?;
+        let entry_path = entry.path();
+        if entry_path.is_dir() {
+            let ignore_path = entry_path.join(".lovelyignore");
+            fs::write(&ignore_path, "").map_err(|e| AppError::FileWrite {
+                path: ignore_path,
+                source: e.to_string(),
+            })?;
+        }
+    }
+
+    let top_level_ignore = mod_path.join(".lovelyignore");
+    fs::write(&top_level_ignore, "").map_err(|e| AppError::FileWrite {
+        path: top_level_ignore,
+        source: e.to_string(),
+    })
+}
+
 pub fn uninstall_mod(path: PathBuf) -> Result<(), AppError> {
     log::info!("Uninstalling mod: {path:?}");
 
@@ -604,5 +638,21 @@ mod tests {
         // Should not allow deleting Mods root
         let res = validate_uninstall_path(&mods_dir.clone(), &mods_dir.clone());
         assert!(res.is_err());
+    }
+
+    #[test]
+    fn apply_disabled_marker_creates_ignore_files() {
+        let td = tempdir().unwrap();
+        let mod_dir = td.path().join("ExampleMod");
+        std::fs::create_dir_all(mod_dir.join("sub1")).unwrap();
+        std::fs::create_dir_all(mod_dir.join("sub2/nested")).unwrap();
+
+        apply_disabled_marker(&mod_dir).unwrap();
+
+        assert!(mod_dir.join(".lovelyignore").exists());
+        assert!(mod_dir.join("sub1/.lovelyignore").exists());
+        assert!(mod_dir.join("sub2/.lovelyignore").exists());
+        // Nested directories aren't touched directly; parent markers should suffice
+        assert!(!mod_dir.join("sub2/nested/.lovelyignore").exists());
     }
 }

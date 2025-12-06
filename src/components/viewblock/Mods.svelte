@@ -516,6 +516,30 @@ const { handleDependencyCheck, mod } = $props<{
 				return;
 			}
 
+			const previousEnabledMap: Record<string, boolean> = Object.fromEntries(
+				await Promise.all(
+					modsToUpdate.map(async (mod) => {
+						const cached = $modEnabledStore?.[mod.title];
+						if (cached !== undefined) {
+							return [mod.title, cached] as const;
+						}
+
+						try {
+							const enabled = await invoke<boolean>("is_mod_enabled", {
+								modName: mod.title,
+							});
+							return [mod.title, enabled] as const;
+						} catch (error) {
+							console.error(
+								`Failed to read enabled state for ${mod.title}:`,
+								error,
+							);
+							return [mod.title, true] as const;
+						}
+					}),
+				),
+			);
+
 			// Set loading state for all mods simultaneously
 			for (const mod of modsToUpdate) {
 				loadingStates2.update((s) => ({ ...s, [mod.title]: true }));
@@ -586,8 +610,10 @@ const { handleDependencyCheck, mod } = $props<{
 						...s,
 						[modTitle]: false,
 					}));
-					// Ensure it stays enabled
-					modEnabledStore.update((s) => ({ ...s, [modTitle]: true }));
+					modEnabledStore.update((s) => ({
+						...s,
+						[modTitle]: previousEnabledMap[modTitle],
+					}));
 				} else {
 					failed.push(modTitle);
 					// Show error message
@@ -620,6 +646,29 @@ const { handleDependencyCheck, mod } = $props<{
 		url: string,
 		folder_name: string = "",
 	) {
+		const wasInstalled = Boolean($installationStatus[mod.title]);
+		let desiredEnabledState = true;
+
+		if (wasInstalled) {
+			let previousEnabled = $modEnabledStore?.[mod.title];
+			if (previousEnabled === undefined) {
+				try {
+					previousEnabled = await invoke<boolean>("is_mod_enabled", {
+						modName: mod.title,
+					});
+				} catch (error) {
+					console.error(
+						`Failed to read existing enabled state for ${mod.title}:`,
+						error,
+					);
+				}
+			}
+
+			if (previousEnabled !== undefined) {
+				desiredEnabledState = previousEnabled;
+			}
+		}
+
 		try {
 			if (!url.startsWith("http")) {
 				console.error("Invalid URL format:", url);
@@ -645,8 +694,10 @@ const { handleDependencyCheck, mod } = $props<{
 			installationStatus.update((s) => ({ ...s, [mod.title]: true }));
 			updateAvailableStore.update((s) => ({ ...s, [mod.title]: false }));
 
-			// Set as enabled by default
-			modEnabledStore.update((s) => ({ ...s, [mod.title]: true }));
+			modEnabledStore.update((s) => ({
+				...s,
+				[mod.title]: desiredEnabledState,
+			}));
 		} catch (error) {
 			console.error("Failed to install mod:", error);
 			throw error; // Rethrow to be handled by the caller

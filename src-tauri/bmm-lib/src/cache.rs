@@ -355,28 +355,37 @@ pub fn load_cache() -> Result<Option<(Vec<Mod>, u64)>, AppError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::ffi::OsStr;
     use tempfile::tempdir;
+
+    fn set_var(key: &str, val: impl AsRef<OsStr>) {
+        unsafe { std::env::set_var(key, val) };
+    }
+
+    fn remove_var(key: &str) {
+        unsafe { std::env::remove_var(key) };
+    }
 
     fn with_temp_cache<T>(test: impl FnOnce(PathBuf) -> T) -> T {
         let temp_dir = tempdir().unwrap();
         let original_cache = std::env::var_os("XDG_CACHE_HOME");
         let original_home = std::env::var_os("HOME");
 
-        std::env::set_var("XDG_CACHE_HOME", temp_dir.path());
+        set_var("XDG_CACHE_HOME", temp_dir.path());
         // On macOS, dirs::cache_dir uses ~/Library/Caches, so set HOME to our temp dir
         if cfg!(target_os = "macos") {
-            std::env::set_var("HOME", temp_dir.path());
+            set_var("HOME", temp_dir.path());
         }
         let result = test(temp_dir.path().to_path_buf());
 
         // restore env
         match original_cache {
-            Some(val) => std::env::set_var("XDG_CACHE_HOME", val),
-            None => std::env::remove_var("XDG_CACHE_HOME"),
+            Some(val) => set_var("XDG_CACHE_HOME", val),
+            None => remove_var("XDG_CACHE_HOME"),
         }
         match original_home {
-            Some(val) => std::env::set_var("HOME", val),
-            None => std::env::remove_var("HOME"),
+            Some(val) => set_var("HOME", val),
+            None => remove_var("HOME"),
         }
 
         result

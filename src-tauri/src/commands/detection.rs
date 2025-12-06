@@ -115,7 +115,16 @@ pub fn reindex_db(db: &Database) -> Result<(usize, usize), AppError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::ffi::OsStr;
     use tempfile::tempdir;
+
+    fn set_var(key: &str, val: impl AsRef<OsStr>) {
+        unsafe { std::env::set_var(key, val) };
+    }
+
+    fn remove_var(key: &str) {
+        unsafe { std::env::remove_var(key) };
+    }
 
     #[test]
     fn reindex_db_removes_missing_paths() {
@@ -123,9 +132,9 @@ mod tests {
         let td = tempdir().unwrap();
         let original_cfg = std::env::var_os("XDG_CONFIG_HOME");
         let original_home = std::env::var_os("HOME");
-        std::env::set_var("XDG_CONFIG_HOME", td.path());
+        set_var("XDG_CONFIG_HOME", td.path());
         if cfg!(target_os = "macos") {
-            std::env::set_var("HOME", td.path());
+            set_var("HOME", td.path());
         }
 
         let db = Database::new().expect("db");
@@ -151,12 +160,12 @@ mod tests {
 
         // restore env
         match original_cfg {
-            Some(val) => std::env::set_var("XDG_CONFIG_HOME", val),
-            None => std::env::remove_var("XDG_CONFIG_HOME"),
+            Some(val) => set_var("XDG_CONFIG_HOME", val),
+            None => remove_var("XDG_CONFIG_HOME"),
         }
         match original_home {
-            Some(val) => std::env::set_var("HOME", val),
-            None => std::env::remove_var("HOME"),
+            Some(val) => set_var("HOME", val),
+            None => remove_var("HOME"),
         }
     }
 }
