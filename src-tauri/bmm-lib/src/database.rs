@@ -2,6 +2,7 @@
 use crate::errors::AppError;
 use rusqlite::Connection;
 use serde::Serialize;
+use std::path::Path;
 use std::path::PathBuf;
 
 pub struct Database {
@@ -23,11 +24,13 @@ impl Database {
         let config_dir = dirs::config_dir()
             .ok_or_else(|| AppError::DirNotFound(PathBuf::from("config directory")))?;
         let balatro_dir = config_dir.join("Balatro");
-        let storage_path = balatro_dir.join("bmm_storage.db");
+        let storage_path = resolve_storage_path(&balatro_dir);
 
-        // Create directory if it doesn't exist
-        if !balatro_dir.exists() {
-            std::fs::create_dir_all(&balatro_dir).map_err(|e| {
+        // Create directory if it doesn't exist (only for the primary config path)
+        if let Some(parent) = storage_path.parent()
+            && !parent.exists()
+        {
+            std::fs::create_dir_all(parent).map_err(|e| {
                 AppError::DirNotFound(format!("Failed to create config directory: {e}").into())
             })?;
         }
@@ -616,6 +619,30 @@ impl Database {
             Ok(false)
         }
     }
+}
+
+fn resolve_storage_path(primary_balatro_dir: &Path) -> PathBuf {
+    let primary = primary_balatro_dir.join("bmm_storage.db");
+
+    // Detect database created by the Flatpak build (config dir lives under ~/.var/app/io.balatro.ModManager)
+    let flatpak_db = dirs::home_dir()
+        .map(|home| home.join(".var/app/io.balatro.ModManager/config/Balatro/bmm_storage.db"));
+
+    if primary.exists() {
+        return primary;
+    }
+
+    if let Some(fp_path) = flatpak_db
+        && fp_path.exists()
+    {
+        log::info!(
+            "Using existing database from Flatpak install at {}",
+            fp_path.display()
+        );
+        return fp_path;
+    }
+
+    primary
 }
 
 #[cfg(test)]

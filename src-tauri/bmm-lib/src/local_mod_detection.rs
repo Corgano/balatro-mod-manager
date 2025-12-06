@@ -4,6 +4,7 @@ use crate::finder;
 use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
+use std::env;
 use std::fs::{self, File};
 use std::io::{BufRead, BufReader};
 use std::path::Path;
@@ -70,13 +71,57 @@ fn compute_fingerprint(mods_dir: &Path) -> ScanFingerprint {
     }
 }
 
+fn mod_dir_candidates() -> Result<Vec<PathBuf>, String> {
+    let config_dir =
+        dirs::config_dir().ok_or_else(|| "Could not find config directory".to_string())?;
+    let primary = config_dir.join("Balatro").join("Mods");
+
+    let mut candidates = Vec::new();
+
+    // In Flatpak, prefer the host config path first so we open the real mods folder.
+    if std::env::var_os("FLATPAK_ID").is_some()
+        && let Some(home) = dirs::home_dir()
+    {
+        candidates.push(home.join(".config").join("Balatro").join("Mods"));
+    }
+
+    candidates.push(primary.clone());
+
+    // Host XDG_CONFIG_HOME
+    if let Some(xdg) = env::var_os("XDG_CONFIG_HOME") {
+        let xdg_path = PathBuf::from(xdg).join("Balatro").join("Mods");
+        if xdg_path != primary {
+            candidates.push(xdg_path);
+        }
+    }
+
+    // Host ~/.config
+    if let Some(home) = dirs::home_dir() {
+        let host_config = home.join(".config").join("Balatro").join("Mods");
+        if host_config != primary {
+            candidates.push(host_config);
+        }
+    }
+
+    Ok(candidates)
+}
+
+pub fn resolve_mods_dir_path() -> Result<PathBuf, String> {
+    let candidates = mod_dir_candidates()?;
+    if let Some(existing) = candidates.iter().find(|p| p.exists()) {
+        return Ok(existing.clone());
+    }
+    candidates
+        .into_iter()
+        .next()
+        .ok_or_else(|| "Could not determine Mods directory".to_string())
+}
+
 pub fn detect_manual_mods_cached(
     db: &Database,
     cached_catalog_mods: &[cache::Mod],
 ) -> Result<Vec<DetectedMod>, String> {
-    let config_dir =
-        dirs::config_dir().ok_or_else(|| "Could not find config directory".to_string())?;
-    let mods_dir = config_dir.join("Balatro").join("Mods");
+    let mods_dir = resolve_mods_dir_path()?;
 
     let fp = compute_fingerprint(&mods_dir);
     if let Ok(mut guard) = DETECTION_CACHE.lock() {
@@ -210,11 +255,7 @@ pub fn detect_manual_mods(
     db: &Database,
     cached_catalog_mods: &[cache::Mod],
 ) -> Result<Vec<DetectedMod>, String> {
-    let config_dir =
-        dirs::config_dir().ok_or_else(|| "Could not find config directory".to_string())?;
-
-    let balatro_dir = config_dir.join("Balatro");
-    let mod_dir = balatro_dir.join("Mods");
+    let mod_dir = resolve_mods_dir_path()?;
 
     if !mod_dir.exists() {
         return Ok(Vec::new());
@@ -234,6 +275,7 @@ pub fn detect_manual_mods(
     // Create a set of managed mod names (lowercase) for duplicate detection
     let managed_names: HashSet<String> =
         managed_mods.iter().map(|m| m.name.to_lowercase()).collect();
+    let managed_catalog_names = managed_names.clone();
 
     let mut manual_mods = Vec::new();
     let mut bundled_dependencies = HashSet::new();
@@ -295,6 +337,13 @@ pub fn detect_manual_mods(
             // Try to find a match in the catalog
             mod_info.catalog_match = find_catalog_match(&mod_info, cached_catalog_mods);
 
+            // If this mod matches a catalog entry that is already installed, skip it to avoid duplicates
+            if let Some(cat) = &mod_info.catalog_match
+                && managed_catalog_names.contains(&cat.title.to_lowercase())
+            {
+                continue;
+            }
+
             manual_mods.push(mod_info);
         }
     }
@@ -352,6 +401,8 @@ fn find_catalog_match(
     // Special case for Steamodded
     let local_id_lower = local_mod.id.to_lowercase();
     let local_name_lower = local_mod.name.to_lowercase();
+    let local_id_compact = compact(&local_id_lower);
+    let local_name_compact = compact(&local_name_lower);
 
     // Get directory name for additional checking
     let dir_name_lower = Path::new(&local_mod.path)
@@ -404,6 +455,7 @@ fn find_catalog_match(
         // Precompute catalog names/IDs once per catalog mod
         let catalog_title_lower = catalog_mod.title.to_lowercase();
         let catalog_id_lower = catalog_mod.title.replace(" ", "").to_lowercase();
+        let catalog_title_compact = compact(&catalog_title_lower);
 
         // 1. Try exact ID match
         if catalog_id_lower == local_id_lower {
@@ -420,24 +472,20 @@ fn find_catalog_match(
             return Some(create_match(catalog_mod));
         }
 
-        // 4. Try substring matching (check if one contains the other)
-        // Avoid matching if one is very short to prevent too many false positives
-        if local_name_lower.len() > 3
-            && catalog_title_lower.len() > 3
-            && (local_name_lower.contains(&catalog_title_lower)
-                || catalog_title_lower.contains(&local_name_lower))
+        // 4. Try compacted name match (removes punctuation/spacing)
+        if catalog_title_compact == local_id_compact || catalog_title_compact == local_name_compact
         {
             return Some(create_match(catalog_mod));
         }
     }
 
-    // 5. Try similarity matching (edit distance)
+    // 5. Try similarity matching (edit distance with relative threshold)
     for catalog_mod in catalog_mods {
         let catalog_name_lower = catalog_mod.title.to_lowercase();
+        let catalog_name_compact = compact(&catalog_name_lower);
 
-        // Calculate similarity ratio
-        if is_similar(&local_name_lower, &catalog_name_lower)
-            || is_similar(&local_id_lower, &catalog_name_lower.replace(" ", ""))
+        if is_similar(&local_name_compact, &catalog_name_compact)
+            || is_similar(&local_id_compact, &catalog_name_compact)
         {
             return Some(create_match(catalog_mod));
         }
@@ -456,19 +504,32 @@ fn create_match(catalog_mod: &cache::Mod) -> CatalogMatch {
     }
 }
 
+fn compact(s: &str) -> String {
+    s.chars()
+        .filter(|c| c.is_alphanumeric())
+        .collect::<String>()
+}
+
 // Helper function to determine if two strings are similar enough
 fn is_similar(a: &str, b: &str) -> bool {
-    // If strings are very different in length, they're probably not similar
-    let len_diff = (a.len() as isize - b.len() as isize).abs();
-    if len_diff > 3 {
+    if a.is_empty() || b.is_empty() {
         return false;
     }
 
-    // For short strings, allow fewer differences
-    let max_distance = if a.len() < 5 || b.len() < 5 { 1 } else { 2 };
+    if a == b {
+        return true;
+    }
 
-    // Simple implementation of edit distance calculation
-    calculate_edit_distance(a, b) <= max_distance
+    let distance = calculate_edit_distance(a, b);
+    let max_len = a.len().max(b.len()) as f32;
+
+    // Require very close matches; allow a single typo or a small proportion of differences
+    if distance <= 1 {
+        return true;
+    }
+
+    let similarity = 1.0 - (distance as f32 / max_len);
+    similarity >= 0.82 && distance <= 2
 }
 
 // Calculate Levenshtein distance between two strings
@@ -1197,6 +1258,27 @@ mod tests {
     use std::collections::HashSet;
     use tempfile::tempdir;
 
+    fn make_catalog_mod(title: &str) -> cache::Mod {
+        cache::Mod {
+            title: title.into(),
+            description: String::new(),
+            image: String::new(),
+            categories: vec![],
+            colors: cache::ColorPair {
+                color1: String::new(),
+                color2: String::new(),
+            },
+            installed: false,
+            requires_steamodded: false,
+            requires_talisman: false,
+            publisher: String::new(),
+            repo: String::new(),
+            download_url: String::new(),
+            folderName: None,
+            version: None,
+        }
+    }
+
     fn write_file(path: &Path, contents: &str) {
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(path, contents).unwrap();
@@ -1211,6 +1293,8 @@ mod tests {
         // Similar short strings (<= 1 difference allowed)
         assert!(super::is_similar("mod", "mad"));
         assert!(!super::is_similar("mod", "maps"));
+        assert!(!super::is_similar("batro", "jambatro"));
+        assert!(!super::is_similar("qualatro", "furlatro"));
 
         // Longer strings (<= 2 differences allowed)
         assert!(super::is_similar("steamodded", "steamodddd"));
@@ -1280,6 +1364,35 @@ mod tests {
             assert_eq!(m.catalog_id, "Steamodded");
             assert_eq!(m.download_url, "https://example/steamodded.zip");
             assert_eq!(m.version.as_deref(), Some("1.0.0"));
+        }
+    }
+
+    #[test]
+    fn test_find_catalog_match_ignores_loose_similarity() {
+        let catalog = vec![make_catalog_mod("Jambatro"), make_catalog_mod("Furlatro")];
+
+        for (name, id, path) in [
+            ("Batro", "Batro", "/mods/Batro"),
+            ("Qualatro", "qualatro", "/mods/qualatro"),
+        ] {
+            let local = DetectedMod {
+                name: name.into(),
+                id: id.into(),
+                author: vec![],
+                description: String::new(),
+                prefix: String::new(),
+                version: None,
+                path: path.into(),
+                dependencies: vec![],
+                conflicts: vec![],
+                catalog_match: None,
+                is_duplicate: false,
+            };
+
+            assert!(
+                super::find_catalog_match(&local, &catalog).is_none(),
+                "{name} should not match catalog entry"
+            );
         }
     }
 

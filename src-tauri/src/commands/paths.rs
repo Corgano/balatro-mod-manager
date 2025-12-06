@@ -5,6 +5,7 @@ use crate::state::AppState;
 use crate::util::map_error;
 use bmm_lib::balamod::find_balatros;
 use bmm_lib::errors::AppError;
+use bmm_lib::local_mod_detection;
 use tauri_plugin_opener::OpenerExt;
 
 #[tauri::command]
@@ -26,25 +27,66 @@ pub async fn open_directory(app: tauri::AppHandle, path: String) -> Result<(), S
     let path_str = path_buf.to_string_lossy().into_owned();
     let mut errors: Vec<String> = Vec::new();
 
-    // Try the Tauri opener plugin first (works better in packaged builds).
-    match app.opener().reveal_item_in_dir(path_str.clone()) {
-        Ok(_) => return Ok(()),
-        Err(e) => errors.push(format!("opener reveal: {e}")),
-    }
-    match app.opener().open_path(path_str.clone(), None::<String>) {
-        Ok(_) => return Ok(()),
-        Err(e) => errors.push(format!("opener open_path: {e}")),
-    }
-
-    // Fallback to system opener via `open` crate.
-    if open::that(&path_buf).is_err() {
-        errors.push("open crate failed".into());
-    } else {
-        return Ok(());
-    }
-
     #[cfg(target_os = "linux")]
     {
+        let is_flatpak = std::env::var_os("FLATPAK_ID").is_some();
+        let host_path = if is_flatpak {
+            // Map sandbox config path to host config path for openers that run on the host
+            let sandbox_prefix = dirs::home_dir()
+                .map(|h| h.join(".var/app/io.balatro.ModManager/config/Balatro/Mods"));
+            if let Some(prefix) = sandbox_prefix {
+                if path_buf.starts_with(&prefix) {
+                    if let Some(home) = dirs::home_dir() {
+                        let host_prefix = home.join(".config/Balatro/Mods");
+                        if let Ok(rel) = path_buf.strip_prefix(prefix) {
+                            host_prefix.join(rel)
+                        } else {
+                            host_prefix
+                        }
+                    } else {
+                        path_buf.clone()
+                    }
+                } else {
+                    path_buf.clone()
+                }
+            } else {
+                path_buf.clone()
+            }
+        } else {
+            path_buf.clone()
+        };
+        let host_str = host_path.to_string_lossy().into_owned();
+
+        if is_flatpak {
+            // Try host opener through the sandbox
+            match Command::new("flatpak-spawn")
+                .args(["--host", "xdg-open", &host_str])
+                .status()
+            {
+                Ok(status) if status.success() => return Ok(()),
+                Ok(status) => errors.push(format!("flatpak-spawn xdg-open exit {}", status)),
+                Err(e) => errors.push(format!("flatpak-spawn xdg-open error {e}")),
+            }
+        }
+
+        // Try the Tauri opener plugin (portal-aware) using reveal first for dirs.
+        match app.opener().reveal_item_in_dir(path_str.clone()) {
+            Ok(_) => return Ok(()),
+            Err(e) => errors.push(format!("opener reveal: {e}")),
+        }
+        match app.opener().open_path(path_str.clone(), None::<String>) {
+            Ok(_) => return Ok(()),
+            Err(e) => errors.push(format!("opener open_path: {e}")),
+        }
+
+        if is_flatpak {
+            match Command::new("gio").args(["open", &path_str]).status() {
+                Ok(status) if status.success() => return Ok(()),
+                Ok(status) => errors.push(format!("gio open exit {}", status)),
+                Err(e) => errors.push(format!("gio open error {e}")),
+            }
+        }
+
         // Detect WSL so we can route to Windows shell reliably.
         let is_wsl = std::env::var_os("WSL_DISTRO_NAME").is_some()
             || std::fs::read_to_string("/proc/version")
@@ -75,12 +117,18 @@ pub async fn open_directory(app: tauri::AppHandle, path: String) -> Result<(), S
         }
 
         // Desktop Linux fallback: try xdg-open directly for clearer error
-        match Command::new("xdg-open").arg(&path).status() {
+        match Command::new("xdg-open").arg(&path_str).status() {
             Ok(status) if status.success() => return Ok(()),
             Ok(status) => errors.push(format!("xdg-open exit {}", status)),
             Err(e) => errors.push(format!("xdg-open error {e}")),
         }
     }
+
+    // Cross-platform fallback
+    if open::that(&path_buf).is_ok() {
+        return Ok(());
+    }
+    errors.push("open crate failed".into());
 
     Err(format!(
         "Failed to open directory with system handler: {}; attempts: {}",
@@ -91,9 +139,8 @@ pub async fn open_directory(app: tauri::AppHandle, path: String) -> Result<(), S
 
 #[tauri::command]
 pub async fn get_mods_folder() -> Result<String, String> {
-    let config_dir = dirs::config_dir()
-        .ok_or_else(|| AppError::DirNotFound(PathBuf::from("config directory")).to_string())?;
-    let mods_dir = config_dir.join("Balatro").join("Mods");
+    let mods_dir = local_mod_detection::resolve_mods_dir_path()
+        .map_err(|e| AppError::DirNotFound(PathBuf::from(e)).to_string())?;
     std::fs::create_dir_all(&mods_dir).map_err(|e| {
         AppError::DirCreate {
             path: mods_dir.clone(),

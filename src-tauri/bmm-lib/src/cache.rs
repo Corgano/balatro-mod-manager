@@ -11,6 +11,16 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 const CACHE_DURATION: u64 = 15 * 60; // 15 minutes in seconds
 
+fn flatpak_cache_path() -> Option<PathBuf> {
+    dirs::home_dir().map(|home| {
+        home.join(".var/app/io.balatro.ModManager/cache/balatro-mod-manager/mods.cache.bin.gz")
+    })
+}
+
+fn cache_mtime(path: &PathBuf) -> Option<std::time::SystemTime> {
+    std::fs::metadata(path).and_then(|m| m.modified()).ok()
+}
+
 #[derive(Serialize, Deserialize, Debug)]
 struct CacheHeader {
     version: u32,
@@ -98,14 +108,19 @@ pub fn clear_cache() -> Result<(), AppError> {
     let cache_dir = dirs::cache_dir()
         .ok_or_else(|| AppError::DirNotFound(PathBuf::from("cache directory")))?
         .join("balatro-mod-manager");
+    let mut targets = vec![cache_dir.join("mods.cache.bin.gz")];
+    if let Some(flatpak_path) = flatpak_cache_path() {
+        targets.push(flatpak_path);
+    }
 
-    // Delete mods cache
-    let mods_cache = cache_dir.join("mods.cache.bin.gz");
-    if mods_cache.exists() {
-        std::fs::remove_file(&mods_cache).map_err(|e| AppError::FileWrite {
-            path: mods_cache,
-            source: e.to_string(),
-        })?;
+    // Delete mods cache(s)
+    for mods_cache in targets {
+        if mods_cache.exists() {
+            std::fs::remove_file(&mods_cache).map_err(|e| AppError::FileWrite {
+                path: mods_cache,
+                source: e.to_string(),
+            })?;
+        }
     }
 
     // Delete version caches
@@ -242,6 +257,7 @@ struct VersionCache {
 }
 
 pub fn get_cache_path() -> Result<PathBuf, AppError> {
+    // Primary cache location (used when writing)
     let mut path = dirs::cache_dir()
         .ok_or_else(|| AppError::DirNotFound(PathBuf::from("cache directory")))?
         .join("balatro-mod-manager");
@@ -253,6 +269,22 @@ pub fn get_cache_path() -> Result<PathBuf, AppError> {
 
     path.push("mods.cache.bin.gz");
     Ok(path)
+}
+
+fn select_cache_path_for_read() -> Result<PathBuf, AppError> {
+    let primary = dirs::cache_dir()
+        .ok_or_else(|| AppError::DirNotFound(PathBuf::from("cache directory")))?
+        .join("balatro-mod-manager")
+        .join("mods.cache.bin.gz");
+
+    let candidates = flatpak_cache_path()
+        .into_iter()
+        .chain(std::iter::once(primary.clone()))
+        .filter(|p| p.exists());
+
+    let selected = candidates.max_by_key(cache_mtime).unwrap_or(primary);
+
+    Ok(selected)
 }
 
 pub fn save_cache(mods: &[Mod]) -> Result<(), AppError> {
@@ -305,10 +337,16 @@ pub fn save_cache(mods: &[Mod]) -> Result<(), AppError> {
 }
 
 pub fn load_cache() -> Result<Option<(Vec<Mod>, u64)>, AppError> {
-    let path = get_cache_path()?;
+    let path = select_cache_path_for_read()?;
     let mut file = match File::open(&path) {
         Ok(f) => f,
-        Err(_) => return Ok(None),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => {
+            return Err(AppError::FileRead {
+                path: path.clone(),
+                source: e.to_string(),
+            });
+        }
     };
 
     let mut buffer = Vec::new();
@@ -340,14 +378,9 @@ pub fn load_cache() -> Result<Option<(Vec<Mod>, u64)>, AppError> {
         return Ok(None);
     }
 
-    let current_time = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_err(|e| AppError::SystemTime(e.to_string()))?
-        .as_secs();
-
-    if current_time - cache.header.timestamp > CACHE_DURATION {
-        return Ok(None);
-    }
+    // Keep using stale cache data; callers can decide if they want to refresh based on timestamp.
+    // This prevents losing catalog lookups when offline or when a different install (e.g., Flatpak)
+    // owns the freshest cache.
 
     Ok(Some((cache.mods, cache.header.timestamp)))
 }

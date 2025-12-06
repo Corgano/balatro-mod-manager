@@ -26,7 +26,7 @@ export default defineConfig(() => ({
       : undefined,
     watch: {
       // 3. tell vite to ignore watching `src-tauri`
-      ignored: ["**/src-tauri/**", "**/build-dir/**"],
+      ignored: ["**/src-tauri/**", "**/build-dir/**", "**/.flatpak-builder/**"],
     },
   },
   // Keep defaults; SvelteKit controls code-splitting adequately.
