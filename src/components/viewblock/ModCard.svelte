@@ -1,12 +1,13 @@
 <script lang="ts">
 	import type { Mod } from "../../stores/modStore";
 	import { Download, Trash2, RefreshCw } from "lucide-svelte";
-	import {
-		installationStatus,
-		loadingStates2 as loadingStates,
-		modEnabledStore,
-		updateAvailableStore,
-	} from "../../stores/modStore";
+import {
+	installationStatus,
+	loadingStates2 as loadingStates,
+	modEnabledStore,
+	updateAvailableStore,
+} from "../../stores/modStore";
+import { descriptionsStore } from "../../stores/descriptions";
 	import { stripMarkdown } from "../../utils/helpers";
 	import { invoke } from "@tauri-apps/api/core";
 	import { lovelyPopupStore } from "../../stores/modStore";
@@ -37,6 +38,9 @@ import { isLinuxPlatform } from "$lib/platform";
 	let isEnabled = $state(true); // Default to enabled if not yet checked
 	let enabledChecked = false;
 	let isLinux = false;
+	let descriptionText = $derived(
+		$descriptionsStore[mod.title] ?? mod.description ?? "",
+	);
 
 	// Load the enabled state whenever the mod changes or when installationStatus changes
 	$effect(() => {
@@ -301,8 +305,8 @@ import { isLinuxPlatform } from "$lib/platform";
 
 	<div class="mod-info">
 		<h3>{mod.title}</h3>
-		{#if mod.description && mod.description.trim().length > 0}
-			<p>{truncateDynamic(stripMarkdown(mod.description), $cardScale)}</p>
+		{#if descriptionText && descriptionText.trim().length > 0}
+			<p>{truncateDynamic(stripMarkdown(descriptionText), $cardScale)}</p>
 		{:else}
 			<div class="desc-skeleton" aria-hidden="true">
 				<div class="line" style="width: 92%"></div>

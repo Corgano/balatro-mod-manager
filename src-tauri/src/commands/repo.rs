@@ -612,6 +612,25 @@ pub async fn get_cached_thumbnail_by_title(title: String) -> Result<Option<Strin
     ))
 }
 
+/// Return a map of title -> cached thumbnail path for the given titles (if present).
+#[tauri::command]
+pub async fn get_cached_thumbnails_map(
+    titles: Vec<String>,
+) -> Result<std::collections::HashMap<String, String>, String> {
+    let (thumbs_dir, _) = ensure_assets_dirs()?;
+    let mut out = std::collections::HashMap::new();
+    for title in titles {
+        let slug = safe_slug(&title);
+        let path = thumbs_dir.join(format!("{slug}.jpg"));
+        if path.exists()
+            && let Some(s) = path.to_str()
+        {
+            out.insert(title, s.to_string());
+        }
+    }
+    Ok(out)
+}
+
 #[tauri::command]
 pub async fn cache_thumbnail_from_url(
     title: String,

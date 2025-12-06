@@ -34,6 +34,9 @@ import {
 	installationStatus,
 	withModsCachePersistenceSuspended,
 } from "../../stores/modStore";
+import {
+	setDescriptions,
+} from "../../stores/descriptions";
 	import { catalogLoading } from "../../stores/modStore";
 	import type { InstalledMod } from "../../stores/modStore";
 	import { invoke, convertFileSrc } from "@tauri-apps/api/core";
@@ -77,11 +80,15 @@ import { openExternal } from "$lib/opener";
 	let paginating = $state(false);
 	let paginationIdleTimer: number | null = null;
 	let hydrationTimer: number | null = null;
-	let hydrationPending = false;
-	let isLinux = false;
-	let modsScrollContainer: HTMLDivElement | null = $state(null);
-	let scrollIdleTimer: number | null = null;
-	let isUserScrolling = $state(false);
+let hydrationPending = false;
+let isLinux = false;
+let modsScrollContainer: HTMLDivElement | null = $state(null);
+let scrollIdleTimer: number | null = null;
+let isUserScrolling = $state(false);
+let renderLimit = $state(60);
+const renderChunk = 24;
+let renderLimitLocal = $state(60);
+const renderChunkLocal = 24;
 
 	async function handleModUninstalled() {
 		// Refresh the local mods list
@@ -800,14 +807,27 @@ const { handleDependencyCheck, mod } = $props<{
 			const items = await invoke<ArchiveModItem[]>("fetch_gitlab_mods");
 			// Enqueue background caching for thumbnails (non-blocking, handles 429)
 			try {
-                const thumbItems = items
-                    .filter((i) => i.image_url && /^https?:\/\//i.test(i.image_url))
-                    .map((i) => ({ title: i.meta.title, url: i.image_url }));
-                if (thumbItems.length > 0) {
-                    // fire and forget
-                    invoke("enqueue_thumbnails", { items: thumbItems }).catch(() => {});
-                }
-            } catch (_) { /* ignore */ }
+				const thumbItems = items
+					.filter((i) => i.image_url && /^https?:\/\//i.test(i.image_url))
+					.map((i) => ({ title: i.meta.title, url: i.image_url }));
+				if (thumbItems.length > 0) {
+					const cachedMap = await invoke<Record<string, string>>(
+						"get_cached_thumbnails_map",
+						{ titles: thumbItems.map((t) => t.title) },
+					);
+					const toEnqueue = thumbItems.filter(
+						(t) => !cachedMap[t.title],
+					);
+					if (toEnqueue.length > 0) {
+						// fire and forget
+						invoke("enqueue_thumbnails", { items: toEnqueue }).catch(
+							() => {},
+						);
+					}
+				}
+			} catch (_) {
+				/* ignore */
+			}
             const mods: Mod[] = items.map((item) => {
 				const mappedCategories = item.meta.categories
 					.map((cat) => categoryMap[cat] ?? null)
@@ -945,10 +965,15 @@ const { handleDependencyCheck, mod } = $props<{
                     .filter((i) => i.image_url && /^https?:\/\//i.test(i.image_url))
                     .map((i) => ({ title: i.meta.title, url: i.image_url }));
                 if (thumbItems.length > 0) {
+                    const cachedMap = await invoke<Record<string, string>>(
+                        "get_cached_thumbnails_map",
+                        { titles: thumbItems.map((t) => t.title) },
+                    );
                     const seen = new Set<string>();
                     const filtered = thumbItems.filter((t) => {
                         if (seen.has(t.title)) return false;
                         seen.add(t.title);
+                        if (cachedMap[t.title]) return false;
                         const existing = $modsStore.find((m) => m.title === t.title);
                         if (existing && existing.image && !existing.image.endsWith("cover.jpg")) {
                             return false;
@@ -1079,15 +1104,9 @@ const { handleDependencyCheck, mod } = $props<{
 		const applyBatch = () => {
 			if (updates.length === 0) return;
 			const batch = updates.splice(0, updates.length);
-			modsStore.update((arr) => {
-				// Build a map for quick lookup
-				const map = new Map(batch.map((b) => [b.title, b.description]));
-				return arr.map((item) =>
-					map.has(item.title)
-						? { ...item, description: map.get(item.title) || "" }
-						: item,
-				);
-			});
+			setDescriptions(
+				Object.fromEntries(batch.map((b) => [b.title, b.description])),
+			);
 		};
 		async function worker() {
 			while (true) {
@@ -1135,14 +1154,9 @@ const { handleDependencyCheck, mod } = $props<{
 		const applyBatch = () => {
 			if (updates.length === 0) return;
 			const batch = updates.splice(0, updates.length);
-			modsStore.update((arr) => {
-				const map = new Map(batch.map((b) => [b.title, b.description]));
-				return arr.map((item) =>
-					map.has(item.title)
-						? { ...item, description: map.get(item.title) || "" }
-						: item,
-				);
-			});
+			setDescriptions(
+				Object.fromEntries(batch.map((b) => [b.title, b.description])),
+			);
 		};
 		visibleFirstRunning = true;
 		async function worker() {
@@ -1180,14 +1194,9 @@ const { handleDependencyCheck, mod } = $props<{
 		const applyBatch = () => {
 			if (updates.length === 0) return;
 			const batch = updates.splice(0, updates.length);
-			modsStore.update((arr) => {
-				const map = new Map(batch.map((b) => [b.title, b.description]));
-				return arr.map((item) =>
-					map.has(item.title)
-						? { ...item, description: map.get(item.title) || "" }
-						: item,
-				);
-			});
+			setDescriptions(
+				Object.fromEntries(batch.map((b) => [b.title, b.description])),
+			);
 		};
 		async function worker() {
 			while (true) {
@@ -1229,14 +1238,9 @@ const { handleDependencyCheck, mod } = $props<{
 		const applyBatch = () => {
 			if (updates.length === 0) return;
 			const batch = updates.splice(0, updates.length);
-			modsStore.update((arr) => {
-				const map = new Map(batch.map((b) => [b.title, b.description]));
-				return arr.map((item) =>
-					map.has(item.title)
-						? { ...item, description: map.get(item.title) || "" }
-						: item,
-				);
-			});
+			setDescriptions(
+				Object.fromEntries(batch.map((b) => [b.title, b.description])),
+			);
 		};
 		async function worker() {
 			while (true) {
@@ -1464,6 +1468,25 @@ const { handleDependencyCheck, mod } = $props<{
 		isUserScrolling = true;
 		if (scrollIdleTimer) clearTimeout(scrollIdleTimer);
 		const delay = isLinux ? 240 : 160;
+		const target = modsScrollContainer;
+		if (target) {
+			const remaining =
+				target.scrollHeight - target.scrollTop - target.clientHeight;
+			if (remaining < 400) {
+				renderLimit = Math.min(
+					renderLimit + renderChunk,
+					paginatedMods.length,
+				);
+				const localMax = Math.max(
+					enabledLocalMods.length,
+					disabledLocalMods.length,
+				);
+				renderLimitLocal = Math.min(
+					renderLimitLocal + renderChunkLocal,
+					localMax,
+				);
+			}
+		}
 		scrollIdleTimer = window.setTimeout(() => {
 			isUserScrolling = false;
 			if (hydrationPending) scheduleHydration();
@@ -1533,7 +1556,7 @@ onDestroy(() => {
     });
 
     let totalPages = $derived(Math.ceil(sortedAndFilteredMods.length / $itemsPerPage));
-    let paginatedMods = $derived(
+	let paginatedMods = $derived(
         sortedAndFilteredMods.slice(
             ($currentPage - 1) * $itemsPerPage,
             $currentPage * $itemsPerPage,
@@ -1544,6 +1567,12 @@ onDestroy(() => {
 $effect(() => {
     // touch dependency
     paginatedMods;
+    renderLimit = Math.min(60, paginatedMods.length || 60);
+    const localMax = Math.max(
+        enabledLocalMods.length,
+        disabledLocalMods.length,
+    );
+    renderLimitLocal = Math.min(60, localMax || 60);
     scheduleHydration();
 });
 
@@ -1556,6 +1585,16 @@ onDestroy(() => {
 
 	const maxVisiblePages = 5;
 	let startPage = $state(1);
+
+	let visiblePaginatedMods = $derived(
+		paginatedMods.slice(0, renderLimit),
+	);
+	let visibleEnabledLocal = $derived(
+		enabledLocalMods.slice(0, renderLimitLocal),
+	);
+	let visibleDisabledLocal = $derived(
+		disabledLocalMods.slice(0, renderLimitLocal),
+	);
 
 	function scheduleHydration() {
 		hydrationPending = true;
@@ -1826,12 +1865,12 @@ onDestroy(() => {
 									</p>
 								</div>
 								<div class="mods-grid local-mods-grid">
-									{#each enabledLocalMods as mod (mod.name)}
-										<LocalModCard
-											{mod}
-											onUninstall={handleModUninstalled}
-											onToggleEnabled={handleModToggled}
-										/>
+							{#each visibleEnabledLocal as mod (mod.name)}
+								<LocalModCard
+									{mod}
+									onUninstall={handleModUninstalled}
+									onToggleEnabled={handleModToggled}
+								/>
 									{/each}
 								</div>
 							{/if}
@@ -1851,12 +1890,12 @@ onDestroy(() => {
 									</p>
 								</div>
 								<div class="mods-grid local-mods-grid">
-									{#each disabledLocalMods as mod (mod.name)}
-										<LocalModCard
-											{mod}
-											onUninstall={handleModUninstalled}
-											onToggleEnabled={handleModToggled}
-										/>
+							{#each visibleDisabledLocal as mod (mod.name)}
+								<LocalModCard
+									{mod}
+									onUninstall={handleModUninstalled}
+									onToggleEnabled={handleModToggled}
+								/>
 									{/each}
 								</div>
 							{/if}
@@ -1904,7 +1943,9 @@ onDestroy(() => {
 									class="mods-grid"
 									class:has-local-mods={localMods.length > 0}
 								>
-									{#each enabledMods as mod (mod.title)}
+									{#each visiblePaginatedMods.filter((m) =>
+										enabledMods.some((e) => e.title === m.title)
+									) as mod (mod.title)}
 										<ModCard
 											{mod}
 											deferImages={paginating || isUserScrolling}
@@ -1932,7 +1973,9 @@ onDestroy(() => {
 									class="mods-grid"
 									class:has-local-mods={localMods.length > 0}
 								>
-									{#each disabledMods as mod (mod.title)}
+									{#each visiblePaginatedMods.filter((m) =>
+										disabledMods.some((e) => e.title === m.title)
+									) as mod (mod.title)}
 										<ModCard
 											{mod}
 											deferImages={paginating || isUserScrolling}
@@ -1948,7 +1991,7 @@ onDestroy(() => {
 							{#if enabledMods.length === 0 && disabledMods.length === 0}
 								<!-- Fallback: show installed catalog mods before enabled state resolves -->
 								<div class="mods-grid">
-									{#each paginatedMods as mod (mod.title)}
+									{#each visiblePaginatedMods as mod (mod.title)}
 										<ModCard
 											{mod}
 											deferImages={paginating || isUserScrolling}
@@ -1964,7 +2007,7 @@ onDestroy(() => {
 					{:else}
 						<!-- Original non-InstalledMods categories -->
 						<div class="mods-grid">
-							{#each paginatedMods as mod (mod.title)}
+							{#each visiblePaginatedMods as mod (mod.title)}
 								<ModCard
 									{mod}
 									deferImages={paginating || isUserScrolling}

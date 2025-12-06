@@ -29,11 +29,15 @@ import { addMessage } from "$lib/stores";
 	import { lovelyPopupStore } from "../../stores/modStore";
 	import { modsStore } from "../../stores/modStore";
 	import { untrack } from "svelte";
-	import {
-		checkModInCache,
-		fetchCachedMods,
-		forceRefreshCache,
-	} from "../../stores/modCache";
+import {
+	checkModInCache,
+	fetchCachedMods,
+	forceRefreshCache,
+} from "../../stores/modCache";
+import {
+	descriptionsStore,
+	setDescription,
+} from "../../stores/descriptions";
     import LazyImage from "../common/LazyImage.svelte";
 import { isLinuxPlatform } from "$lib/platform";
 import { openExternal } from "$lib/opener";
@@ -103,11 +107,14 @@ let descLoading = $state(false);
 	let skipHistoryUpdate = false;
 	let description: HTMLDivElement;
 	// Links gets pushed down the array as another gets added. The oldest link is the last one in the array.
-	let history: internalModLinkData[] = $state([]);
+let history: internalModLinkData[] = $state([]);
 
-	const linkCache = new Map<string, internalModLinkData>();
+const linkCache = new Map<string, internalModLinkData>();
 
-	let modView: HTMLDivElement;
+let modView: HTMLDivElement;
+	let descriptionText = $derived(
+		mod ? $descriptionsStore[mod.title] ?? mod.description ?? "" : "",
+	);
 
 	interface internalModLinkData {
 		isMod: boolean;
@@ -612,7 +619,7 @@ let descLoading = $state(false);
 
     // Ensure description is loaded (lazy) for detail view
     async function ensureDescriptionLoaded(m: Mod & { _dirName?: string }) {
-        if (!m || m.description) return;
+        if (!m || (descriptionText && descriptionText.trim().length > 0)) return;
         const dir = m._dirName as string | undefined;
         if (!dir) return;
         try {
@@ -621,17 +628,9 @@ let descLoading = $state(false);
                 "get_description_cached_or_remote",
                 { title: m.title, dirName: dir }
             );
-            // Update currentModView store with new description
+            setDescription(m.title, text);
+            // Update currentModView store with new description for this view
             currentModView.set({ ...m, description: text });
-            // Also update the main modsStore so the card stops showing skeleton
-            modsStore.update((arr) => {
-                const pos = arr.findIndex((x) => x.title === m.title);
-                if (pos >= 0) {
-                    arr = arr.slice();
-                    arr[pos] = { ...arr[pos], description: text };
-                }
-                return arr;
-            });
         } catch (_) {
             // ignore
         } finally {
@@ -642,11 +641,12 @@ let descLoading = $state(false);
     // This effect handles the description rendering
     $effect(() => {
         const m = mod as Mod & { _dirName?: string };
-        if (m && !m.description) {
+        const desc = descriptionText;
+        if (m && (!desc || desc.trim().length === 0)) {
             ensureDescriptionLoaded(m);
         }
-        if (m?.description) {
-            Promise.resolve(marked(m.description)).then((result) => {
+        if (desc) {
+            Promise.resolve(marked(desc)).then((result) => {
                 renderedDescription = result;
             });
         } else {
