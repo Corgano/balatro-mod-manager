@@ -15,9 +15,11 @@ use std::path::{Path, PathBuf};
 
 /// Resolve the mods directory on the host (config dir).
 pub fn mods_dir() -> PathBuf {
-    if let Some(config_dir) = dirs::config_dir() {
-        return config_dir.join("Balatro").join("Mods");
-    }
-    // Fallback to current dir if config_dir is unavailable
-    Path::new(".").join("Mods")
+    crate::local_mod_detection::resolve_mods_dir_path().unwrap_or_else(|_| {
+        // Fallback to the platform config dir if detection failed
+        dirs::config_dir()
+            .unwrap_or_else(|| Path::new(".").to_path_buf())
+            .join("Balatro")
+            .join("Mods")
+    })
 }
