@@ -1,4 +1,5 @@
 use crate::errors::AppError;
+use crate::local_mod_detection::resolve_mods_dir_path;
 use flate2::read::GzDecoder;
 use reqwest::Client;
 use reqwest::header::{CONTENT_DISPOSITION, CONTENT_TYPE};
@@ -61,10 +62,7 @@ pub async fn install_mod(url: String, folder_name: Option<String>) -> Result<Pat
         )
     })?;
 
-    let mod_dir = dirs::config_dir()
-        .ok_or_else(|| AppError::DirNotFound(PathBuf::from("config directory")))?
-        .join("Balatro")
-        .join("Mods");
+    let mod_dir = resolve_mods_dir()?;
 
     let mod_name = {
         if let Some(name) = folder_name.filter(|n| !n.is_empty()) {
@@ -502,10 +500,7 @@ fn apply_disabled_marker(mod_path: &Path) -> Result<(), AppError> {
 pub fn uninstall_mod(path: PathBuf) -> Result<(), AppError> {
     log::info!("Uninstalling mod: {path:?}");
 
-    let mods_dir = dirs::config_dir()
-        .ok_or_else(|| AppError::DirNotFound(PathBuf::from("config directory")))?
-        .join("Balatro")
-        .join("Mods");
+    let mods_dir = resolve_mods_dir()?;
 
     validate_uninstall_path(&path, &mods_dir)?;
 
@@ -543,6 +538,15 @@ fn validate_uninstall_path(path: &PathBuf, mods_dir: &PathBuf) -> Result<(), App
     }
 
     Ok(())
+}
+
+fn resolve_mods_dir() -> Result<PathBuf, AppError> {
+    let mods_dir = resolve_mods_dir_path().map_err(|e| AppError::DirNotFound(PathBuf::from(e)))?;
+    fs::create_dir_all(&mods_dir).map_err(|e| AppError::DirCreate {
+        path: mods_dir.clone(),
+        source: e.to_string(),
+    })?;
+    Ok(mods_dir)
 }
 
 #[cfg(test)]
