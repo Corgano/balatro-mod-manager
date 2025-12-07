@@ -17,7 +17,7 @@ Balatro Mod Manager is a standalone tool made for [Balatro](https://store.steamp
 # [![Download](images/download.svg)](https://github.com/skyline69/balatro-mod-manager/releases/latest)
 
 Balatro Mod Manager is available for Windows, macOS, and Linux. The installer is standalone and does not require any external libraries.
-> Note: The Balatro Mod Manager is **NOT** available on the Xbox Gamepass version of Balatro
+> Note: The Balatro Mod Manager is **NOT** compatible with the Xbox Gamepass version of Balatro
 
 [Download the Balatro Mod Manager installer here](https://github.com/skyline69/balatro-mod-manager/releases/latest).
 
