@@ -196,21 +196,22 @@ fn resolve_mods_dir_for_open() -> Result<PathBuf, String> {
 
     // On Flatpak, also ensure the host-visible Mods folder exists so openers that escape
     // the sandbox (flatpak-spawn --host) have a valid target path.
-    if std::env::var_os("FLATPAK_ID").is_some() {
-        if let Some(home) = dirs::home_dir() {
-            let host_mods = home.join(".config/Balatro/Mods");
-            if host_mods != mods_dir && !host_mods.exists() {
-                if let Err(e) = std::fs::create_dir_all(&host_mods) {
-                    log::warn!(
-                        "Failed to create host mods directory at {}: {}",
-                        host_mods.display(),
-                        e
-                    );
-                }
-            }
-            if host_mods.exists() {
-                return Ok(host_mods);
-            }
+    if std::env::var_os("FLATPAK_ID").is_some()
+        && let Some(home) = dirs::home_dir()
+    {
+        let host_mods = home.join(".config/Balatro/Mods");
+        if host_mods != mods_dir
+            && !host_mods.exists()
+            && let Err(e) = std::fs::create_dir_all(&host_mods)
+        {
+            log::warn!(
+                "Failed to create host mods directory at {}: {}",
+                host_mods.display(),
+                e
+            );
+        }
+        if host_mods.exists() {
+            return Ok(host_mods);
         }
     }
 
