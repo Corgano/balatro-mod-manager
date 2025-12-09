@@ -1,4 +1,14 @@
 # [![Balatro Mod Manager](images/title.svg)](#)
+![GitHub Downloads (all assets, all releases)](https://img.shields.io/github/downloads/skyline69/balatro-mod-manager/total)
+![GitHub License](https://img.shields.io/github/license/skyline69/balatro-mod-manager)
+![GitHub Tag](https://img.shields.io/github/v/tag/skyline69/balatro-mod-manager)
+![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/skyline69/balatro-mod-manager/ci.yml)
+![Website](https://img.shields.io/website?url=https%3A%2F%2Fbalatro-mod-manager.dasguney.com%2F)
+![Rust](https://img.shields.io/badge/rust-%23000000.svg?logo=rust&logoColor=white)
+![TypeScript](https://img.shields.io/badge/typescript-%23007ACC.svg?logo=typescript&logoColor=white)
+![Fortran](https://img.shields.io/badge/Fortran-%23734F96.svg?logo=fortran&logoColor=white)
+![Tauri](https://img.shields.io/badge/tauri-%2324C8DB.svg?logo=tauri&logoColor=%23FFFFFF)
+![Svelte](https://img.shields.io/badge/svelte-%23f1413d.svg?logo=svelte&logoColor=white)
 
 The Balatro Mod Manager by _Skyline_.
 
