@@ -63,6 +63,23 @@ pub async fn open_directory(app: tauri::AppHandle, path: String) -> Result<(), S
             }
         }
 
+        if !is_flatpak {
+            // Prefer native xdg-open on desktop Linux to avoid portal no-op cases.
+            match Command::new("xdg-open").arg(&host_str).status() {
+                Ok(status) if status.success() => return Ok(()),
+                Ok(status) => {
+                    let msg = format!("xdg-open exit {}", status);
+                    warn!("open_directory {}", msg);
+                    errors.push(msg);
+                }
+                Err(e) => {
+                    let msg = format!("xdg-open error {e}");
+                    warn!("open_directory {}", msg);
+                    errors.push(msg);
+                }
+            }
+        }
+
         // Try the Tauri opener plugin (portal-aware) using reveal first for dirs.
         match app.opener().reveal_item_in_dir(host_str.clone()) {
             Ok(_) => {
@@ -152,17 +169,19 @@ pub async fn open_directory(app: tauri::AppHandle, path: String) -> Result<(), S
         }
 
         // Desktop Linux fallback: try xdg-open directly for clearer error
-        match Command::new("xdg-open").arg(&host_str).status() {
-            Ok(status) if status.success() => return Ok(()),
-            Ok(status) => {
-                let msg = format!("xdg-open exit {}", status);
-                warn!("open_directory {}", msg);
-                errors.push(msg);
-            }
-            Err(e) => {
-                let msg = format!("xdg-open error {e}");
-                warn!("open_directory {}", msg);
-                errors.push(msg);
+        if is_flatpak {
+            match Command::new("xdg-open").arg(&host_str).status() {
+                Ok(status) if status.success() => return Ok(()),
+                Ok(status) => {
+                    let msg = format!("xdg-open exit {}", status);
+                    warn!("open_directory {}", msg);
+                    errors.push(msg);
+                }
+                Err(e) => {
+                    let msg = format!("xdg-open error {e}");
+                    warn!("open_directory {}", msg);
+                    errors.push(msg);
+                }
             }
         }
     }

@@ -77,11 +77,33 @@ fn mod_dir_candidates() -> Result<Vec<PathBuf>, String> {
     let primary = config_dir.join("Balatro").join("Mods");
 
     let mut candidates = Vec::new();
+    let is_flatpak = std::env::var_os("FLATPAK_ID").is_some();
+
+    #[cfg(target_os = "linux")]
+    {
+        // Prefer Proton's compatdata mods folder when available (Steam install).
+        if !is_flatpak {
+            let mut compat_candidates = Vec::new();
+            for balatro_path in finder::get_balatro_paths() {
+                if let Some(steamapps) = balatro_path.parent().and_then(|p| p.parent()) {
+                    compat_candidates.push(steamapps.join(
+                        "compatdata/2379780/pfx/drive_c/users/steamuser/AppData/Roaming/Balatro/Mods",
+                    ));
+                }
+            }
+            if compat_candidates.is_empty()
+                && let Some(home) = dirs::home_dir()
+            {
+                compat_candidates.push(home.join(
+                    ".local/share/Steam/steamapps/compatdata/2379780/pfx/drive_c/users/steamuser/AppData/Roaming/Balatro/Mods",
+                ));
+            }
+            candidates.extend(compat_candidates);
+        }
+    }
 
     // In Flatpak, prefer the host config path first so we open the real mods folder.
-    if std::env::var_os("FLATPAK_ID").is_some()
-        && let Some(home) = dirs::home_dir()
-    {
+    if is_flatpak && let Some(home) = dirs::home_dir() {
         candidates.push(home.join(".config").join("Balatro").join("Mods"));
     }
 
