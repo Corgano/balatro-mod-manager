@@ -85,7 +85,7 @@ pub async fn clear_cache() -> Result<(), String> {
         errors.push(e.to_string());
     }
 
-    // Also clear the GitLab mod index cache we maintain under the config directory
+    // Also clear the repo mod index cache we maintain under the config directory
     let config_dir = match dirs::config_dir() {
         Some(p) => p,
         None => {

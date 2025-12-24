@@ -815,7 +815,7 @@ const { handleDependencyCheck, mod } = $props<{
 		catalogLoading.set(true);
 		addMessage("Loading mods in background…", "info");
 		try {
-			const items = await invoke<ArchiveModItem[]>("fetch_gitlab_mods");
+			const items = await invoke<ArchiveModItem[]>("fetch_repo_mods");
 			// Enqueue background caching for thumbnails (non-blocking, handles 429)
 			try {
 				const thumbItems = items
@@ -969,7 +969,7 @@ const { handleDependencyCheck, mod } = $props<{
 		if ($catalogLoading) return;
 		catalogLoading.set(true);
         try {
-            const items = await invoke<ArchiveModItem[]>("fetch_gitlab_mods");
+            const items = await invoke<ArchiveModItem[]>("fetch_repo_mods");
             // Enqueue background caching for thumbnails
             try {
                 const thumbItems = items
@@ -1362,7 +1362,7 @@ const { handleDependencyCheck, mod } = $props<{
 		}
 	}
 
-	// No local clone or pull; we lazy-load from GitLab instead.
+	// No local clone or pull; we lazy-load from the repo instead.
 
 	const categories = [
 		{ name: "Installed Mods", icon: Download },
