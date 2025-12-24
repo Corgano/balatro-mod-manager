@@ -1,0 +1,5 @@
+#!/bin/sh
+if command -v appstreamcli >/dev/null 2>&1; then
+  exec appstreamcli compose "$@"
+fi
+exit 0

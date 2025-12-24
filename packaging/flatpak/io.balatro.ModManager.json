@@ -38,6 +38,7 @@
         "build-args": ["--share=network"]
       },
       "build-commands": [
+        "install -Dm755 packaging/flatpak/appstream-compose /app/bin/appstream-compose",
         "cd /run/build/balatro-mod-manager && export CARGO_HOME=/run/build/balatro-mod-manager/.cargo && export PATH=\"$CARGO_HOME/bin:$PATH\" && curl -L --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh | bash",
         "cd /run/build/balatro-mod-manager && export CARGO_HOME=/run/build/balatro-mod-manager/.cargo && export PATH=\"$CARGO_HOME/bin:$PATH\" && cargo binstall tauri-cli -y --force",
         "cd /run/build/balatro-mod-manager && export BUN_INSTALL=/run/build/balatro-mod-manager/.bun && curl -fsSL https://bun.sh/install | bash",
