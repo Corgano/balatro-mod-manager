@@ -71,6 +71,13 @@ fn compute_fingerprint(mods_dir: &Path) -> ScanFingerprint {
     }
 }
 
+#[cfg(target_os = "linux")]
+fn is_proton_mods_path(path: &Path) -> bool {
+    let path_str = path.to_string_lossy();
+    path_str.contains("compatdata/2379780")
+        && (path_str.contains("/Balatro/Mods") || path_str.ends_with("/Balatro/Mods"))
+}
+
 fn mod_dir_candidates() -> Result<Vec<PathBuf>, String> {
     let config_dir =
         dirs::config_dir().ok_or_else(|| "Could not find config directory".to_string())?;
@@ -130,6 +137,24 @@ fn mod_dir_candidates() -> Result<Vec<PathBuf>, String> {
 
 pub fn resolve_mods_dir_path() -> Result<PathBuf, String> {
     let candidates = mod_dir_candidates()?;
+
+    #[cfg(target_os = "linux")]
+    {
+        if std::env::var_os("FLATPAK_ID").is_none() {
+            let compat_candidates: Vec<PathBuf> = candidates
+                .iter()
+                .filter(|p| is_proton_mods_path(p))
+                .cloned()
+                .collect();
+            if let Some(existing) = compat_candidates.iter().find(|p| p.exists()) {
+                return Ok(existing.clone());
+            }
+            if let Some(first) = compat_candidates.first() {
+                return Ok(first.clone());
+            }
+        }
+    }
+
     if let Some(existing) = candidates.iter().find(|p| p.exists()) {
         return Ok(existing.clone());
     }
