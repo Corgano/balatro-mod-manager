@@ -71,17 +71,46 @@ fn compute_fingerprint(mods_dir: &Path) -> ScanFingerprint {
     }
 }
 
+#[cfg(target_os = "linux")]
+fn is_proton_mods_path(path: &Path) -> bool {
+    let path_str = path.to_string_lossy();
+    path_str.contains("compatdata/2379780")
+        && (path_str.contains("/Balatro/Mods") || path_str.ends_with("/Balatro/Mods"))
+}
+
 fn mod_dir_candidates() -> Result<Vec<PathBuf>, String> {
     let config_dir =
         dirs::config_dir().ok_or_else(|| "Could not find config directory".to_string())?;
     let primary = config_dir.join("Balatro").join("Mods");
 
     let mut candidates = Vec::new();
+    let is_flatpak = std::env::var_os("FLATPAK_ID").is_some();
+
+    #[cfg(target_os = "linux")]
+    {
+        // Prefer Proton's compatdata mods folder when available (Steam install).
+        if !is_flatpak {
+            let mut compat_candidates = Vec::new();
+            for balatro_path in finder::get_balatro_paths() {
+                if let Some(steamapps) = balatro_path.parent().and_then(|p| p.parent()) {
+                    compat_candidates.push(steamapps.join(
+                        "compatdata/2379780/pfx/drive_c/users/steamuser/AppData/Roaming/Balatro/Mods",
+                    ));
+                }
+            }
+            if compat_candidates.is_empty()
+                && let Some(home) = dirs::home_dir()
+            {
+                compat_candidates.push(home.join(
+                    ".local/share/Steam/steamapps/compatdata/2379780/pfx/drive_c/users/steamuser/AppData/Roaming/Balatro/Mods",
+                ));
+            }
+            candidates.extend(compat_candidates);
+        }
+    }
 
     // In Flatpak, prefer the host config path first so we open the real mods folder.
-    if std::env::var_os("FLATPAK_ID").is_some()
-        && let Some(home) = dirs::home_dir()
-    {
+    if is_flatpak && let Some(home) = dirs::home_dir() {
         candidates.push(home.join(".config").join("Balatro").join("Mods"));
     }
 
@@ -108,6 +137,24 @@ fn mod_dir_candidates() -> Result<Vec<PathBuf>, String> {
 
 pub fn resolve_mods_dir_path() -> Result<PathBuf, String> {
     let candidates = mod_dir_candidates()?;
+
+    #[cfg(target_os = "linux")]
+    {
+        if std::env::var_os("FLATPAK_ID").is_none() {
+            let compat_candidates: Vec<PathBuf> = candidates
+                .iter()
+                .filter(|p| is_proton_mods_path(p))
+                .cloned()
+                .collect();
+            if let Some(existing) = compat_candidates.iter().find(|p| p.exists()) {
+                return Ok(existing.clone());
+            }
+            if let Some(first) = compat_candidates.first() {
+                return Ok(first.clone());
+            }
+        }
+    }
+
     if let Some(existing) = candidates.iter().find(|p| p.exists()) {
         return Ok(existing.clone());
     }
