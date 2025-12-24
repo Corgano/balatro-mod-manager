@@ -149,9 +149,6 @@ pub fn resolve_mods_dir_path() -> Result<PathBuf, String> {
             if let Some(existing) = compat_candidates.iter().find(|p| p.exists()) {
                 return Ok(existing.clone());
             }
-            if let Some(first) = compat_candidates.first() {
-                return Ok(first.clone());
-            }
         }
     }
 
