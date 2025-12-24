@@ -50,11 +50,6 @@ fn configure_display_backend() -> Option<String> {
     )
 }
 
-#[cfg(not(target_os = "linux"))]
-fn configure_display_backend() -> Option<String> {
-    None
-}
-
 #[cfg(target_os = "macos")]
 fn scrub_dyld_injection_env() {
     // When a global DYLD_INSERT_LIBRARIES/related env is set (e.g., from game launchers),

@@ -7,7 +7,9 @@ use crate::util::map_error;
 use bmm_lib::balamod::find_balatros;
 use bmm_lib::errors::AppError;
 use bmm_lib::local_mod_detection;
-use log::{error, info, warn};
+use log::error;
+#[cfg(target_os = "linux")]
+use log::{info, warn};
 #[cfg(target_os = "linux")]
 use tauri_plugin_opener::OpenerExt;
 
