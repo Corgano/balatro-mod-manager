@@ -172,7 +172,8 @@ jobs:
             org.freedesktop.Sdk.Extension.rust-stable//24.08
       - name: Build Flatpak bundle
         run: |
-          flatpak-builder --force-clean --repo=repo build-dir packaging/flatpak/io.balatro.ModManager.json
+          flatpak-builder --force-clean build-dir packaging/flatpak/io.balatro.ModManager.json
+          flatpak build-export --no-update-summary repo build-dir
           flatpak build-bundle repo balatro-mod-manager.flatpak io.balatro.ModManager master
       - name: Upload Flatpak bundle
         uses: actions/upload-artifact@v4
