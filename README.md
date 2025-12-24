@@ -38,7 +38,7 @@ Scroll down to find **▸Assets** and download the right version of the installe
 
 - Windows: `Balatro.Mod.Manager_…_x64-setup.exe` or `Balatro.Mod.Manager_…_x64_en-US.msi`
 - macOS: `Balatro.Mod.Manager_…_universal.dmg`
-- Linux: `Balatro.Mod.Manager_…_amd64.AppImage` (mark as executable if needed)
+- Linux: Flatpak (recommended) or `Balatro.Mod.Manager_…_amd64.AppImage`
 
 ## Flatpak (Steam Deck/Linux)
 
@@ -96,7 +96,7 @@ run this command:
 curl -sL https://raw.githubusercontent.com/skyline69/balatro-mod-manager/main/scripts/install.sh | bash
 ```
 
-### For Linux
+### For Linux (Flatpak)
 
 From a local checkout (respects your current branch/changes):
 
@@ -110,7 +110,13 @@ If you want to install from the latest GitHub main without cloning manually, pas
 curl -sL https://raw.githubusercontent.com/skyline69/balatro-mod-manager/main/scripts/linux-install.sh | bash -s -- --clone
 ```
 
-Linux builds use a Podman container to ensure GTK/WebKit/SSL dependencies are present. Please install [Podman](https://podman.io/) before running the script.
+Launch after install:
+
+```bash
+flatpak run io.balatro.ModManager
+```
+
+Linux builds use Flatpak, so you’ll need `flatpak` and `flatpak-builder` installed.
 On Linux the manager currently supports the Steam version of Balatro only.
 
 ## Manual Installation
