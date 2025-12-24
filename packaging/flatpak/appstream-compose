@@ -1,5 +1,4 @@
 #!/bin/sh
-if command -v appstreamcli >/dev/null 2>&1; then
-  exec appstreamcli compose "$@"
-fi
+# flatpak-builder invokes appstream-compose with options not supported by
+# appstreamcli on Ubuntu 22.04; for CI bundling, a no-op is sufficient.
 exit 0
