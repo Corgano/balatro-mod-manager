@@ -160,7 +160,6 @@ jobs:
       - name: Verify AppStream tooling
         run: |
           command -v appstream-compose
-          appstream-compose --version
       - name: Add Flathub remote
         run: |
           flatpak remote-add --if-not-exists --user flathub https://flathub.org/repo/flathub.flatpakrepo
