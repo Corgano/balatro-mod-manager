@@ -18,6 +18,7 @@ CYAN='\033[38;2;61;181;255m'
 NC='\033[0m'
 
 BUILD_DIR=""
+DOWNLOAD_DIR=""
 CLEANUP_DONE=false
 FLATPAK_BUNDLE=""
 PREEXIST_FLATPAK=false
@@ -43,6 +44,10 @@ cleanup() {
             echo -e "${YELLOW}Cleaning up temporary directory...${NC}"
         fi
         rm -rf "$BUILD_DIR"
+    fi
+
+    if [[ -n "$DOWNLOAD_DIR" && -d "$DOWNLOAD_DIR" ]]; then
+        rm -rf "$DOWNLOAD_DIR"
     fi
 }
 
@@ -82,20 +87,19 @@ if ! command -v git &>/dev/null; then
     exit 1
 fi
 
+# Require curl
+if ! command -v curl &>/dev/null; then
+    echo -e "${RED}curl not found. Please install curl and try again.${NC}"
+    exit 1
+fi
+
 # Require flatpak
 if ! command -v flatpak &>/dev/null; then
     echo -e "${RED}Flatpak not found. Please install flatpak and try again.${NC}"
     exit 1
 fi
 
-# Require flatpak-builder
-if ! command -v flatpak-builder &>/dev/null; then
-    echo -e "${RED}flatpak-builder not found. Please install flatpak-builder and try again.${NC}"
-    exit 1
-fi
-
 echo -e "${GREEN}Flatpak ✓${NC}"
-echo -e "${GREEN}flatpak-builder ✓${NC}"
 
 ############################################
 # SELECT SOURCE (LOCAL OR GITHUB CLONE)
@@ -119,7 +123,44 @@ fi
 ############################################
 # BUILD + INSTALL FLATPAK
 ############################################
-echo -e "${YELLOW}2. Building Flatpak bundle...${NC}"
+echo -e "${YELLOW}2. Installing Flatpak bundle (release preferred)...${NC}"
+
+DOWNLOAD_DIR=$(mktemp -d)
+FLATPAK_BUNDLE="$DOWNLOAD_DIR/balatro-mod-manager.flatpak"
+RELEASE_URL=$(curl -fsSL "https://api.github.com/repos/skyline69/balatro-mod-manager/releases/latest" | \
+    grep -Eo '"browser_download_url":\s*"[^"]+\.flatpak"' | \
+    head -n1 | cut -d '"' -f4)
+
+if [[ -n "$RELEASE_URL" ]]; then
+    echo -e "${YELLOW}Downloading latest release Flatpak...${NC}"
+    if curl -fsSL "$RELEASE_URL" -o "$FLATPAK_BUNDLE"; then
+        echo -e "${YELLOW}Installing Flatpak bundle...${NC}"
+        flatpak install --user -y --reinstall "$FLATPAK_BUNDLE"
+        cleanup 0
+        echo -e "${GREEN}"
+        echo "--------------------------------------"
+        echo "Installation complete!"
+        echo "--------------------------------------"
+        echo -e "${NC}"
+
+        echo "You can now launch the app via:"
+        echo "  • Terminal: flatpak run io.balatro.ModManager"
+        echo
+        echo "Flatpak bundle downloaded from:"
+        echo "  $RELEASE_URL"
+        echo
+        exit 0
+    fi
+fi
+
+echo -e "${YELLOW}Release download failed; building Flatpak locally...${NC}"
+
+# Require flatpak-builder for local build fallback
+if ! command -v flatpak-builder &>/dev/null; then
+    echo -e "${RED}flatpak-builder not found. Please install flatpak-builder and try again.${NC}"
+    exit 1
+fi
+echo -e "${GREEN}flatpak-builder ✓${NC}"
 
 RUNTIMES=(
     "org.gnome.Platform//47"

@@ -152,6 +152,7 @@ jobs:
             artifacts/**/*.dmg
             signed-artifact/**/*.exe
             signed-artifact/**/*.msi
+            artifacts/**/*.flatpak
           token: ${{ secrets.GITHUB_TOKEN }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

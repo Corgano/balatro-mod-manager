@@ -110,6 +110,8 @@ If you want to install from the latest GitHub main without cloning manually, pas
 curl -sL https://raw.githubusercontent.com/skyline69/balatro-mod-manager/main/scripts/linux-install.sh | bash -s -- --clone
 ```
 
+The script now prefers the latest GitHub Release Flatpak if available, and falls back to a local build if not.
+
 Launch after install:
 
 ```bash
