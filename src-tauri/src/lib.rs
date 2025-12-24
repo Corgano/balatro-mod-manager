@@ -1,4 +1,5 @@
 pub mod commands;
+mod lfs;
 mod models;
 mod state;
 mod thumb_queue;

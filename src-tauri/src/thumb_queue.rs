@@ -2,6 +2,8 @@ use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 
 use reqwest::StatusCode;
+
+use crate::lfs::{LfsError, resolve_lfs_pointer_bytes};
 use tokio::sync::{Semaphore, mpsc};
 use tokio::time::{Duration, sleep};
 
@@ -143,7 +145,14 @@ async fn fetch_and_store(
     match resp.status() {
         StatusCode::OK => {
             let bytes = match resp.bytes().await {
-                Ok(b) => b,
+                Ok(b) => b.to_vec(),
+                Err(_) => return Ok(false),
+            };
+            let bytes = match resolve_lfs_pointer_bytes(client, bytes).await {
+                Ok(resolved) => resolved,
+                Err(LfsError::Retryable(_)) => {
+                    return Err(Backoff::RetryAfter(jitter(Duration::from_secs(4))));
+                }
                 Err(_) => return Ok(false),
             };
             if write_thumbnail(title, &bytes).is_err() {

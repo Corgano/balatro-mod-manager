@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 
+use crate::lfs::{LfsError, resolve_lfs_pointer_bytes};
 use crate::models::ModMeta;
 use bmm_lib::errors::AppError;
 use serde::{Deserialize, Serialize};
@@ -85,7 +86,13 @@ pub async fn get_repo_file(path: &str) -> Result<String, String> {
     for attempt in 0..4 {
         let resp = client.get(&url).send().await.map_err(|e| e.to_string())?;
         if resp.status().is_success() {
-            return resp.text().await.map_err(|e| e.to_string());
+            let bytes = resp.bytes().await.map_err(|e| e.to_string())?.to_vec();
+            let bytes = resolve_lfs_pointer_bytes(&client, bytes)
+                .await
+                .map_err(|e| format!("{e}"))?;
+            let text = String::from_utf8(bytes.to_vec())
+                .map_err(|e| format!("Invalid UTF-8 from repo: {e}"))?;
+            return Ok(text);
         }
         let code = resp.status().as_u16();
         // 404/410: not found — no point retrying this URL
@@ -136,7 +143,7 @@ pub struct ArchiveModItem {
 }
 
 // Fetch all mod metadata and descriptions via a single archive request.
-// LFS images are fetched via raw URLs when needed; no LFS internals here.
+// LFS pointers are resolved via the Git LFS batch API when needed.
 #[tauri::command]
 pub async fn fetch_repo_mods() -> Result<Vec<ArchiveModItem>, String> {
     use flate2::read::GzDecoder;
@@ -249,7 +256,7 @@ pub async fn fetch_repo_mods() -> Result<Vec<ArchiveModItem>, String> {
         }
     }
 
-    // Build result by fetching meta/description via raw URLs (LFS resolved by server).
+    // Build result by fetching meta/description via raw URLs with LFS pointer resolution.
     use futures::{StreamExt, stream};
     let client = reqwest::Client::new();
     let concurrency = 12usize;
@@ -264,14 +271,20 @@ pub async fn fetch_repo_mods() -> Result<Vec<ArchiveModItem>, String> {
 
                 let meta = match client.get(&meta_url).send().await {
                     Ok(resp) if resp.status().is_success() => {
-                        let text = resp.text().await.ok()?;
+                        let bytes = resp.bytes().await.ok()?.to_vec();
+                        let bytes = resolve_lfs_pointer_bytes(&client, bytes).await.ok()?;
+                        let text = String::from_utf8(bytes).ok()?;
                         serde_json::from_str::<ModMeta>(&text).ok()?
                     }
                     _ => return None,
                 };
 
                 let description = match client.get(&desc_url).send().await {
-                    Ok(resp) if resp.status().is_success() => resp.text().await.unwrap_or_default(),
+                    Ok(resp) if resp.status().is_success() => {
+                        let bytes = resp.bytes().await.ok()?.to_vec();
+                        let bytes = resolve_lfs_pointer_bytes(&client, bytes).await.ok()?;
+                        String::from_utf8(bytes).unwrap_or_default()
+                    }
                     _ => String::new(),
                 };
 
@@ -473,6 +486,15 @@ pub async fn get_cached_installed_thumbnail(
     if let Ok(resp) = client.get(&url).send().await {
         if resp.status().is_success() {
             if let Ok(bytes) = resp.bytes().await {
+                let bytes = bytes.to_vec();
+                let bytes = match resolve_lfs_pointer_bytes(&client, bytes).await {
+                    Ok(resolved) => resolved,
+                    Err(LfsError::Retryable(_)) => {
+                        state.thumbs.enqueue(title.clone(), url.to_string());
+                        return Ok(None);
+                    }
+                    Err(_) => return Ok(None),
+                };
                 // Persist and return
                 std::fs::write(&path, &bytes).map_err(|e| {
                     AppError::FileWrite {
@@ -522,8 +544,12 @@ pub async fn get_description_cached_or_remote(
     let url = format!("{}/mods/{}/description.md", REPO_MEDIA_MAIN, enc);
     if let Ok(resp) = client.get(&url).send().await
         && resp.status().is_success()
-        && let Ok(text) = resp.text().await
+        && let Ok(bytes) = resp.bytes().await
     {
+        let bytes = resolve_lfs_pointer_bytes(&client, bytes.to_vec())
+            .await
+            .map_err(|e| e.to_string())?;
+        let text = String::from_utf8(bytes).map_err(|e| format!("Invalid UTF-8: {e}"))?;
         // Cache for future sessions regardless of install state
         if let Err(e) = std::fs::write(&path, &text) {
             log::warn!("Failed to cache description for {}: {}", title, e);
@@ -597,6 +623,7 @@ pub async fn batch_fetch_thumbnails_repo(inputs: Vec<ModThumbInput>) -> Result<u
                 if let Ok(resp) = client.get(&url).send().await
                     && resp.status().is_success()
                     && let Ok(bytes) = resp.bytes().await
+                    && let Ok(bytes) = resolve_lfs_pointer_bytes(&client, bytes.to_vec()).await
                 {
                     let slug = safe_slug(&m.title);
                     let path = thumbs_dir.join(format!("{slug}.jpg"));
