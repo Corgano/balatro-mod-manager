@@ -256,6 +256,8 @@ pub fn run() {
                     if let Err(e) = window.set_focus() {
                         log::warn!("Failed to focus main window: {e}");
                     }
+                    #[cfg(target_os = "linux")]
+                    clamp_window_to_monitor(&window);
                 }
                 None => log::warn!("Main window not found during setup; UI may remain hidden"),
             }
@@ -347,5 +349,37 @@ pub fn run() {
         log::error!("Failed to run application: {e}");
         log::logger().flush();
         std::process::exit(1);
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn clamp_window_to_monitor(window: &tauri::WebviewWindow) {
+    let monitor = window
+        .current_monitor()
+        .ok()
+        .flatten()
+        .or_else(|| window.primary_monitor().ok().flatten());
+    let Some(monitor) = monitor else { return };
+    let monitor_size = monitor.size();
+    let padding = 48u32;
+    let max_w = monitor_size.width.saturating_sub(padding);
+    let max_h = monitor_size.height.saturating_sub(padding);
+    let Ok(window_size) = window.outer_size() else {
+        return;
+    };
+    if window_size.width <= max_w && window_size.height <= max_h {
+        return;
+    }
+    let new_size = tauri::PhysicalSize::new(max_w, max_h);
+    if let Err(e) = window.set_size(tauri::Size::Physical(new_size)) {
+        log::warn!("Failed to clamp window size: {e}");
+        return;
+    }
+    let monitor_pos = monitor.position();
+    let centered_x = monitor_pos.x + ((monitor_size.width - max_w) / 2) as i32;
+    let centered_y = monitor_pos.y + ((monitor_size.height - max_h) / 2) as i32;
+    let new_pos = tauri::PhysicalPosition::new(centered_x, centered_y);
+    if let Err(e) = window.set_position(tauri::Position::Physical(new_pos)) {
+        log::warn!("Failed to clamp window position: {e}");
     }
 }
