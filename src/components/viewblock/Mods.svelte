@@ -36,6 +36,7 @@ import {
 } from "../../stores/modStore";
 import {
 	setDescriptions,
+	withDescriptionsPersistenceSuspended,
 } from "../../stores/descriptions";
 	import { catalogLoading } from "../../stores/modStore";
 	import type { InstalledMod } from "../../stores/modStore";
@@ -947,10 +948,12 @@ const { handleDependencyCheck, mod } = $props<{
 			fillInstalledThumbnails($modsStore).catch(() => {});
 			// Suspend cache persistence during description hydration to avoid thrashing localStorage
 			await withModsCachePersistenceSuspended(async () => {
-				try { await fillCachedDescriptionsVisibleFirst(); } catch { /* ignore */ }
-				try { await fillDescriptionsVisibleFirst(); } catch { /* ignore */ }
-				fillCachedDescriptions($modsStore).catch(() => {});
-				fillDescriptions(mods).catch((e) => console.warn("desc fill failed", e));
+				await withDescriptionsPersistenceSuspended(async () => {
+					try { await fillCachedDescriptionsVisibleFirst(); } catch { /* ignore */ }
+					try { await fillDescriptionsVisibleFirst(); } catch { /* ignore */ }
+					fillCachedDescriptions($modsStore).catch(() => {});
+					fillDescriptions(mods).catch((e) => console.warn("desc fill failed", e));
+				});
 			});
 			addMessage("All mods loaded", "success");
 		} catch (error) {
@@ -1097,10 +1100,12 @@ const { handleDependencyCheck, mod } = $props<{
 			// Also kick off thumbnails/descriptions
 			fillInstalledThumbnails($modsStore).catch(() => {});
 			await withModsCachePersistenceSuspended(async () => {
-				try { await fillCachedDescriptionsVisibleFirst(); } catch { /* ignore */ }
-				try { await fillDescriptionsVisibleFirst(); } catch { /* ignore */ }
-				fillCachedDescriptions($modsStore).catch(() => {});
-				fillDescriptions(mods).catch(() => {});
+				await withDescriptionsPersistenceSuspended(async () => {
+					try { await fillCachedDescriptionsVisibleFirst(); } catch { /* ignore */ }
+					try { await fillDescriptionsVisibleFirst(); } catch { /* ignore */ }
+					fillCachedDescriptions($modsStore).catch(() => {});
+					fillDescriptions(mods).catch(() => {});
+				});
 			});
 		} finally {
 			catalogLoading.set(false);
@@ -1732,10 +1737,12 @@ onDestroy(() => {
 		const delay = isLinux ? 160 : 120;
 		visibleHydrateTimer = setTimeout(() => {
 			hydrationPending = false;
-			fillCachedDescriptionsVisibleFirst().catch(() => {});
-			if (!visibleFirstRunning) {
-				fillDescriptionsVisibleFirst().catch(() => {});
-			}
+			void withDescriptionsPersistenceSuspended(async () => {
+				await fillCachedDescriptionsVisibleFirst().catch(() => {});
+				if (!visibleFirstRunning) {
+					await fillDescriptionsVisibleFirst().catch(() => {});
+				}
+			});
 		}, delay) as unknown as number;
 	}
 
@@ -2100,7 +2107,7 @@ onDestroy(() => {
 										<div class="virtual-cell" use:measureCell={index}>
 											<ModCard
 												{mod}
-												deferImages={paginating || isUserScrolling}
+												deferImages={paginating}
 												onmodclick={handleModClick}
 												oninstallclick={installMod}
 												onuninstallclick={uninstallMod}
@@ -2143,7 +2150,7 @@ onDestroy(() => {
 										<div class="virtual-cell" use:measureCell={index}>
 											<ModCard
 												{mod}
-												deferImages={paginating || isUserScrolling}
+												deferImages={paginating}
 												onmodclick={handleModClick}
 												oninstallclick={installMod}
 												onuninstallclick={uninstallMod}
@@ -2171,7 +2178,7 @@ onDestroy(() => {
 										<div class="virtual-cell" use:measureCell={index}>
 											<ModCard
 												{mod}
-												deferImages={paginating || isUserScrolling}
+												deferImages={paginating}
 												onmodclick={handleModClick}
 												oninstallclick={installMod}
 												onuninstallclick={uninstallMod}
@@ -2199,7 +2206,7 @@ onDestroy(() => {
 								<div class="virtual-cell" use:measureCell={index}>
 									<ModCard
 										{mod}
-										deferImages={paginating || isUserScrolling}
+										deferImages={paginating}
 										onmodclick={handleModClick}
 										oninstallclick={installMod}
 										onuninstallclick={uninstallMod}

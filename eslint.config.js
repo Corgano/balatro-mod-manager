@@ -12,6 +12,7 @@ export default [
       "build/",
       ".svelte-kit/",
       "dist/",
+      ".flatpak-builder/",
       "src-tauri/target/",
       "target/",
       "vite.config.js.timestamp-*",
