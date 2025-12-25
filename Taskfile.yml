@@ -4,6 +4,11 @@ vars:
   INCOMPATIBLE: '{{.INCOMPATIBLE | default "false"}}'
   UPGRADE_INCOMPAT_FLAG: '{{if eq .INCOMPATIBLE "true"}}--incompatible{{end}}'
   MACOSX_DEPLOYMENT_TARGET: "11.0"
+  FLATPAK_MANIFEST: "packaging/flatpak/io.balatro.ModManager.json"
+  FLATPAK_REPO: "repo"
+  FLATPAK_BUILD_DIR: "build-dir"
+  FLATPAK_BUNDLE: "balatro-mod-manager.flatpak"
+  FLATPAK_APP_ID: "io.balatro.ModManager"
 tasks:
   debug:
     desc: Start development (desktop)
@@ -179,6 +184,64 @@ tasks:
     desc: Clean frontend build artifacts
     cmds:
       - cmd: rm -rf .svelte-kit build dist 2>/dev/null || true
+  flatpak:build:
+    desc: Build Flatpak repo from local checkout
+    platforms: [linux]
+    preconditions:
+      - sh: command -v flatpak-builder >/dev/null 2>&1
+        msg: "flatpak-builder is required"
+      - sh: command -v flatpak >/dev/null 2>&1
+        msg: "flatpak is required"
+    cmds:
+      - cmd: |
+          if [ ! -f "{{.FLATPAK_REPO}}/config" ]; then
+            rm -rf "{{.FLATPAK_REPO}}"
+            mkdir -p "{{.FLATPAK_REPO}}"
+            if command -v ostree >/dev/null 2>&1; then
+              ostree init --mode=archive --repo="{{.FLATPAK_REPO}}"
+            else
+              echo "ostree is required to initialize the Flatpak repo" >&2
+              exit 1
+            fi
+          fi
+      - cmd: flatpak-builder --force-clean --repo={{.FLATPAK_REPO}} {{.FLATPAK_BUILD_DIR}} {{.FLATPAK_MANIFEST}}
+  flatpak:bundle:
+    desc: Create Flatpak bundle from local repo
+    platforms: [linux]
+    preconditions:
+      - sh: command -v flatpak >/dev/null 2>&1
+        msg: "flatpak is required"
+    cmds:
+      - cmd: flatpak build-bundle {{.FLATPAK_REPO}} {{.FLATPAK_BUNDLE}} {{.FLATPAK_APP_ID}} master
+  flatpak:install:
+    desc: Install Flatpak bundle to user profile
+    platforms: [linux]
+    preconditions:
+      - sh: command -v flatpak >/dev/null 2>&1
+        msg: "flatpak is required"
+    cmds:
+      - cmd: flatpak install --user {{.FLATPAK_BUNDLE}}
+  flatpak:run:
+    desc: Run the Flatpak app
+    platforms: [linux]
+    preconditions:
+      - sh: command -v flatpak >/dev/null 2>&1
+        msg: "flatpak is required"
+    cmds:
+      - cmd: flatpak run {{.FLATPAK_APP_ID}}
+  flatpak:clean:
+    desc: Remove Flatpak build artifacts
+    platforms: [linux]
+    cmds:
+      - cmd: rm -rf {{.FLATPAK_BUILD_DIR}} {{.FLATPAK_REPO}} {{.FLATPAK_BUNDLE}} 2>/dev/null || true
+  flatpak:all:
+    desc: Build, bundle, install, and run Flatpak locally
+    platforms: [linux]
+    cmds:
+      - task: flatpak:build
+      - task: flatpak:bundle
+      - task: flatpak:install
+      - task: flatpak:run
   bootstrap:
     desc: Install dev dependencies (idempotent)
     cmds:
