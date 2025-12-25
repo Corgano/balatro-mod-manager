@@ -345,7 +345,7 @@ import { isLinuxPlatform } from "$lib/platform";
 		{onError}
 	/>
 
-	<div class="version-text">v0.3.0</div>
+	<div class="version-text">v0.3.1</div>
 </div>
 
 <LovelyMissingPopup />
