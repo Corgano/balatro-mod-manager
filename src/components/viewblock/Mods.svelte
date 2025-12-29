@@ -35,6 +35,7 @@ import {
 	withModsCachePersistenceSuspended,
 } from "../../stores/modStore";
 import {
+	descriptionsStore,
 	setDescriptions,
 	withDescriptionsPersistenceSuspended,
 } from "../../stores/descriptions";
@@ -46,7 +47,7 @@ import type { Component } from "svelte";
 let SearchViewComp = $state<Component | null>(null);
 import { onMount, onDestroy } from "svelte";
 import { listen } from "@tauri-apps/api/event";
-	import { writable } from "svelte/store";
+import { get, writable } from "svelte/store";
 	import { addMessage } from "$lib/stores";
 	import { currentPage, itemsPerPage } from "../../stores/modStore";
 	import ModCard from "./ModCard.svelte";
@@ -110,6 +111,14 @@ let resizeObs: ResizeObserver | null = null;
 
 	// let mods: Mod[] = [];
 	let isLoading = $state(true);
+
+	function hasMeaningfulDescription(desc: string | null | undefined, title: string): boolean {
+		if (!desc) return false;
+		const trimmed = desc.trim();
+		if (!trimmed) return false;
+		if (trimmed.length < 12) return false;
+		return trimmed.toLowerCase() !== title.trim().toLowerCase();
+	}
 
 	interface DependencyCheck {
 		steamodded: boolean;
@@ -1051,7 +1060,7 @@ const { handleDependencyCheck, mod } = $props<{
 				const idx = i++;
 				if (idx >= mods.length) break;
 				const m = mods[idx];
-				if (!m || m.description) continue;
+				if (!m || hasMeaningfulDescription(m.description ?? "", m.title)) continue;
 				if (attemptedDescriptions.has(m.title)) continue;
 				if (inflightDescriptions.has(m.title)) continue;
                 const dir = m._dirName as string | undefined;
@@ -1107,6 +1116,12 @@ const { handleDependencyCheck, mod } = $props<{
 				const c = candidates[idx]!;
 				if (inflightDescriptions.has(c.title)) continue;
 				if (attemptedDescriptions.has(c.title)) continue;
+				if (hasMeaningfulDescription(
+					get(descriptionsStore)[c.title] ?? "",
+					c.title,
+				)) {
+					continue;
+				}
 				try {
 					inflightDescriptions.add(c.title);
 					const text = await invoke<string>(

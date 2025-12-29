@@ -95,6 +95,14 @@ let descLoading = $state(false);
 const attemptedDescriptions = new Set<string>();
 	let isLinux = false;
 
+	function hasMeaningfulDescription(desc: string | null | undefined, title: string): boolean {
+		if (!desc) return false;
+		const trimmed = desc.trim();
+		if (!trimmed) return false;
+		if (trimmed.length < 12) return false;
+		return trimmed.toLowerCase() !== title.trim().toLowerCase();
+	}
+
 	// Add a local state variable for tracking enabled status
 	let isEnabled = $state(true);
 
@@ -622,7 +630,8 @@ let modView: HTMLDivElement;
     async function ensureDescriptionLoaded(m: Mod & { _dirName?: string }) {
         if (!m) return;
         const cached = $descriptionsStore[m.title];
-        if (cached && cached.trim().length > 0) return;
+        const current = cached ?? m.description ?? "";
+        if (hasMeaningfulDescription(current, m.title)) return;
         if (attemptedDescriptions.has(m.title)) return;
         const dir = m._dirName as string | undefined;
         if (!dir) return;
