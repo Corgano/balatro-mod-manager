@@ -339,7 +339,7 @@ pub async fn get_description_cached_or_remote(
             }
             .to_string()
         })?;
-        if !cached.trim().is_empty() {
+        if !cached.trim().is_empty() && is_meaningful_description(&cached, &title) {
             return Ok(cached);
         }
     }
@@ -362,6 +362,112 @@ pub async fn get_description_cached_or_remote(
         log::warn!("Description empty after fetch: title='{}'", title);
     }
     Ok(text)
+}
+
+fn is_meaningful_description(text: &str, title: &str) -> bool {
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return false;
+    }
+    let normalized_text = normalize_plaintext(trimmed);
+    if normalized_text.is_empty() {
+        return false;
+    }
+    if normalized_text.len() < 24 {
+        return false;
+    }
+    let normalized_title = normalize_plaintext(title);
+    normalized_text != normalized_title
+}
+
+fn normalize_plaintext(text: &str) -> String {
+    let cleaned = strip_markdown_images_and_links(text);
+    let mut out = String::with_capacity(cleaned.len());
+    let mut in_tag = false;
+    for ch in cleaned.chars() {
+        match ch {
+            '<' => in_tag = true,
+            '>' => in_tag = false,
+            _ if in_tag => continue,
+            _ => out.push(ch),
+        }
+    }
+    out.to_lowercase()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn strip_markdown_images_and_links(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut chars = text.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch == '!' && chars.peek() == Some(&'[') {
+            chars.next();
+            let mut alt = String::new();
+            let mut found_bracket = false;
+            for c in chars.by_ref() {
+                if c == ']' {
+                    found_bracket = true;
+                    break;
+                }
+                alt.push(c);
+            }
+            if found_bracket && chars.peek() == Some(&'(') {
+                chars.next();
+                let mut found_paren = false;
+                for c in chars.by_ref() {
+                    if c == ')' {
+                        found_paren = true;
+                        break;
+                    }
+                }
+                if found_paren {
+                    continue;
+                }
+            }
+            out.push('!');
+            out.push('[');
+            out.push_str(&alt);
+            if found_bracket {
+                out.push(']');
+            }
+            continue;
+        }
+        if ch == '[' {
+            let mut label = String::new();
+            let mut found_bracket = false;
+            for c in chars.by_ref() {
+                if c == ']' {
+                    found_bracket = true;
+                    break;
+                }
+                label.push(c);
+            }
+            if found_bracket && chars.peek() == Some(&'(') {
+                chars.next();
+                let mut found_paren = false;
+                for c in chars.by_ref() {
+                    if c == ')' {
+                        found_paren = true;
+                        break;
+                    }
+                }
+                if found_paren {
+                    out.push_str(&label);
+                    continue;
+                }
+            }
+            out.push('[');
+            out.push_str(&label);
+            if found_bracket {
+                out.push(']');
+            }
+            continue;
+        }
+        out.push(ch);
+    }
+    out
 }
 
 #[tauri::command]

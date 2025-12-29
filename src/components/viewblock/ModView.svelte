@@ -95,12 +95,28 @@ let descLoading = $state(false);
 const attemptedDescriptions = new Set<string>();
 	let isLinux = false;
 
+	function normalizeText(text: string): string {
+		return text
+			.toLowerCase()
+			.replace(/!\[[^\]]*\]\([^)]+\)/g, " ")
+			.replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+			.replace(/<img[^>]*>/gi, " ")
+			.replace(/<[^>]+>/g, " ")
+			.replace(/[^a-z0-9]+/g, " ")
+			.trim()
+			.replace(/\s+/g, " ");
+	}
+
 	function hasMeaningfulDescription(desc: string | null | undefined, title: string): boolean {
 		if (!desc) return false;
 		const trimmed = desc.trim();
 		if (!trimmed) return false;
-		if (trimmed.length < 12) return false;
-		return trimmed.toLowerCase() !== title.trim().toLowerCase();
+		const normalized = normalizeText(trimmed);
+		const normalizedTitle = normalizeText(title);
+		if (!normalized || normalized === normalizedTitle) return false;
+		if (normalized.startsWith(`what is ${normalizedTitle}`)) return false;
+		if (trimmed.length < 60) return false;
+		return true;
 	}
 
 	async function hydrateRequirements(mod: Mod): Promise<Mod> {
