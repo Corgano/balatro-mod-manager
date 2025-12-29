@@ -1,4 +1,5 @@
 use std::cmp::Ordering;
+use std::collections::HashMap;
 use std::time::Duration;
 
 use reqwest::Url;
@@ -7,7 +8,7 @@ use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::models::{ModDownloads, ModMeta};
 
-pub const DEFAULT_BMI_SERVER_URL: &str = "http://localhost:8080";
+pub const DEFAULT_BMI_SERVER_URL: &str = "https://api-bmi.dasguney.com";
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
 const MAX_RETRIES: u32 = 3;
 const PAGE_LIMIT: usize = 200;
@@ -211,6 +212,49 @@ impl BmiClient {
             }
         }
         Ok((all, latest_updated))
+    }
+
+    pub async fn fetch_downloads_map(
+        &self,
+        sort: SortMode,
+    ) -> Result<HashMap<String, ModDownloads>, String> {
+        let mut cursor: Option<String> = None;
+        let mut out: HashMap<String, ModDownloads> = HashMap::new();
+        loop {
+            let page = self.fetch_mods_page(cursor.as_deref(), sort).await?;
+            for item in page.items {
+                let id = match item.id.clone().or(item.dir_name.clone()) {
+                    Some(val) => val,
+                    None => continue,
+                };
+                if let Some(downloads) = item
+                    .downloads
+                    .clone()
+                    .or_else(|| item.meta.as_ref().and_then(|m| m.downloads.clone()))
+                {
+                    out.insert(id, downloads);
+                }
+            }
+            match page.next_cursor {
+                Some(next) => cursor = Some(next),
+                None => break,
+            }
+        }
+        Ok(out)
+    }
+
+    pub async fn refresh_downloads(
+        &self,
+        items: &mut [crate::commands::repo::ArchiveModItem],
+        sort: SortMode,
+    ) -> Result<(), String> {
+        let downloads = self.fetch_downloads_map(sort).await?;
+        for item in items {
+            if let Some(updated) = downloads.get(&item.dir_name) {
+                item.meta.downloads = Some(updated.clone());
+            }
+        }
+        Ok(())
     }
 
     pub async fn fetch_changed_mods(

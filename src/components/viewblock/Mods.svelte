@@ -84,6 +84,8 @@ import { openExternal } from "$lib/opener";
 	let paginationIdleTimer: number | null = null;
 	let hydrationTimer: number | null = null;
 	let hydrationPending = false;
+	let downloadsRefreshTimer: number | null = null;
+	let downloadsRefreshing = false;
 let isLinux = false;
 let modsScrollContainer: HTMLDivElement | null = $state(null);
 let scrollIdleTimer: number | null = null;
@@ -211,6 +213,41 @@ let resizeObs: ResizeObserver | null = null;
 		}
 	}
 
+	async function refreshDownloadsLive() {
+		if (downloadsRefreshing) return;
+		downloadsRefreshing = true;
+		try {
+			const sort = get(currentSort);
+			if (
+				sort === SortOption.DownloadsAsc ||
+				sort === SortOption.DownloadsDesc
+			) {
+				const items = await invoke<ArchiveModItem[]>("fetch_repo_mods", {
+					sort,
+				});
+				const mods = mapArchiveItems(items);
+				mergeIncomingMods(mods);
+				return;
+			}
+			const downloads = await invoke<
+				Record<string, { total: number; today?: number }>
+			>("fetch_repo_downloads", { sort });
+			modsStore.update((arr) =>
+				arr.map((m) => {
+					if (!m._dirName) return m;
+					const entry = downloads[m._dirName];
+					if (!entry) return m;
+					if (m.downloads_total === entry.total) return m;
+					return { ...m, downloads_total: entry.total };
+				}),
+			);
+		} catch (e) {
+			console.warn("downloads refresh failed", e);
+		} finally {
+			downloadsRefreshing = false;
+		}
+	}
+
     // Avoid forcing a refresh on every reactive pass; only fetch local mods here.
     // We refresh installed mods on category switch and after install/uninstall events.
     $effect(() => {
@@ -312,6 +349,11 @@ const { handleDependencyCheck, mod } = $props<{
 		dotInterval = setInterval(() => {
 			loadingDots.update((n) => (n + 1) % 4);
 		}, 500);
+
+		refreshDownloadsLive().catch(() => {});
+		downloadsRefreshTimer = window.setInterval(() => {
+			refreshDownloadsLive().catch(() => {});
+		}, 60000);
 
 		if (browser) {
 			const plat =
@@ -457,6 +499,7 @@ const { handleDependencyCheck, mod } = $props<{
 			// Return synchronous cleanup function
 			return () => {
 				clearInterval(dotInterval);
+				if (downloadsRefreshTimer) clearInterval(downloadsRefreshTimer);
 				if (scrollIdleTimer) {
 					clearTimeout(scrollIdleTimer);
 					scrollIdleTimer = null;
@@ -859,6 +902,45 @@ const { handleDependencyCheck, mod } = $props<{
 		image_url: string;
 	}
 
+	function mapArchiveItems(
+		items: ArchiveModItem[],
+		cachedMap?: Record<string, string>,
+	): Mod[] {
+		return items.map((item) => {
+			const mappedCategories = item.meta.categories
+				.map((cat) => categoryMap[cat] ?? null)
+				.filter((cat): cat is Category => cat !== null);
+
+			const cachedThumb = cachedMap?.[item.meta.title];
+			const img = cachedThumb ? convertFileSrc(cachedThumb) : "/images/cover.jpg";
+			return {
+				title: item.meta.title,
+				description: item.description,
+				image: img,
+				imageFallback: cachedThumb ? img : undefined,
+				colors: getRandomColorPair(),
+				categories: mappedCategories,
+				requires_steamodded:
+					item.meta["requires-steamodded"] ??
+					item.meta.requires_steamodded ??
+					false,
+				requires_talisman:
+					item.meta["requires-talisman"] ??
+					item.meta.requires_talisman ??
+					false,
+				publisher: item.meta.author,
+				repo: item.meta.repo,
+				downloadURL: item.meta.downloadURL || "",
+				folderName: item.meta.folderName,
+				version: item.meta.version,
+				installed: false,
+				last_updated: item.meta["last-updated"] ?? 0,
+				downloads_total: item.meta.downloads?.total,
+				_dirName: item.dir_name,
+			};
+		});
+	}
+
 	async function refreshCatalogInBackground(showMessages: boolean = true): Promise<void> {
 		if ($catalogLoading) return;
 		catalogLoading.set(true);
@@ -893,39 +975,7 @@ const { handleDependencyCheck, mod } = $props<{
 			} catch (_) {
 				/* ignore */
 			}
-            const mods: Mod[] = items.map((item) => {
-				const mappedCategories = item.meta.categories
-					.map((cat) => categoryMap[cat] ?? null)
-					.filter((cat): cat is Category => cat !== null);
-
-				const cachedThumb = cachedMap[item.meta.title];
-				const img = cachedThumb ? convertFileSrc(cachedThumb) : "/images/cover.jpg";
-				return {
-					title: item.meta.title,
-					description: item.description,
-					image: img,
-					imageFallback: cachedThumb ? img : undefined,
-					colors: getRandomColorPair(),
-					categories: mappedCategories,
-					requires_steamodded:
-						item.meta["requires-steamodded"] ??
-						item.meta.requires_steamodded ??
-						false,
-					requires_talisman:
-						item.meta["requires-talisman"] ??
-						item.meta.requires_talisman ??
-						false,
-					publisher: item.meta.author,
-					repo: item.meta.repo,
-					downloadURL: item.meta.downloadURL || "",
-					folderName: item.meta.folderName,
-					version: item.meta.version,
-					installed: false,
-					last_updated: item.meta["last-updated"] ?? 0,
-					downloads_total: item.meta.downloads?.total,
-					_dirName: item.dir_name,
-				};
-			});
+            const mods: Mod[] = mapArchiveItems(items, cachedMap);
 
             // Merge fresh remote mods with any locally seeded placeholders; keep server order
             const prunedCount = mergeIncomingMods(mods);
@@ -1018,39 +1068,7 @@ const { handleDependencyCheck, mod } = $props<{
                     }
                 }
             } catch (_) { /* ignore */ }
-            const mods: Mod[] = items.map((item) => {
-				const mappedCategories = item.meta.categories
-					.map((cat) => categoryMap[cat] ?? null)
-					.filter((cat): cat is Category => cat !== null);
-
-				const cachedThumb = cachedMap[item.meta.title];
-				const img = cachedThumb ? convertFileSrc(cachedThumb) : "/images/cover.jpg";
-				return {
-					title: item.meta.title,
-					description: item.description,
-					image: img,
-					imageFallback: cachedThumb ? img : undefined,
-					colors: getRandomColorPair(),
-					categories: mappedCategories,
-					requires_steamodded:
-						item.meta["requires-steamodded"] ??
-						item.meta.requires_steamodded ??
-						false,
-					requires_talisman:
-						item.meta["requires-talisman"] ??
-						item.meta.requires_talisman ??
-						false,
-					publisher: item.meta.author,
-					repo: item.meta.repo,
-					downloadURL: item.meta.downloadURL || "",
-					folderName: item.meta.folderName,
-					version: item.meta.version,
-					installed: false,
-					last_updated: item.meta["last-updated"] ?? 0,
-					downloads_total: item.meta.downloads?.total,
-					_dirName: item.dir_name,
-				};
-			});
+            const mods: Mod[] = mapArchiveItems(items, cachedMap);
 
             // Merge with any pre-seeded placeholders, and cautiously prune removed mods
             const prunedCount = mergeIncomingMods(mods as Mod[]);

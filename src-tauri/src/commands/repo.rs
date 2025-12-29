@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use crate::bmi::{self, BmiClient, SortMode, SyncCache};
 use crate::lfs::{LfsError, resolve_lfs_pointer_bytes};
-use crate::models::ModMeta;
+use crate::models::{ModDownloads, ModMeta};
 use bmm_lib::errors::AppError;
 use serde::{Deserialize, Serialize};
 
@@ -81,7 +81,8 @@ pub async fn fetch_repo_mods(sort: Option<String>) -> Result<Vec<ArchiveModItem>
         latest_updated = None;
     }
 
-    if items.is_empty() || latest_updated.is_none() {
+    let force_full_refresh = matches!(sort_mode, SortMode::DownloadsAsc | SortMode::DownloadsDesc);
+    if force_full_refresh || items.is_empty() || latest_updated.is_none() {
         let (fresh, updated_at) = client.fetch_all_mods(sort_mode).await?;
         items = fresh;
         latest_updated = updated_at;
@@ -91,6 +92,9 @@ pub async fn fetch_repo_mods(sort: Option<String>) -> Result<Vec<ArchiveModItem>
             items = bmi::apply_changed(&items, changed, &client)?;
         }
         latest_updated = bmi::pick_latest_updated(latest_updated, updated_at);
+    }
+    if !matches!(sort_mode, SortMode::DownloadsAsc | SortMode::DownloadsDesc) {
+        let _ = client.refresh_downloads(&mut items, sort_mode).await;
     }
 
     // Persist cache for future incremental sync
@@ -104,6 +108,16 @@ pub async fn fetch_repo_mods(sort: Option<String>) -> Result<Vec<ArchiveModItem>
     }
 
     Ok(items)
+}
+
+#[tauri::command]
+pub async fn fetch_repo_downloads(
+    sort: Option<String>,
+) -> Result<std::collections::HashMap<String, ModDownloads>, String> {
+    let client = BmiClient::new()?;
+    client.check_health().await?;
+    let sort_mode = SortMode::from_optional(sort);
+    client.fetch_downloads_map(sort_mode).await
 }
 
 fn bmi_cache_paths(sort: Option<&str>) -> Result<(PathBuf, PathBuf), String> {

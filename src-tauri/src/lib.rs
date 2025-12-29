@@ -311,6 +311,7 @@ pub fn run() {
             commands::repo::get_repo_file,
             commands::repo::get_repo_thumbnail_url,
             commands::repo::fetch_repo_mods,
+            commands::repo::fetch_repo_downloads,
             commands::repo::get_cached_installed_thumbnail,
             commands::repo::get_cached_thumbnail_by_title,
             commands::repo::get_cached_thumbnails_map,
