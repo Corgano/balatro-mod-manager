@@ -66,6 +66,7 @@ import { openExternal } from "$lib/opener";
 
 	// Dedupe description loads across helpers
 	const inflightDescriptions = new Set<string>();
+	const attemptedDescriptions = new Set<string>();
 	const attemptedCacheTitles = new Set<string>();
 	let visibleFirstRunning = false;
 	let visibleHydrateTimer: number | null = null;
@@ -655,7 +656,7 @@ const { handleDependencyCheck, mod } = $props<{
 		}
 
 		try {
-			if (!url.startsWith("http")) {
+			if (!url.startsWith("http") && !url.startsWith("bmi://")) {
 				console.error("Invalid URL format:", url);
 				throw new Error(`Invalid URL format: ${url}`);
 			}
@@ -817,16 +818,17 @@ const { handleDependencyCheck, mod } = $props<{
 		addMessage("Loading mods in background…", "info");
 		try {
 			const items = await invoke<ArchiveModItem[]>("fetch_repo_mods");
+			const titles = items.map((i) => i.meta.title);
+			const cachedMap = await invoke<Record<string, string>>(
+				"get_cached_thumbnails_map",
+				{ titles },
+			);
 			// Enqueue background caching for thumbnails (non-blocking, handles 429)
 			try {
 				const thumbItems = items
 					.filter((i) => i.image_url && /^https?:\/\//i.test(i.image_url))
 					.map((i) => ({ title: i.meta.title, url: i.image_url }));
 				if (thumbItems.length > 0) {
-					const cachedMap = await invoke<Record<string, string>>(
-						"get_cached_thumbnails_map",
-						{ titles: thumbItems.map((t) => t.title) },
-					);
 					const toEnqueue = thumbItems.filter(
 						(t) => !cachedMap[t.title],
 					);
@@ -845,13 +847,13 @@ const { handleDependencyCheck, mod } = $props<{
 					.map((cat) => categoryMap[cat] ?? null)
 					.filter((cat): cat is Category => cat !== null);
 
-				const img = item.image_url || "/images/cover.jpg";
-				const hasRemote = Boolean(item.image_url);
+				const cachedThumb = cachedMap[item.meta.title];
+				const img = cachedThumb ? convertFileSrc(cachedThumb) : "/images/cover.jpg";
 				return {
 					title: item.meta.title,
 					description: item.description,
-					image: hasRemote ? img : "/images/cover.jpg",
-					imageFallback: hasRemote ? "/images/cover.jpg" : undefined,
+					image: img,
+					imageFallback: cachedThumb ? img : undefined,
 					colors: getRandomColorPair(),
 					categories: mappedCategories,
 					requires_steamodded: item.meta["requires-steamodded"],
@@ -946,6 +948,8 @@ const { handleDependencyCheck, mod } = $props<{
 
 			// Re-apply local thumbnails for installed mods (non-blocking)
 			fillInstalledThumbnails($modsStore).catch(() => {});
+			// Re-check cached thumbnails after background fetches
+			scheduleThumbCacheRefresh(titles);
 			// Suspend cache persistence during description hydration to avoid thrashing localStorage
 			await withModsCachePersistenceSuspended(async () => {
 				await withDescriptionsPersistenceSuspended(async () => {
@@ -973,16 +977,17 @@ const { handleDependencyCheck, mod } = $props<{
 		catalogLoading.set(true);
         try {
             const items = await invoke<ArchiveModItem[]>("fetch_repo_mods");
+            const titles = items.map((i) => i.meta.title);
+            const cachedMap = await invoke<Record<string, string>>(
+                "get_cached_thumbnails_map",
+                { titles },
+            );
             // Enqueue background caching for thumbnails
             try {
                 const thumbItems = items
                     .filter((i) => i.image_url && /^https?:\/\//i.test(i.image_url))
                     .map((i) => ({ title: i.meta.title, url: i.image_url }));
                 if (thumbItems.length > 0) {
-                    const cachedMap = await invoke<Record<string, string>>(
-                        "get_cached_thumbnails_map",
-                        { titles: thumbItems.map((t) => t.title) },
-                    );
                     const seen = new Set<string>();
                     const filtered = thumbItems.filter((t) => {
                         if (seen.has(t.title)) return false;
@@ -1004,13 +1009,13 @@ const { handleDependencyCheck, mod } = $props<{
 					.map((cat) => categoryMap[cat] ?? null)
 					.filter((cat): cat is Category => cat !== null);
 
-				const img = item.image_url || "/images/cover.jpg";
-				const hasRemote = Boolean(item.image_url);
+				const cachedThumb = cachedMap[item.meta.title];
+				const img = cachedThumb ? convertFileSrc(cachedThumb) : "/images/cover.jpg";
 				return {
 					title: item.meta.title,
 					description: item.description,
-					image: hasRemote ? img : "/images/cover.jpg",
-					imageFallback: hasRemote ? "/images/cover.jpg" : undefined,
+					image: img,
+					imageFallback: cachedThumb ? img : undefined,
 					colors: getRandomColorPair(),
 					categories: mappedCategories,
 					requires_steamodded: item.meta["requires-steamodded"],
@@ -1099,6 +1104,7 @@ const { handleDependencyCheck, mod } = $props<{
 
 			// Also kick off thumbnails/descriptions
 			fillInstalledThumbnails($modsStore).catch(() => {});
+			scheduleThumbCacheRefresh(titles);
 			await withModsCachePersistenceSuspended(async () => {
 				await withDescriptionsPersistenceSuspended(async () => {
 					try { await fillCachedDescriptionsVisibleFirst(); } catch { /* ignore */ }
@@ -1130,6 +1136,7 @@ const { handleDependencyCheck, mod } = $props<{
 				if (idx >= mods.length) break;
 				const m = mods[idx];
 				if (!m || m.description) continue;
+				if (attemptedDescriptions.has(m.title)) continue;
 				if (inflightDescriptions.has(m.title)) continue;
                 const dir = m._dirName as string | undefined;
 				if (!dir) continue;
@@ -1139,9 +1146,11 @@ const { handleDependencyCheck, mod } = $props<{
 						"get_description_cached_or_remote",
 						{ title: m.title, dirName: dir },
 					);
+					attemptedDescriptions.add(m.title);
 					updates.push({ title: m.title, description: text });
 				} catch (_) {
 					// ignore per-mod desc failures
+					attemptedDescriptions.add(m.title);
 				} finally {
 					inflightDescriptions.delete(m.title);
 				}
@@ -1181,15 +1190,18 @@ const { handleDependencyCheck, mod } = $props<{
 				if (idx >= candidates.length) break;
 				const c = candidates[idx]!;
 				if (inflightDescriptions.has(c.title)) continue;
+				if (attemptedDescriptions.has(c.title)) continue;
 				try {
 					inflightDescriptions.add(c.title);
 					const text = await invoke<string>(
 						"get_description_cached_or_remote",
 						{ title: c.title, dirName: c.dir }
 					);
+					attemptedDescriptions.add(c.title);
 					updates.push({ title: c.title, description: text });
 				} catch (_) {
 					// ignore
+					attemptedDescriptions.add(c.title);
 				} finally {
 					inflightDescriptions.delete(c.title);
 				}
@@ -1323,6 +1335,37 @@ const { handleDependencyCheck, mod } = $props<{
 		await Promise.all(
 			new Array(Math.min(limit, mods.length)).fill(0).map(() => client()),
 		);
+	}
+
+	async function applyCachedThumbnails(titles: string[]) {
+		if (!titles.length) return;
+		try {
+			const cachedMap = await invoke<Record<string, string>>(
+				"get_cached_thumbnails_map",
+				{ titles },
+			);
+			if (!cachedMap || Object.keys(cachedMap).length === 0) return;
+			modsStore.update((arr) =>
+				arr.map((m) => {
+					const p = cachedMap[m.title];
+					if (!p) return m;
+					const src = convertFileSrc(p);
+					return { ...m, image: src, imageFallback: src };
+				}),
+			);
+		} catch (_) {
+			/* ignore */
+		}
+	}
+
+	function scheduleThumbCacheRefresh(titles: string[]) {
+		if (!titles.length) return;
+		setTimeout(() => {
+			applyCachedThumbnails(titles).catch(() => {});
+		}, 2000);
+		setTimeout(() => {
+			applyCachedThumbnails(titles).catch(() => {});
+		}, 8000);
 	}
 
 	async function seedInstalledPlaceholders() {
