@@ -13,6 +13,9 @@ fn configure_display_backend() -> Option<String> {
         }
     };
 
+    // Prevent blank window issues on some Linux setups.
+    set_env_if_absent("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
+
     let on_wayland = env::var_os("WAYLAND_DISPLAY").is_some()
         || matches!(
             env::var("XDG_SESSION_TYPE"),
@@ -43,7 +46,6 @@ fn configure_display_backend() -> Option<String> {
         );
     }
 
-    set_env_if_absent("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
     Some(
         "Wayland session detected without X11; leaving Wayland enabled (set WINIT_UNIX_BACKEND/GDK_BACKEND manually if needed)."
             .into(),
