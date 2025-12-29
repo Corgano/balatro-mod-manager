@@ -318,6 +318,7 @@ pub fn run() {
             commands::repo::cache_thumbnail_from_url,
             commands::repo::get_description_cached_or_remote,
             commands::repo::get_mod_requirements,
+            commands::repo::get_mod_repo_url,
             commands::repo::get_cached_description_by_title,
             commands::repo::batch_fetch_thumbnails_repo,
             commands::thumbnails::enqueue_thumbnails,

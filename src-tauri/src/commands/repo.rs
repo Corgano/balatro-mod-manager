@@ -478,6 +478,32 @@ pub async fn get_mod_requirements(dir_name: String) -> Result<(bool, bool), Stri
 }
 
 #[tauri::command]
+pub async fn get_mod_repo_url(dir_name: String) -> Result<Option<String>, String> {
+    let client = BmiClient::new()?;
+    let detail = client.fetch_mod(&dir_name).await?;
+    let repo = detail
+        .repo
+        .clone()
+        .and_then(|s| if s.trim().is_empty() { None } else { Some(s) })
+        .or_else(|| {
+            detail
+                .homepage
+                .clone()
+                .and_then(|s| if s.trim().is_empty() { None } else { Some(s) })
+        })
+        .or_else(|| {
+            detail.meta.and_then(|m| {
+                if m.repo.trim().is_empty() {
+                    None
+                } else {
+                    Some(m.repo)
+                }
+            })
+        });
+    Ok(repo)
+}
+
+#[tauri::command]
 pub async fn get_cached_description_by_title(title: String) -> Result<Option<String>, String> {
     let (_, descs_dir) = ensure_assets_dirs()?;
     let slug = safe_slug(&title);

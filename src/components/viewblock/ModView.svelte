@@ -90,6 +90,7 @@ import { openExternal } from "$lib/opener";
 	let talismanVersions = $state<string[]>([]);
 	let selectedVersion = $state("newest");
 	let loadingVersions = $state(false);
+	let repoLoading = $state(false);
 let renderedDescription = $state("");
 let descLoading = $state(false);
 const attemptedDescriptions = new Set<string>();
@@ -145,6 +146,51 @@ const attemptedDescriptions = new Set<string>();
 			};
 		} catch (_) {
 			return mod;
+		}
+	}
+
+	async function hydrateRepo(mod: Mod): Promise<void> {
+		if (!mod._dirName) return;
+		if (mod.repo && mod.repo.trim().length > 0) return;
+		try {
+			const repo = await invoke<string | null>("get_mod_repo_url", {
+				dirName: mod._dirName,
+			});
+			if (!repo) return;
+			currentModView.set({ ...mod, repo });
+			modsStore.update((arr) =>
+				arr.map((m) =>
+					m.title === mod.title ? { ...m, repo } : m,
+				),
+			);
+		} catch (_) {
+			// ignore
+		}
+	}
+
+	async function handleOpenRepo() {
+		if (!mod) return;
+		if (mod.repo && mod.repo.trim().length > 0) {
+			openExternal(mod.repo).catch(() => {});
+			return;
+		}
+		if (!mod._dirName || repoLoading) return;
+		repoLoading = true;
+		try {
+			const repo = await invoke<string | null>("get_mod_repo_url", {
+				dirName: mod._dirName,
+			});
+			if (repo && repo.trim().length > 0) {
+				currentModView.set({ ...mod, repo });
+				modsStore.update((arr) =>
+					arr.map((m) =>
+						m.title === mod.title ? { ...m, repo } : m,
+					),
+				);
+				openExternal(repo).catch(() => {});
+			}
+		} finally {
+			repoLoading = false;
 		}
 	}
 
@@ -701,12 +747,13 @@ let modView: HTMLDivElement;
     }
 
     // This effect handles the description rendering
-    $effect(() => {
-        const m = mod as Mod & { _dirName?: string };
-        const desc = descriptionText;
-        if (m) {
-            ensureDescriptionLoaded(m);
-        }
+	$effect(() => {
+		const m = mod as Mod & { _dirName?: string };
+		const desc = descriptionText;
+		if (m) {
+			ensureDescriptionLoaded(m);
+			hydrateRepo(m);
+		}
         if (desc) {
             Promise.resolve(marked(desc)).then((result) => {
                 renderedDescription = result;
@@ -1064,11 +1111,15 @@ let modView: HTMLDivElement;
 						>
 					</div>
 				{/if}
-					{#if mod.repo}
-						<button onclick={() => openExternal(mod.repo)} class="repo-button">
-							<Github size={16} /> Repository
-						</button>
-					{/if}
+				{#if mod.repo || mod._dirName}
+					<button
+						onclick={handleOpenRepo}
+						class="repo-button"
+						disabled={repoLoading}
+					>
+						<Github size={16} /> Repository
+					</button>
+				{/if}
 
 					{#if mod.categories && mod.categories.length > 0}
 						<div class="categories-section">
