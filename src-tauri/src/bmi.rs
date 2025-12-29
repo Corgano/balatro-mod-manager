@@ -18,6 +18,8 @@ pub enum SortMode {
     NameDesc,
     UpdatedAsc,
     UpdatedDesc,
+    DownloadsAsc,
+    DownloadsDesc,
 }
 
 impl SortMode {
@@ -26,6 +28,8 @@ impl SortMode {
             Some("name_desc") => SortMode::NameDesc,
             Some("updated_asc") => SortMode::UpdatedAsc,
             Some("updated_desc") => SortMode::UpdatedDesc,
+            Some("downloads_asc") => SortMode::DownloadsAsc,
+            Some("downloads_desc") => SortMode::DownloadsDesc,
             _ => SortMode::NameAsc,
         }
     }
@@ -36,6 +40,8 @@ impl SortMode {
             SortMode::NameDesc => "name_desc",
             SortMode::UpdatedAsc => "updated_asc",
             SortMode::UpdatedDesc => "updated_desc",
+            SortMode::DownloadsAsc => "downloads_asc",
+            SortMode::DownloadsDesc => "downloads_desc",
         }
     }
 }
@@ -467,12 +473,12 @@ pub fn apply_changed(
     changed: Vec<BmiMod>,
     client: &BmiClient,
 ) -> Result<Vec<crate::commands::repo::ArchiveModItem>, String> {
-    let mut map: std::collections::HashMap<String, crate::commands::repo::ArchiveModItem> =
-        existing
-            .iter()
-            .cloned()
-            .map(|item| (item.dir_name.clone(), item))
-            .collect();
+    let mut out: Vec<crate::commands::repo::ArchiveModItem> = existing.to_vec();
+    let mut index: std::collections::HashMap<String, usize> = out
+        .iter()
+        .enumerate()
+        .map(|(idx, item)| (item.dir_name.clone(), idx))
+        .collect();
     for item in changed {
         let id = item
             .id
@@ -480,19 +486,24 @@ pub fn apply_changed(
             .or(item.dir_name.clone())
             .ok_or_else(|| "BMI mod missing id".to_string())?;
         if item.deleted {
-            map.remove(&id);
+            if let Some(idx) = index.get(&id).copied() {
+                out.remove(idx);
+                index = out
+                    .iter()
+                    .enumerate()
+                    .map(|(idx, item)| (item.dir_name.clone(), idx))
+                    .collect();
+            }
             continue;
         }
         let (archive, _) = bmi_to_archive(item, client)?;
-        map.insert(id, archive);
+        if let Some(idx) = index.get(&id).copied() {
+            out[idx] = archive;
+        } else {
+            index.insert(id, out.len());
+            out.push(archive);
+        }
     }
-    let mut out: Vec<_> = map.into_values().collect();
-    out.sort_by(|a, b| {
-        a.meta
-            .title
-            .to_lowercase()
-            .cmp(&b.meta.title.to_lowercase())
-    });
     Ok(out)
 }
 
@@ -610,8 +621,20 @@ mod tests {
             BmiMod {
                 id: Some("mod-1".to_string()),
                 dir_name: None,
+                name: None,
+                author: None,
+                version: None,
+                summary: None,
+                categories: Vec::new(),
+                repo: None,
+                homepage: None,
+                requires_steamodded: None,
+                requires_talisman: None,
+                download_url: None,
+                folder_name: None,
                 meta: Some(sample_meta("Alpha Updated", 30)),
                 description: Some("New".to_string()),
+                description_html: None,
                 thumbnail_url: Some("https://example.com/new.webp".to_string()),
                 updated_at: Some("30".to_string()),
                 deleted: false,
@@ -619,8 +642,20 @@ mod tests {
             BmiMod {
                 id: Some("mod-2".to_string()),
                 dir_name: None,
+                name: None,
+                author: None,
+                version: None,
+                summary: None,
+                categories: Vec::new(),
+                repo: None,
+                homepage: None,
+                requires_steamodded: None,
+                requires_talisman: None,
+                download_url: None,
+                folder_name: None,
                 meta: None,
                 description: None,
+                description_html: None,
                 thumbnail_url: None,
                 updated_at: None,
                 deleted: true,
@@ -642,8 +677,20 @@ mod tests {
                 items: vec![BmiMod {
                     id: Some("mod-1".to_string()),
                     dir_name: None,
+                    name: None,
+                    author: None,
+                    version: None,
+                    summary: None,
+                    categories: Vec::new(),
+                    repo: None,
+                    homepage: None,
+                    requires_steamodded: None,
+                    requires_talisman: None,
+                    download_url: None,
+                    folder_name: None,
                     meta: Some(sample_meta("Alpha", 5)),
                     description: Some("First".to_string()),
+                    description_html: None,
                     thumbnail_url: None,
                     updated_at: Some("5".to_string()),
                     deleted: false,
@@ -654,8 +701,20 @@ mod tests {
                 items: vec![BmiMod {
                     id: Some("mod-2".to_string()),
                     dir_name: None,
+                    name: None,
+                    author: None,
+                    version: None,
+                    summary: None,
+                    categories: Vec::new(),
+                    repo: None,
+                    homepage: None,
+                    requires_steamodded: None,
+                    requires_talisman: None,
+                    download_url: None,
+                    folder_name: None,
                     meta: Some(sample_meta("Beta", 8)),
                     description: Some("Second".to_string()),
+                    description_html: None,
                     thumbnail_url: None,
                     updated_at: Some("8".to_string()),
                     deleted: false,
@@ -666,8 +725,20 @@ mod tests {
                 items: vec![BmiMod {
                     id: Some("mod-3".to_string()),
                     dir_name: None,
+                    name: None,
+                    author: None,
+                    version: None,
+                    summary: None,
+                    categories: Vec::new(),
+                    repo: None,
+                    homepage: None,
+                    requires_steamodded: None,
+                    requires_talisman: None,
+                    download_url: None,
+                    folder_name: None,
                     meta: Some(sample_meta("Gamma", 12)),
                     description: Some("Third".to_string()),
+                    description_html: None,
                     thumbnail_url: None,
                     updated_at: Some("12".to_string()),
                     deleted: false,

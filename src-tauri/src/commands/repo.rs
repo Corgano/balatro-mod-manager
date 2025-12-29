@@ -6,7 +6,7 @@ use crate::models::ModMeta;
 use bmm_lib::errors::AppError;
 use serde::{Deserialize, Serialize};
 
-const BMI_CACHE_FILE: &str = "bmi_mods_cache.json";
+const BMI_CACHE_FILE: &str = "bmi_mods_cache";
 
 #[tauri::command]
 pub async fn list_repo_mods() -> Result<Vec<String>, String> {
@@ -60,8 +60,8 @@ pub struct ArchiveModItem {
 pub async fn fetch_repo_mods(sort: Option<String>) -> Result<Vec<ArchiveModItem>, String> {
     let client = BmiClient::new()?;
     client.check_health().await?;
-    let sort_mode = SortMode::from_optional(sort);
-    let (cache_dir, cache_file) = bmi_cache_paths()?;
+    let sort_mode = SortMode::from_optional(sort.clone());
+    let (cache_dir, cache_file) = bmi_cache_paths(sort.as_deref())?;
     let cache = load_bmi_cache(&cache_file);
 
     let (mut items, mut latest_updated) = if let Some(existing) = cache.as_ref() {
@@ -102,11 +102,16 @@ pub async fn fetch_repo_mods(sort: Option<String>) -> Result<Vec<ArchiveModItem>
     Ok(items)
 }
 
-fn bmi_cache_paths() -> Result<(PathBuf, PathBuf), String> {
+fn bmi_cache_paths(sort: Option<&str>) -> Result<(PathBuf, PathBuf), String> {
     let config_dir = dirs::config_dir()
         .ok_or_else(|| AppError::DirNotFound(PathBuf::from("config directory")).to_string())?;
     let cache_dir = config_dir.join("Balatro").join("mod_index_cache");
-    let cache_file = cache_dir.join(BMI_CACHE_FILE);
+    let suffix = sort
+        .unwrap_or("default")
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
+        .collect::<String>();
+    let cache_file = cache_dir.join(format!("{BMI_CACHE_FILE}_{suffix}.json"));
     Ok((cache_dir, cache_file))
 }
 
