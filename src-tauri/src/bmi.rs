@@ -7,7 +7,7 @@ use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::models::{ModDownloads, ModMeta};
 
-pub const DEFAULT_BMI_SERVER_URL: &str = "https://api-bmi.dasguney.com";
+pub const DEFAULT_BMI_SERVER_URL: &str = "http://localhost:8080";
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
 const MAX_RETRIES: u32 = 3;
 const PAGE_LIMIT: usize = 200;
@@ -87,6 +87,8 @@ pub struct BmiMod {
     pub folder_name: Option<String>,
     #[serde(default)]
     pub downloads: Option<ModDownloads>,
+    #[serde(default, alias = "dependencies")]
+    pub dependencies: Vec<String>,
     #[serde(default)]
     pub meta: Option<ModMeta>,
     #[serde(
@@ -415,8 +417,8 @@ pub fn bmi_to_archive(
     let mut meta = match item.meta.clone() {
         Some(meta) => meta,
         None => ModMeta {
-            requires_steamodded: item.requires_steamodded.unwrap_or(false),
-            requires_talisman: item.requires_talisman.unwrap_or(false),
+            requires_steamodded: false,
+            requires_talisman: false,
             categories: if item.categories.is_empty() {
                 vec!["Miscellaneous".to_string()]
             } else {
@@ -441,6 +443,9 @@ pub fn bmi_to_archive(
             downloads: item.downloads.clone(),
         },
     };
+    let (req_steam, req_talisman) = derive_requires(&item);
+    meta.requires_steamodded = meta.requires_steamodded || req_steam;
+    meta.requires_talisman = meta.requires_talisman || req_talisman;
     if meta.downloads.is_none() {
         meta.downloads = item.downloads.clone();
     }
@@ -519,6 +524,27 @@ pub fn updated_at_value(item: &BmiMod) -> Option<String> {
             .as_ref()
             .and_then(|meta| (meta.last_updated > 0).then(|| meta.last_updated.to_string()))
     })
+}
+
+pub fn derive_requires(item: &BmiMod) -> (bool, bool) {
+    let mut requires_steamodded = item.requires_steamodded.unwrap_or(false);
+    let mut requires_talisman = item.requires_talisman.unwrap_or(false);
+    if let Some(meta) = &item.meta {
+        requires_steamodded = requires_steamodded || meta.requires_steamodded;
+        requires_talisman = requires_talisman || meta.requires_talisman;
+    }
+    if !requires_steamodded || !requires_talisman {
+        for dep in &item.dependencies {
+            let dep = dep.to_lowercase();
+            if dep.contains("steamodded") {
+                requires_steamodded = true;
+            }
+            if dep.contains("talisman") {
+                requires_talisman = true;
+            }
+        }
+    }
+    (requires_steamodded, requires_talisman)
 }
 
 fn deserialize_updated_at<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
@@ -640,6 +666,7 @@ mod tests {
                 download_url: None,
                 folder_name: None,
                 downloads: None,
+                dependencies: Vec::new(),
                 meta: Some(sample_meta("Alpha Updated", 30)),
                 description: Some("New".to_string()),
                 description_html: None,
@@ -662,6 +689,7 @@ mod tests {
                 download_url: None,
                 folder_name: None,
                 downloads: None,
+                dependencies: Vec::new(),
                 meta: None,
                 description: None,
                 description_html: None,
@@ -698,6 +726,7 @@ mod tests {
                     download_url: None,
                     folder_name: None,
                     downloads: None,
+                    dependencies: Vec::new(),
                     meta: Some(sample_meta("Alpha", 5)),
                     description: Some("First".to_string()),
                     description_html: None,
@@ -723,6 +752,7 @@ mod tests {
                     download_url: None,
                     folder_name: None,
                     downloads: None,
+                    dependencies: Vec::new(),
                     meta: Some(sample_meta("Beta", 8)),
                     description: Some("Second".to_string()),
                     description_html: None,
@@ -748,6 +778,7 @@ mod tests {
                     download_url: None,
                     folder_name: None,
                     downloads: None,
+                    dependencies: Vec::new(),
                     meta: Some(sample_meta("Gamma", 12)),
                     description: Some("Third".to_string()),
                     description_html: None,

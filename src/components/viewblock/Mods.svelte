@@ -166,6 +166,35 @@ let resizeObs: ResizeObserver | null = null;
 		}
 	}
 
+	async function hydrateRequirements(mod: Mod): Promise<Mod> {
+		if (!mod._dirName) return mod;
+		if (mod.requires_steamodded || mod.requires_talisman) return mod;
+		try {
+			const [requiresSteamodded, requiresTalisman] = await invoke<
+				[boolean, boolean]
+			>("get_mod_requirements", { dirName: mod._dirName });
+			if (!requiresSteamodded && !requiresTalisman) return mod;
+			modsStore.update((arr) =>
+				arr.map((m) =>
+					m.title === mod.title
+						? {
+								...m,
+								requires_steamodded: requiresSteamodded,
+								requires_talisman: requiresTalisman,
+						  }
+						: m,
+				),
+			);
+			return {
+				...mod,
+				requires_steamodded: requiresSteamodded,
+				requires_talisman: requiresTalisman,
+			};
+		} catch (_) {
+			return mod;
+		}
+	}
+
 	async function getLocalMods() {
 		if ($currentCategory === "Installed Mods") {
 			isLoadingLocalMods = true;
@@ -701,36 +730,42 @@ const { handleDependencyCheck, mod } = $props<{
 
 	const installMod = async (mod: Mod) => {
 		if (!mod?.title || !mod?.downloadURL) return;
+		const modToInstall = await hydrateRequirements(mod);
 
 		// Define the actual download function that will be stored and executed later if needed
 		const performDownload = async () => {
 			try {
 				loadingStates2.update((s: Record<string, boolean>) => ({
 					...s,
-					[mod.title]: true,
+					[modToInstall.title]: true,
 				}));
 
 				// Create dependencies array for the database
 				const dependencies = [];
-				if (mod.requires_steamodded) dependencies.push("Steamodded");
-				if (mod.requires_talisman) dependencies.push("Talisman");
+				if (modToInstall.requires_steamodded) dependencies.push("Steamodded");
+				if (modToInstall.requires_talisman) dependencies.push("Talisman");
 
 				const installedPath = await invoke<string>("install_mod", {
-					url: mod.downloadURL,
-					folderName: mod.folderName || mod.title.replace(/\s+/g, ""),
+					url: modToInstall.downloadURL,
+					folderName:
+						modToInstall.folderName ||
+						modToInstall.title.replace(/\s+/g, ""),
 				});
 
 				await invoke("add_installed_mod", {
-					name: mod.title,
+					name: modToInstall.title,
 					path: installedPath,
 					dependencies,
-					currentVersion: mod.version || "",
+					currentVersion: modToInstall.version || "",
 				});
 
-				installationStatus.update((s) => ({ ...s, [mod.title]: true }));
+				installationStatus.update((s) => ({
+					...s,
+					[modToInstall.title]: true,
+				}));
 				updateAvailableStore.update((s) => ({
 					...s,
-					[mod.title]: false,
+					[modToInstall.title]: false,
 				}));
 				await refreshInstalledMods();
 			} catch (error) {
@@ -744,23 +779,23 @@ const { handleDependencyCheck, mod } = $props<{
 			} finally {
 				loadingStates2.update((s: Record<string, boolean>) => ({
 					...s,
-					[mod.title]: false,
+					[modToInstall.title]: false,
 				}));
 			}
 		};
 
 		try {
 			// Check for dependencies
-			if (mod.requires_steamodded || mod.requires_talisman) {
+			if (modToInstall.requires_steamodded || modToInstall.requires_talisman) {
 				// Check Steamodded if required
-				const steamoddedInstalled = mod.requires_steamodded
+				const steamoddedInstalled = modToInstall.requires_steamodded
 					? await invoke<boolean>("check_mod_installation", {
 							modType: "Steamodded",
 						})
 					: true;
 
 				// Check Talisman if required
-				const talismanInstalled = mod.requires_talisman
+				const talismanInstalled = modToInstall.requires_talisman
 					? await invoke<boolean>("check_mod_installation", {
 							modType: "Talisman",
 						})
@@ -768,16 +803,16 @@ const { handleDependencyCheck, mod } = $props<{
 
 				// If any dependency is missing, show the Requires Popup
 				if (
-					(mod.requires_steamodded && !steamoddedInstalled) ||
-					(mod.requires_talisman && !talismanInstalled)
+					(modToInstall.requires_steamodded && !steamoddedInstalled) ||
+					(modToInstall.requires_talisman && !talismanInstalled)
 				) {
 					// Call the handler with the appropriate requirements and download action
 					handleDependencyCheck(
 						{
 							steamodded:
-								mod.requires_steamodded && !steamoddedInstalled,
+								modToInstall.requires_steamodded && !steamoddedInstalled,
 							talisman:
-								mod.requires_talisman && !talismanInstalled,
+								modToInstall.requires_talisman && !talismanInstalled,
 						},
 						performDownload,
 					);
@@ -801,6 +836,8 @@ const { handleDependencyCheck, mod } = $props<{
 		title: string;
 		"requires-steamodded": boolean;
 		"requires-talisman": boolean;
+		requires_steamodded?: boolean;
+		requires_talisman?: boolean;
 		categories: string[];
 		author: string;
 		repo: string;
@@ -870,8 +907,14 @@ const { handleDependencyCheck, mod } = $props<{
 					imageFallback: cachedThumb ? img : undefined,
 					colors: getRandomColorPair(),
 					categories: mappedCategories,
-					requires_steamodded: item.meta["requires-steamodded"],
-					requires_talisman: item.meta["requires-talisman"],
+					requires_steamodded:
+						item.meta["requires-steamodded"] ??
+						item.meta.requires_steamodded ??
+						false,
+					requires_talisman:
+						item.meta["requires-talisman"] ??
+						item.meta.requires_talisman ??
+						false,
 					publisher: item.meta.author,
 					repo: item.meta.repo,
 					downloadURL: item.meta.downloadURL || "",
@@ -989,8 +1032,14 @@ const { handleDependencyCheck, mod } = $props<{
 					imageFallback: cachedThumb ? img : undefined,
 					colors: getRandomColorPair(),
 					categories: mappedCategories,
-					requires_steamodded: item.meta["requires-steamodded"],
-					requires_talisman: item.meta["requires-talisman"],
+					requires_steamodded:
+						item.meta["requires-steamodded"] ??
+						item.meta.requires_steamodded ??
+						false,
+					requires_talisman:
+						item.meta["requires-talisman"] ??
+						item.meta.requires_talisman ??
+						false,
 					publisher: item.meta.author,
 					repo: item.meta.repo,
 					downloadURL: item.meta.downloadURL || "",
@@ -1303,6 +1352,10 @@ const { handleDependencyCheck, mod } = $props<{
 					out.push({
 						...existing,
 						...inc,
+						requires_steamodded:
+							existing.requires_steamodded || inc.requires_steamodded,
+						requires_talisman:
+							existing.requires_talisman || inc.requires_talisman,
 						description: preferExistingDesc
 							? existing.description
 							: (inc.description ?? ""),

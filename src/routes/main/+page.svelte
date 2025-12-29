@@ -43,6 +43,8 @@ import { isLinuxPlatform } from "$lib/platform";
 
 	// Add these for the RequiresPopup
 	let showRequiresPopup = $state(false);
+	let requiresPopupDismissedAt = 0;
+	let wasRequiresPopupVisible = false;
 
 	let storedDownloadAction: (() => Promise<void>) | null = $state(null);
 	let originalDownloadAction: (() => Promise<void>) | null = $state(null);
@@ -65,6 +67,9 @@ import { isLinuxPlatform } from "$lib/platform";
 		requirements: DependencyCheck,
 		downloadAction?: () => Promise<void>,
 	) {
+		if (Date.now() - requiresPopupDismissedAt < 200) {
+			return;
+		}
 		modRequirements = requirements;
 		if (downloadAction) {
 			originalDownloadAction = downloadAction;
@@ -241,6 +246,15 @@ import { isLinuxPlatform } from "$lib/platform";
 				// ignore detection errors
 			}
 		}
+	});
+
+	$effect(() => {
+		if (wasRequiresPopupVisible && !showRequiresPopup) {
+			storedDownloadAction = null;
+			originalDownloadAction = null;
+			requiresPopupDismissedAt = Date.now();
+		}
+		wasRequiresPopupVisible = showRequiresPopup;
 	});
 
 	$effect(() => {

@@ -351,6 +351,13 @@ pub async fn get_description_cached_or_remote(
 }
 
 #[tauri::command]
+pub async fn get_mod_requirements(dir_name: String) -> Result<(bool, bool), String> {
+    let client = BmiClient::new()?;
+    let detail = client.fetch_mod(&dir_name).await?;
+    Ok(bmi::derive_requires(&detail))
+}
+
+#[tauri::command]
 pub async fn get_cached_description_by_title(title: String) -> Result<Option<String>, String> {
     let (_, descs_dir) = ensure_assets_dirs()?;
     let slug = safe_slug(&title);

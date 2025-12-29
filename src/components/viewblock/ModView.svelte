@@ -103,6 +103,35 @@ const attemptedDescriptions = new Set<string>();
 		return trimmed.toLowerCase() !== title.trim().toLowerCase();
 	}
 
+	async function hydrateRequirements(mod: Mod): Promise<Mod> {
+		if (!mod._dirName) return mod;
+		if (mod.requires_steamodded || mod.requires_talisman) return mod;
+		try {
+			const [requiresSteamodded, requiresTalisman] = await invoke<
+				[boolean, boolean]
+			>("get_mod_requirements", { dirName: mod._dirName });
+			if (!requiresSteamodded && !requiresTalisman) return mod;
+			modsStore.update((arr) =>
+				arr.map((m) =>
+					m.title === mod.title
+						? {
+								...m,
+								requires_steamodded: requiresSteamodded,
+								requires_talisman: requiresTalisman,
+						  }
+						: m,
+				),
+			);
+			return {
+				...mod,
+				requires_steamodded: requiresSteamodded,
+				requires_talisman: requiresTalisman,
+			};
+		} catch (_) {
+			return mod;
+		}
+	}
+
 	// Add a local state variable for tracking enabled status
 	let isEnabled = $state(true);
 
@@ -355,11 +384,12 @@ let modView: HTMLDivElement;
 		if (!isLinux) {
 			isLinux = await isLinuxPlatform();
 		}
+		const modToInstall = await hydrateRequirements(mod);
 
 		// Extract the download functionality into a separate async function
 		const performDownload = async () => {
 			try {
-				loadingStates.update((s) => ({ ...s, [mod.title]: true }));
+				loadingStates.update((s) => ({ ...s, [modToInstall.title]: true }));
 
 				// Show a warning if Lovely injector is missing (do not block installation)
 				if (!isLinux) {
@@ -375,10 +405,10 @@ let modView: HTMLDivElement;
 
 				// Build dependencies list for the database
 				const dependencies = [];
-				if (mod.requires_steamodded) dependencies.push("Steamodded");
-				if (mod.requires_talisman) dependencies.push("Talisman");
+				if (modToInstall.requires_steamodded) dependencies.push("Steamodded");
+				if (modToInstall.requires_talisman) dependencies.push("Talisman");
 
-				if (mod.title.toLowerCase() === "steamodded") {
+				if (modToInstall.title.toLowerCase() === "steamodded") {
 					let installedPath = await invoke<string>(
 						"install_steamodded_version",
 						{ version: selectedVersion },
@@ -391,23 +421,23 @@ let modView: HTMLDivElement;
 							"Installation failed - files not found at destination",
 						);
 					await invoke("add_installed_mod", {
-						name: mod.title,
+						name: modToInstall.title,
 						path: installedPath,
 						dependencies,
-						currentVersion: mod.version || "",
+						currentVersion: modToInstall.version || "",
 					});
 					await getAllInstalledMods();
 					installationStatus.update((s) => ({
 						...s,
-						[mod.title]: true,
+						[modToInstall.title]: true,
 					}));
 
 					// Reset update status after successful update
 					updateAvailableStore.update((updates) => ({
 						...updates,
-						[mod.title]: false,
+						[modToInstall.title]: false,
 					}));
-				} else if (mod.title.toLowerCase() === "talisman") {
+				} else if (modToInstall.title.toLowerCase() === "talisman") {
 					let installedPath = await invoke<string>(
 						"install_talisman_version",
 						{ version: selectedVersion },
@@ -420,44 +450,44 @@ let modView: HTMLDivElement;
 							"Installation failed - files not found at destination",
 						);
 					await invoke("add_installed_mod", {
-						name: mod.title,
+						name: modToInstall.title,
 						path: installedPath,
 						dependencies: [],
-						currentVersion: mod.version || "",
+						currentVersion: modToInstall.version || "",
 					});
 					await getAllInstalledMods();
 					installationStatus.update((s) => ({
 						...s,
-						[mod.title]: true,
+						[modToInstall.title]: true,
 					}));
 
 					// Reset update status after successful update
 					updateAvailableStore.update((updates) => ({
 						...updates,
-						[mod.title]: false,
+						[modToInstall.title]: false,
 					}));
 				} else {
 					const installedPath = await invoke<string>("install_mod", {
-						url: mod.downloadURL,
+						url: modToInstall.downloadURL,
 						folderName:
-							mod.folderName || mod.title.replace(/\s+/g, ""),
+							modToInstall.folderName || modToInstall.title.replace(/\s+/g, ""),
 					});
 					await invoke("add_installed_mod", {
-						name: mod.title,
+						name: modToInstall.title,
 						path: installedPath,
 						dependencies,
-						currentVersion: mod.version || "",
+						currentVersion: modToInstall.version || "",
 					});
 					await getAllInstalledMods();
 					installationStatus.update((s) => ({
 						...s,
-						[mod.title]: true,
+						[modToInstall.title]: true,
 					}));
 
 					// Reset update status after successful update
 					updateAvailableStore.update((updates) => ({
 						...updates,
-						[mod.title]: false,
+						[modToInstall.title]: false,
 					}));
 				}
 			} catch (e) {
@@ -468,25 +498,25 @@ let modView: HTMLDivElement;
 				const raw = e instanceof Error ? e.message : String(e);
 				const onlyUrlMsg = raw.includes("Download URL not reachable")
 					? (raw.match(/Download URL not reachable[^"]*/)?.[0] || raw)
-					: `Failed to ${isUpdate ? "update" : "install"} ${mod.title}: ${raw}`;
+					: `Failed to ${isUpdate ? "update" : "install"} ${modToInstall.title}: ${raw}`;
 				addMessage(onlyUrlMsg, "error");
 			} finally {
-				loadingStates.update((s) => ({ ...s, [mod.title]: false }));
+				loadingStates.update((s) => ({ ...s, [modToInstall.title]: false }));
 				await forceRefreshCache();
 			}
 		};
 
 		// Check dependencies first before doing anything else
-		if (mod.requires_steamodded || mod.requires_talisman) {
+		if (modToInstall.requires_steamodded || modToInstall.requires_talisman) {
 			// Check Steamodded if required
-			const steamoddedInstalled = mod.requires_steamodded
+			const steamoddedInstalled = modToInstall.requires_steamodded
 				? await invoke<boolean>("check_mod_installation", {
 						modType: "Steamodded",
 					})
 				: true;
 
 			// Check Talisman if required
-			const talismanInstalled = mod.requires_talisman
+			const talismanInstalled = modToInstall.requires_talisman
 				? await invoke<boolean>("check_mod_installation", {
 						modType: "Talisman",
 					})
@@ -496,15 +526,15 @@ let modView: HTMLDivElement;
 			// But skip this check if it's an update, as dependencies should already be installed
 			if (
 				!isUpdate &&
-				((mod.requires_steamodded && !steamoddedInstalled) ||
-					(mod.requires_talisman && !talismanInstalled))
+				((modToInstall.requires_steamodded && !steamoddedInstalled) ||
+					(modToInstall.requires_talisman && !talismanInstalled))
 			) {
 				// Call the handler with the appropriate requirements AND the download action
 				onCheckDependencies?.(
 					{
 						steamodded:
-							mod.requires_steamodded && !steamoddedInstalled,
-						talisman: mod.requires_talisman && !talismanInstalled,
+							modToInstall.requires_steamodded && !steamoddedInstalled,
+						talisman: modToInstall.requires_talisman && !talismanInstalled,
 					},
 					performDownload,
 				);

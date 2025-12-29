@@ -8,9 +8,9 @@ pub struct Payload {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ModMeta {
-    #[serde(rename = "requires-steamodded")]
+    #[serde(rename = "requires-steamodded", alias = "requires_steamodded")]
     pub requires_steamodded: bool,
-    #[serde(rename = "requires-talisman")]
+    #[serde(rename = "requires-talisman", alias = "requires_talisman")]
     pub requires_talisman: bool,
     pub categories: Vec<String>,
     pub author: String,
