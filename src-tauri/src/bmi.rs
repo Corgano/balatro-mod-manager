@@ -5,7 +5,7 @@ use reqwest::Url;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Deserializer, Serialize};
 
-use crate::models::ModMeta;
+use crate::models::{ModDownloads, ModMeta};
 
 pub const DEFAULT_BMI_SERVER_URL: &str = "https://api-bmi.dasguney.com";
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
@@ -85,6 +85,8 @@ pub struct BmiMod {
     pub download_url: Option<String>,
     #[serde(default, alias = "folder_name", alias = "folderName")]
     pub folder_name: Option<String>,
+    #[serde(default)]
+    pub downloads: Option<ModDownloads>,
     #[serde(default)]
     pub meta: Option<ModMeta>,
     #[serde(
@@ -436,8 +438,12 @@ pub fn bmi_to_archive(
                 .as_ref()
                 .and_then(|v| v.parse::<u64>().ok())
                 .unwrap_or_default(),
+            downloads: item.downloads.clone(),
         },
     };
+    if meta.downloads.is_none() {
+        meta.downloads = item.downloads.clone();
+    }
     meta.download_url = Some(format!("bmi://{id}"));
     let updated_at = updated_at_value(&item).or_else(|| {
         if meta.last_updated > 0 {
@@ -597,6 +603,7 @@ mod tests {
             version: "1.0.0".to_string(),
             automatic_version_check: false,
             last_updated,
+            downloads: None,
         }
     }
 
@@ -632,6 +639,7 @@ mod tests {
                 requires_talisman: None,
                 download_url: None,
                 folder_name: None,
+                downloads: None,
                 meta: Some(sample_meta("Alpha Updated", 30)),
                 description: Some("New".to_string()),
                 description_html: None,
@@ -653,6 +661,7 @@ mod tests {
                 requires_talisman: None,
                 download_url: None,
                 folder_name: None,
+                downloads: None,
                 meta: None,
                 description: None,
                 description_html: None,
@@ -688,6 +697,7 @@ mod tests {
                     requires_talisman: None,
                     download_url: None,
                     folder_name: None,
+                    downloads: None,
                     meta: Some(sample_meta("Alpha", 5)),
                     description: Some("First".to_string()),
                     description_html: None,
@@ -712,6 +722,7 @@ mod tests {
                     requires_talisman: None,
                     download_url: None,
                     folder_name: None,
+                    downloads: None,
                     meta: Some(sample_meta("Beta", 8)),
                     description: Some("Second".to_string()),
                     description_html: None,
@@ -736,6 +747,7 @@ mod tests {
                     requires_talisman: None,
                     download_url: None,
                     folder_name: None,
+                    downloads: None,
                     meta: Some(sample_meta("Gamma", 12)),
                     description: Some("Third".to_string()),
                     description_html: None,

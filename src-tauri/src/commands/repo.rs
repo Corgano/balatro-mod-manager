@@ -76,6 +76,10 @@ pub async fn fetch_repo_mods(sort: Option<String>) -> Result<Vec<ArchiveModItem>
         items.clear();
         latest_updated = None;
     }
+    if items.iter().any(|item| item.meta.downloads.is_none()) {
+        items.clear();
+        latest_updated = None;
+    }
 
     if items.is_empty() || latest_updated.is_none() {
         let (fresh, updated_at) = client.fetch_all_mods(sort_mode).await?;

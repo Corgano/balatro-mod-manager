@@ -1010,6 +1010,14 @@ let modView: HTMLDivElement;
 					<!-- <span><Clock size={16} /> {mod.lastUpdated}</span> -->
 					<span><User size={16} /> {mod.publisher}</span>
 				</div>
+				{#if mod.downloads_total !== undefined}
+					<div class="mod-stats">
+						<span
+							><Download size={16} />
+							{mod.downloads_total.toLocaleString()}</span
+						>
+					</div>
+				{/if}
 					{#if mod.repo}
 						<button onclick={() => openExternal(mod.repo)} class="repo-button">
 							<Github size={16} /> Repository
@@ -1347,6 +1355,10 @@ let modView: HTMLDivElement;
 		border-radius: 6px;
 		justify-content: center;
 		align-items: center;
+	}
+
+	.mod-stats + .mod-stats {
+		margin-top: 0.6rem;
 	}
 
 	.mod-stats span {

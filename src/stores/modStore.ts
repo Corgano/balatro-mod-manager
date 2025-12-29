@@ -22,6 +22,7 @@ export interface Mod {
   version?: string | null;
   installed: boolean;
   last_updated: number;
+  downloads_total?: number;
 }
 
 export interface LocalMod {

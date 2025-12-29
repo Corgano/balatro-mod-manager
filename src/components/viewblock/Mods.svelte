@@ -808,6 +808,7 @@ const { handleDependencyCheck, mod } = $props<{
 		folderName?: string;
 		version?: string;
 		"last-updated"?: number;
+		downloads?: { total: number; today?: number };
 	}
 
 	// Do not depend on cache for catalog; prefer fresh data + lazy UI
@@ -878,6 +879,7 @@ const { handleDependencyCheck, mod } = $props<{
 					version: item.meta.version,
 					installed: false,
 					last_updated: item.meta["last-updated"] ?? 0,
+					downloads_total: item.meta.downloads?.total,
 					_dirName: item.dir_name,
 				};
 			});
@@ -996,6 +998,7 @@ const { handleDependencyCheck, mod } = $props<{
 					version: item.meta.version,
 					installed: false,
 					last_updated: item.meta["last-updated"] ?? 0,
+					downloads_total: item.meta.downloads?.total,
 					_dirName: item.dir_name,
 				};
 			});

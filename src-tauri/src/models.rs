@@ -26,4 +26,12 @@ pub struct ModMeta {
     pub automatic_version_check: bool,
     #[serde(rename = "last-updated", default)]
     pub last_updated: u64,
+    #[serde(default)]
+    pub downloads: Option<ModDownloads>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+pub struct ModDownloads {
+    pub total: u64,
+    pub today: u64,
 }
