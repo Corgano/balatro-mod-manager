@@ -64,7 +64,15 @@ pub async fn install_mod(url: String, folder_name: Option<String>) -> Result<Pat
 
     let mod_dir = resolve_mods_dir()?;
 
-    let mod_name = {
+    let fallback_name = || {
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        format!("mod_{timestamp}")
+    };
+
+    let mut mod_name = {
         if let Some(name) = folder_name.filter(|n| !n.is_empty()) {
             // Use provided folder name if it exists and isn't empty
             name
@@ -79,17 +87,16 @@ pub async fn install_mod(url: String, folder_name: Option<String>) -> Result<Pat
             // If the extracted name is too generic (like "main" or "master")
             if url_name == "main" || url_name == "master" || url_name.len() <= 2 {
                 // Generate a more unique name with a timestamp
-                let timestamp = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_secs();
-
-                format!("mod_{timestamp}")
+                fallback_name()
             } else {
                 url_name.to_string()
             }
         }
     };
+    mod_name = sanitize_mod_name(&mod_name);
+    if mod_name.is_empty() {
+        mod_name = fallback_name();
+    }
 
     // Uninstall old mod folder if it exists
     let target_dir = mod_dir.join(&mod_name);
@@ -142,6 +149,22 @@ fn parse_disposition_filename(header_value: &str) -> Option<String> {
         }
     }
     None
+}
+
+fn sanitize_mod_name(name: &str) -> String {
+    let mut out = String::with_capacity(name.len());
+    for c in name.chars() {
+        if c.is_ascii_control() {
+            continue;
+        }
+        if matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|') {
+            out.push(' ');
+        } else {
+            out.push(c);
+        }
+    }
+    let collapsed = out.split_whitespace().collect::<Vec<_>>().join(" ");
+    collapsed.trim_matches(|c| c == ' ' || c == '.').to_string()
 }
 
 fn has_zip_magic(bytes: &bytes::Bytes) -> bool {
@@ -579,6 +602,13 @@ mod tests {
         let outside = td.path().join("outside.txt");
         let res = ensure_safe_path(&base, &outside);
         assert!(res.is_err());
+    }
+
+    #[test]
+    fn sanitize_mod_name_strips_illegal_chars() {
+        let name = "Agarmons: A Pokermon Addon";
+        let sanitized = sanitize_mod_name(name);
+        assert_eq!(sanitized, "Agarmons A Pokermon Addon");
     }
 
     #[test]
