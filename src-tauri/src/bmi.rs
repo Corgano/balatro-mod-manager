@@ -7,7 +7,7 @@ use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::models::ModMeta;
 
-pub const DEFAULT_BMI_SERVER_URL: &str = "http://localhost:8080";
+pub const DEFAULT_BMI_SERVER_URL: &str = "https://api-bmi.dasguney.com";
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
 const MAX_RETRIES: u32 = 3;
 const PAGE_LIMIT: usize = 200;
