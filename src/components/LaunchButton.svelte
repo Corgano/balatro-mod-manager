@@ -74,11 +74,12 @@ async function doLaunch() {
   let launched = false;
   try {
     launched = await doLaunch();
-  } finally {
-    if (!launched) {
-      isLaunching = false;
-      return;
-    }
+  } catch (_) {
+    launched = false;
+  }
+  if (!launched) {
+    isLaunching = false;
+    return;
   }
 
   if (launchCheckTimer) clearInterval(launchCheckTimer);
