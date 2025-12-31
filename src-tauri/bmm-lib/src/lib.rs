@@ -12,6 +12,11 @@ pub mod mod_collections;
 pub mod smods_installer;
 
 use std::path::{Path, PathBuf};
+#[cfg(test)]
+use std::sync::Mutex;
+
+#[cfg(test)]
+pub(crate) static ENV_LOCK: Mutex<()> = Mutex::new(());
 
 /// Resolve the mods directory on the host (config dir).
 pub fn mods_dir() -> PathBuf {

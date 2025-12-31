@@ -3,6 +3,8 @@ use log::{debug, error};
 #[cfg(target_os = "linux")]
 use regex::Regex;
 use std::collections::HashSet;
+#[cfg(target_os = "linux")]
+use std::collections::VecDeque;
 #[cfg(target_os = "windows")]
 use std::fs::File;
 #[cfg(target_os = "windows")]
@@ -178,6 +180,62 @@ fn parse_libraryfolders(library_path: &Path) -> Vec<PathBuf> {
 }
 
 #[cfg(target_os = "linux")]
+fn scan_for_steamapps_dirs(base: &Path, max_depth: usize, max_dirs: usize) -> Vec<PathBuf> {
+    let mut found = Vec::new();
+    let mut queue: VecDeque<(PathBuf, usize)> = VecDeque::new();
+    let mut visited: usize = 0;
+
+    if !base.exists() {
+        return found;
+    }
+
+    queue.push_back((base.to_path_buf(), 0));
+
+    while let Some((dir, depth)) = queue.pop_front() {
+        if visited >= max_dirs {
+            break;
+        }
+        visited += 1;
+
+        let dir_name = dir
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("")
+            .to_lowercase();
+
+        if dir_name == "steamapps" {
+            found.push(dir);
+            continue;
+        }
+
+        if depth >= max_depth {
+            continue;
+        }
+
+        if dir_name == "node_modules"
+            || dir_name == ".git"
+            || dir_name == "cache"
+            || dir_name == ".cache"
+            || dir_name == "trash"
+            || dir_name == ".trash"
+        {
+            continue;
+        }
+
+        if let Ok(entries) = std::fs::read_dir(&dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    queue.push_back((path, depth + 1));
+                }
+            }
+        }
+    }
+
+    found
+}
+
+#[cfg(target_os = "linux")]
 pub fn get_balatro_paths() -> Vec<PathBuf> {
     let mut paths: Vec<PathBuf> = vec![];
 
@@ -204,15 +262,68 @@ pub fn get_balatro_paths() -> Vec<PathBuf> {
         Some(home) => {
             add_root(home.join(".local/share/Steam"));
             add_root(home.join(".steam/steam"));
+            add_root(home.join(".steam/root"));
+            add_root(home.join(".steam/debian-installation"));
             add_root(home.join(".var/app/com.valvesoftware.Steam/data/Steam"));
+            // Some Flatpak Steam installs use the per-app .local/share path.
+            add_root(home.join(".var/app/com.valvesoftware.Steam/.local/share/Steam"));
+            add_root(home.join(".var/app/com.valvesoftware.Steam/.steam/steam"));
+            add_root(home.join(".var/app/com.valvesoftware.Steam/.steam/root"));
             // Snap installs keep the real Steam data under this prefix.
             add_root(home.join("snap/steam/common/.local/share/Steam"));
         }
         None => error!("Impossible to get your home dir!"),
     }
 
+    if let Ok(xdg_data_home) = std::env::var("XDG_DATA_HOME") {
+        let xdg = PathBuf::from(xdg_data_home);
+        add_root(xdg.join("Steam"));
+        add_root(xdg.join("steam"));
+    }
+
+    add_root(PathBuf::from("/opt/steam"));
+    add_root(PathBuf::from("/opt/Steam"));
+    add_root(PathBuf::from("/usr/lib/steam"));
+    add_root(PathBuf::from("/usr/local/steam"));
+    add_root(PathBuf::from("/var/lib/steam"));
+
+    let mut steamapps_dirs: Vec<PathBuf> = Vec::new();
+    let mut seen_steamapps: HashSet<String> = HashSet::new();
+    let mut add_steamapps = |path: PathBuf| {
+        let key = path.to_string_lossy().to_string().to_lowercase();
+        if seen_steamapps.insert(key) {
+            steamapps_dirs.push(path);
+        }
+    };
+
     for root in steam_roots {
-        let steamapps = root.join("steamapps");
+        add_steamapps(root.join("steamapps"));
+    }
+
+    if let Some(home) = home::home_dir() {
+        add_steamapps(home.join(".steam/steamapps"));
+        let bases = vec![
+            home.join(".local/share"),
+            home.join(".steam"),
+            home.join(".var/app"),
+            home.join("snap"),
+            home.clone(),
+        ];
+        for base in bases {
+            for steamapps in scan_for_steamapps_dirs(&base, 5, 2000) {
+                add_steamapps(steamapps);
+            }
+        }
+    }
+
+    if let Ok(user) = std::env::var("USER") {
+        let media_base = PathBuf::from("/run/media").join(user);
+        for steamapps in scan_for_steamapps_dirs(&media_base, 4, 1500) {
+            add_steamapps(steamapps);
+        }
+    }
+
+    for steamapps in steamapps_dirs {
         paths.push(steamapps.join("common/Balatro"));
 
         let libraryfolders = steamapps.join("libraryfolders.vdf");
@@ -387,14 +498,14 @@ mod tests {
 
     #[test]
     fn test_get_installed_mods_filters_lovely_dirs() {
+        let _lock = crate::ENV_LOCK.lock().unwrap();
         let tmp = tempdir().unwrap();
         // Redirect config dir to temp using XDG_CONFIG_HOME and HOME (for macOS)
         let original_cfg = std::env::var_os("XDG_CONFIG_HOME");
         let original_home = std::env::var_os("HOME");
         set_var("XDG_CONFIG_HOME", tmp.path());
-        if cfg!(target_os = "macos") {
-            set_var("HOME", tmp.path());
-        }
+        // Ensure HOME points at temp so path resolution doesn't touch real user dirs.
+        set_var("HOME", tmp.path());
 
         let mods_root = dirs::config_dir().unwrap().join("Balatro").join("Mods");
         std::fs::create_dir_all(&mods_root).unwrap();

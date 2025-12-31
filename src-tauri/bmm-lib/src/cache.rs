@@ -400,15 +400,14 @@ mod tests {
     }
 
     fn with_temp_cache<T>(test: impl FnOnce(PathBuf) -> T) -> T {
+        let _lock = crate::ENV_LOCK.lock().unwrap();
         let temp_dir = tempdir().unwrap();
         let original_cache = std::env::var_os("XDG_CACHE_HOME");
         let original_home = std::env::var_os("HOME");
 
         set_var("XDG_CACHE_HOME", temp_dir.path());
-        // On macOS, dirs::cache_dir uses ~/Library/Caches, so set HOME to our temp dir
-        if cfg!(target_os = "macos") {
-            set_var("HOME", temp_dir.path());
-        }
+        // Ensure HOME points at temp so flatpak cache fallbacks don't hit real user data.
+        set_var("HOME", temp_dir.path());
         let result = test(temp_dir.path().to_path_buf());
 
         // restore env

@@ -342,9 +342,8 @@ fn find_steamapps_root(game_path: &Path) -> Option<PathBuf> {
 
 #[cfg(target_os = "linux")]
 fn ensure_proton_mod_dir_link(game_path: &Path) -> Result<(), String> {
-    let host_mods = dirs::config_dir()
-        .map(|d| d.join("Balatro").join("Mods"))
-        .ok_or_else(|| "Could not resolve config directory".to_string())?;
+    let host_mods = bmm_lib::local_mod_detection::resolve_mods_dir_path()
+        .map_err(|e| format!("Could not resolve mods directory: {e}"))?;
 
     let steamapps_dir = find_steamapps_root(game_path).or_else(|| {
         dirs::home_dir()
@@ -357,6 +356,10 @@ fn ensure_proton_mod_dir_link(game_path: &Path) -> Result<(), String> {
 
     let compat_mods = steamapps_dir
         .join("compatdata/2379780/pfx/drive_c/users/steamuser/AppData/Roaming/Balatro/Mods");
+
+    if compat_mods == host_mods {
+        return Ok(());
+    }
 
     if let Some(parent) = compat_mods.parent()
         && let Err(e) = fs::create_dir_all(parent)
@@ -376,6 +379,7 @@ fn ensure_proton_mod_dir_link(game_path: &Path) -> Result<(), String> {
             "Proton Mods path already exists and is not a symlink: {}",
             compat_mods.display()
         );
+        sync_proton_mods(&host_mods, &compat_mods)?;
         return Ok(());
     }
 
@@ -399,6 +403,61 @@ fn ensure_proton_mod_dir_link(game_path: &Path) -> Result<(), String> {
         compat_mods.display(),
         host_mods.display()
     );
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn sync_proton_mods(host_mods: &Path, compat_mods: &Path) -> Result<(), String> {
+    if !host_mods.exists() {
+        if let Err(e) = fs::create_dir_all(host_mods) {
+            warn!(
+                "Failed to create host mods dir {}: {}",
+                host_mods.display(),
+                e
+            );
+        }
+        return Ok(());
+    }
+
+    if !compat_mods.exists() {
+        return Ok(());
+    }
+
+    let entries = fs::read_dir(host_mods).map_err(|e| {
+        format!(
+            "Failed to read host mods dir {}: {}",
+            host_mods.display(),
+            e
+        )
+    })?;
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let file_type = match entry.file_type() {
+            Ok(t) => t,
+            Err(_) => continue,
+        };
+        if !file_type.is_dir() {
+            continue;
+        }
+        let name = match path.file_name() {
+            Some(n) => n,
+            None => continue,
+        };
+        let dest = compat_mods.join(name);
+        if dest.exists() {
+            continue;
+        }
+        if let Err(e) = symlink(&path, &dest) {
+            warn!(
+                "Failed to link Proton mod {} -> {}: {}",
+                dest.display(),
+                path.display(),
+                e
+            );
+        }
+    }
+
     Ok(())
 }
 
