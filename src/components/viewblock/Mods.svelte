@@ -39,7 +39,7 @@ import {
 	setDescriptions,
 	withDescriptionsPersistenceSuspended,
 } from "../../stores/descriptions";
-	import { catalogLoading } from "../../stores/modStore";
+	import { catalogLoading, catalogResetNonce } from "../../stores/modStore";
 	import type { InstalledMod } from "../../stores/modStore";
 	import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 // Lazy-load SearchView only when Search tab is active
@@ -88,11 +88,13 @@ let downloadsRefreshTimer: number | null = null;
 let downloadsRefreshing = false;
 let isLinux = false;
 let modsScrollContainer: HTMLDivElement | null = $state(null);
-let scrollIdleTimer: number | null = null;
-let isUserScrolling = $state(false);
-let renderLimitLocal = $state(60);
-const renderChunkLocal = 24;
-let localSentinel: HTMLDivElement | null = $state(null);
+	let scrollIdleTimer: number | null = null;
+	let isUserScrolling = $state(false);
+	let renderLimitLocal = $state(60);
+	const renderChunkLocal = 24;
+	let localSentinel: HTMLDivElement | null = $state(null);
+	let thumbRefreshTimer: number | null = null;
+	let thumbRefreshAttempts = 0;
 
 	async function handleModUninstalled() {
 		// Refresh the local mods list
@@ -103,6 +105,60 @@ let localSentinel: HTMLDivElement | null = $state(null);
 
 	// let mods: Mod[] = [];
 	let isLoading = $state(true);
+	let lastCatalogReset = 0;
+	let catalogRetryTimer: number | null = null;
+	let catalogRetryCount = 0;
+	let catalogRetryPending = $state(false);
+
+	function isRateLimitError(error: unknown): boolean {
+		const message = error instanceof Error ? error.message : String(error);
+		return message.toLowerCase().includes("rate limited");
+	}
+
+	function clearCatalogRetry() {
+		if (catalogRetryTimer !== null) {
+			clearTimeout(catalogRetryTimer);
+			catalogRetryTimer = null;
+		}
+		catalogRetryCount = 0;
+		catalogRetryPending = false;
+	}
+
+	function scheduleCatalogRetry(
+		mode: "foreground" | "background",
+		showMessages: boolean,
+	) {
+		if (catalogRetryTimer !== null || typeof window === "undefined") {
+			return;
+		}
+		const baseDelayMs = 5000;
+		const backoffStep = Math.min(catalogRetryCount, 4);
+		const delayMs = Math.min(60000, baseDelayMs * Math.pow(2, backoffStep));
+		const jitterMs = Math.floor(Math.random() * 1000);
+		const waitMs = delayMs + jitterMs;
+		catalogRetryCount += 1;
+		catalogRetryPending = true;
+		if (showMessages) {
+			addMessage(
+				`Rate limited. Retrying in ${Math.ceil(waitMs / 1000)}s…`,
+				"warning",
+			);
+		}
+		catalogRetryTimer = window.setTimeout(() => {
+			catalogRetryTimer = null;
+			if (mode === "foreground") {
+				isLoading = true;
+				catalogRetryPending = false;
+				loadCatalogForeground()
+					.catch(() => {})
+					.finally(() => {
+						isLoading = false;
+					});
+			} else {
+				refreshCatalogInBackground(false).catch(() => {});
+			}
+		}, waitMs);
+	}
 
 	function normalizeText(text: string): string {
 		return text
@@ -367,6 +423,27 @@ const { handleDependencyCheck, mod } = $props<{
 		if ($currentCategory === "Installed Mods") {
 			updateEnabledDisabledLists();
 		}
+	});
+
+	$effect(() => {
+		if ($catalogResetNonce === 0 || $catalogResetNonce === lastCatalogReset) {
+			return;
+		}
+		lastCatalogReset = $catalogResetNonce;
+		if ($catalogLoading) {
+			return;
+		}
+		if ($modsStore.length > 0) {
+			return;
+		}
+		(async () => {
+			isLoading = true;
+			try {
+				await loadCatalogForeground();
+			} finally {
+				isLoading = false;
+			}
+		})();
 	});
 
 	onMount(() => {
@@ -925,6 +1002,7 @@ const { handleDependencyCheck, mod } = $props<{
 		meta: ModMeta;
 		description: string;
 		image_url: string;
+		has_thumbnail?: boolean;
 	}
 
 	function mapArchiveItems(
@@ -938,11 +1016,13 @@ const { handleDependencyCheck, mod } = $props<{
 
 			const cachedThumb = cachedMap?.[item.meta.title];
 			const img = cachedThumb ? convertFileSrc(cachedThumb) : "/images/cover.jpg";
+			const hasThumb = item.has_thumbnail === true;
 			return {
 				title: item.meta.title,
 				description: item.description,
 				image: img,
 				imageFallback: cachedThumb ? img : undefined,
+				_hasThumbnail: hasThumb,
 				colors: getRandomColorPair(),
 				categories: mappedCategories,
 				requires_steamodded:
@@ -976,6 +1056,7 @@ const { handleDependencyCheck, mod } = $props<{
 			const items = await invoke<ArchiveModItem[]>("fetch_repo_mods", {
 				sort: $currentSort,
 			});
+			clearCatalogRetry();
 			const titles = items.map((i) => i.meta.title);
 			const cachedMap = await invoke<Record<string, string>>(
 				"get_cached_thumbnails_map",
@@ -1047,6 +1128,10 @@ const { handleDependencyCheck, mod } = $props<{
 			}
 		} catch (error) {
 			console.error("Failed to refresh catalog:", error);
+			if (isRateLimitError(error)) {
+				scheduleCatalogRetry("background", showMessages);
+				return;
+			}
 			if (showMessages) {
 				addMessage(
 					`Background load failed: ${error instanceof Error ? error.message : String(error)}`,
@@ -1066,6 +1151,7 @@ const { handleDependencyCheck, mod } = $props<{
             const items = await invoke<ArchiveModItem[]>("fetch_repo_mods", {
                 sort: $currentSort,
             });
+			clearCatalogRetry();
             const titles = items.map((i) => i.meta.title);
             const cachedMap = await invoke<Record<string, string>>(
                 "get_cached_thumbnails_map",
@@ -1133,9 +1219,15 @@ const { handleDependencyCheck, mod } = $props<{
 					fillDescriptions(mods).catch(() => {});
 				});
 			});
-		} finally {
-			catalogLoading.set(false);
-		}
+        } catch (error) {
+            if (isRateLimitError(error)) {
+                scheduleCatalogRetry("foreground", true);
+            } else {
+                throw error;
+            }
+        } finally {
+            catalogLoading.set(false);
+        }
 	}
 
 	async function fillDescriptions(mods: (Mod & { _dirName?: string })[]) {
@@ -1429,13 +1521,15 @@ const { handleDependencyCheck, mod } = $props<{
 	}
 
 	async function applyCachedThumbnails(titles: string[]) {
-		if (!titles.length) return;
+		if (!titles.length) return new Set<string>();
 		try {
 			const cachedMap = await invoke<Record<string, string>>(
 				"get_cached_thumbnails_map",
 				{ titles },
 			);
-			if (!cachedMap || Object.keys(cachedMap).length === 0) return;
+			if (!cachedMap || Object.keys(cachedMap).length === 0) {
+				return new Set<string>();
+			}
 			modsStore.update((arr) =>
 				arr.map((m) => {
 					const p = cachedMap[m.title];
@@ -1444,19 +1538,53 @@ const { handleDependencyCheck, mod } = $props<{
 					return { ...m, image: src, imageFallback: src };
 				}),
 			);
+			return new Set<string>(Object.keys(cachedMap));
 		} catch (_) {
 			/* ignore */
 		}
+		return new Set<string>();
 	}
 
 	function scheduleThumbCacheRefresh(titles: string[]) {
 		if (!titles.length) return;
-		setTimeout(() => {
-			applyCachedThumbnails(titles).catch(() => {});
-		}, 2000);
-		setTimeout(() => {
-			applyCachedThumbnails(titles).catch(() => {});
-		}, 8000);
+		if (thumbRefreshTimer !== null) {
+			clearTimeout(thumbRefreshTimer);
+			thumbRefreshTimer = null;
+		}
+		thumbRefreshAttempts = 0;
+		const needsThumb = new Set(
+			$modsStore.filter((m) => m._hasThumbnail).map((m) => m.title),
+		);
+		const pendingTitles = titles.filter((t) => needsThumb.has(t));
+		if (pendingTitles.length === 0) return;
+
+		const poll = async () => {
+			thumbRefreshAttempts += 1;
+			let resolved = new Set<string>();
+			try {
+				resolved = await applyCachedThumbnails(pendingTitles);
+			} catch (_) {
+				// ignore
+			}
+			if (resolved.size > 0) {
+				for (const title of resolved) {
+					needsThumb.delete(title);
+				}
+			}
+			if (needsThumb.size === 0) {
+				thumbRefreshTimer = null;
+				return;
+			}
+			if (thumbRefreshAttempts >= 12) {
+				thumbRefreshTimer = null;
+				return;
+			}
+			thumbRefreshTimer = window.setTimeout(
+				poll,
+				thumbRefreshAttempts <= 4 ? 2000 : 5000,
+			);
+		};
+		thumbRefreshTimer = window.setTimeout(poll, 1500);
 	}
 
 	async function seedInstalledPlaceholders() {
@@ -1485,6 +1613,7 @@ const { handleDependencyCheck, mod } = $props<{
 								version: "",
 								installed: true,
 								last_updated: 0,
+								_hasThumbnail: false,
 								// Keep private installed path for potential future local reads
 								_installedPath: m.path,
 							}),
@@ -1868,7 +1997,7 @@ onDestroy(() => {
 
 		<div class="separator"></div>
 
-		{#if isLoading && $currentCategory !== "Installed Mods"}
+		{#if ($modsStore.length === 0 && (isLoading || $catalogLoading || catalogRetryPending)) && $currentCategory !== "Installed Mods"}
 			<div class="loading-container">
 				<p class="loading-text">
 					Loading mods{".".repeat($loadingDots)}

@@ -12,6 +12,7 @@
   export let cacheTitle: string | undefined;
   export let enableCache: boolean = true;
   export let deferLoad: boolean = false;
+  export let hasThumbnail: boolean = true;
 
   // Emit load/error for parent if needed
   const dispatch = createEventDispatcher();
@@ -43,6 +44,7 @@
   // Delay spinner so broken/missing thumbnails (often 404 quickly) won't show it
   const SPINNER_DELAY_MS = 700;
   let showSpinner = false;
+  let showSpinnerOverlay = false;
   // When we decide to show default for a given src, remember it so we don't retry
   let lockDefaultFor: string | null = null;
   // Avoid duplicate cache writes in a single session
@@ -570,6 +572,16 @@
     // If we previously locked default for this src, keep showing default without retrying
     if (lockDefaultFor === srcStr) {
       if (!usingDefault) resetToDefault();
+    } else if (
+      usingDefault &&
+      isValidSrc(srcStr) &&
+      !isDefaultResolved(srcStr) &&
+      resolved
+    ) {
+      // A real src arrived after we were showing default; switch and load it.
+      usingDefault = false;
+      currentSrc = null;
+      if (inView && !deferLoad) tryLoadCachedOrStart(); else ensureObserved();
     } else if (!isValidSrc(srcStr) || isDefaultResolved(srcStr)) {
       if (!usingDefault) resetToDefault();
       lockDefaultFor = srcStr;
@@ -587,6 +599,11 @@
   $: if (!deferLoad && inView && !loaded && !loading) {
     tryLoadCachedOrStart();
   }
+
+  $: showSpinnerOverlay =
+    hasThumbnail &&
+    (showSpinner ||
+      (!loaded && usingDefault && enableCache && !!cacheTitle && inView));
 </script>
 
 <div class={`lazy-image ${className} ${loaded ? 'loaded' : ''}`} bind:this={wrapper} style={!loaded ? `background:url('${resolvedDefaultSrc()}') center/cover no-repeat` : ''}>
@@ -606,9 +623,10 @@
       <!-- Show placeholder cover while waiting to start loading -->
       <!-- default cover via background; no extra element needed -->
     {/if}
-    {#if showSpinner && currentSrc}
-      <div class="spinner-square" aria-hidden="true"></div>
-    {/if}
+  {/if}
+  {#if showSpinnerOverlay}
+    <div class="spinner-backdrop" aria-hidden="true"></div>
+    <div class="spinner-square" aria-hidden="true"></div>
   {/if}
 </div>
 
@@ -639,6 +657,12 @@
   /* default-cover no longer needed; default is img-based */
 
   /* Square spinning throbber */
+  .spinner-backdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(10, 10, 10, 0.45);
+  }
+
   .spinner-square {
     position: absolute;
     top: 50%;

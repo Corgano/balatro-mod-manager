@@ -8,6 +8,7 @@ export interface Mod {
   // Internal optional fields used by views/cache
   _dirName?: string;
   _installedPath?: string;
+  _hasThumbnail?: boolean;
   categories: Category[];
   colors: {
     color1: string;
@@ -185,6 +186,7 @@ function persistModsCache(value: Mod[]) {
       last_updated: m.last_updated,
       _dirName: m._dirName,
       _installedPath: m._installedPath,
+      _hasThumbnail: m._hasThumbnail ?? true,
       // omit description and image fields (largest strings)
     }));
 
@@ -205,6 +207,7 @@ function persistModsCache(value: Mod[]) {
 // Background catalog loading state and last refresh time
 export const catalogLoading = writable(false);
 export const catalogLastRefreshed = writable<number | null>(null);
+export const catalogResetNonce = writable(0);
 
 // Persist and hydrate the mods catalog for instant UI + offline fallback
 if (typeof window !== "undefined") {

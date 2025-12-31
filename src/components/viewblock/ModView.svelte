@@ -978,10 +978,10 @@ let modView: HTMLDivElement;
 							class="image-button"
 							aria-label={`View full size image of ${mod.title}`}
 						>
-                            <LazyImage src={mod.image} fallbackSrc={mod.imageFallback} alt={mod.title} cacheTitle={mod.title} />
+                            <LazyImage src={mod.image} fallbackSrc={mod.imageFallback} alt={mod.title} cacheTitle={mod.title} hasThumbnail={mod._hasThumbnail !== false} />
 						</button>
 					{:else}
-                        <LazyImage src={mod.image} fallbackSrc={mod.imageFallback} alt={mod.title} cacheTitle={mod.title} />
+                        <LazyImage src={mod.image} fallbackSrc={mod.imageFallback} alt={mod.title} cacheTitle={mod.title} hasThumbnail={mod._hasThumbnail !== false} />
 					{/if}
 				</div>
 

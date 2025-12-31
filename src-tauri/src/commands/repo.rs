@@ -54,6 +54,8 @@ pub struct ArchiveModItem {
     pub meta: ModMeta,
     pub description: String,
     pub image_url: String,
+    #[serde(default)]
+    pub has_thumbnail: bool,
 }
 
 // Fetch mod metadata and descriptions via the BMI HTTP service.
@@ -71,6 +73,9 @@ pub async fn fetch_repo_mods(sort: Option<String>) -> Result<Vec<ArchiveModItem>
         (Vec::new(), None)
     };
     if items.iter().any(|item| {
+        if !item.has_thumbnail {
+            return false;
+        }
         let url = item.image_url.trim();
         url.is_empty() || !(url.starts_with("http://") || url.starts_with("https://"))
     }) {

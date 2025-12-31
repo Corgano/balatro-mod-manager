@@ -508,9 +508,15 @@ pub fn bmi_to_archive(
             _ => item.summary.clone().unwrap_or_default(),
         },
     };
-    let image_url = match item.thumbnail_url {
-        Some(url) if !url.is_empty() => normalize_thumbnail_url(client, &url)?,
-        _ => client.thumbnail_url(&id)?,
+    let has_thumbnail = item
+        .thumbnail_url
+        .as_ref()
+        .map(|url| !url.trim().is_empty())
+        .unwrap_or(false);
+    let image_url = if has_thumbnail {
+        normalize_thumbnail_url(client, item.thumbnail_url.as_ref().unwrap())?
+    } else {
+        String::new()
     };
     Ok((
         crate::commands::repo::ArchiveModItem {
@@ -518,6 +524,7 @@ pub fn bmi_to_archive(
             meta,
             description,
             image_url,
+            has_thumbnail,
         },
         updated_at,
     ))

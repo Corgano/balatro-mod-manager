@@ -41,6 +41,20 @@ import { isLinuxPlatform } from "$lib/platform";
 	let descriptionText = $derived(
 		$descriptionsStore[mod.title] ?? mod.description ?? "",
 	);
+	let thumbLoaded = $state(false);
+	let lastThumbKey = "";
+
+	$effect(() => {
+		const key = `${mod.title}|${mod.image}`;
+		if (key !== lastThumbKey) {
+			lastThumbKey = key;
+			thumbLoaded = false;
+		}
+	});
+
+	function handleThumbDone() {
+		thumbLoaded = true;
+	}
 
 	// Load the enabled state whenever the mod changes or when installationStatus changes
 	$effect(() => {
@@ -279,6 +293,7 @@ import { isLinuxPlatform } from "$lib/platform";
 <div
 	class="mod-card"
 	class:compact={$cardScale <= 0.85}
+	class:thumb-loading={!thumbLoaded}
 	onclick={openModView}
 	onkeydown={(e) => e.key === "Enter" && openModView()}
 	role="button"
@@ -293,6 +308,9 @@ import { isLinuxPlatform } from "$lib/platform";
 			alt={mod.title}
 			cacheTitle={mod.title}
 			deferLoad={deferImages}
+			hasThumbnail={mod._hasThumbnail !== false}
+			on:load={handleThumbDone}
+			on:error={handleThumbDone}
 		/>
 
 		<div class="tags">
@@ -411,6 +429,10 @@ import { isLinuxPlatform } from "$lib/platform";
 		);
 		will-change: transform;
 		backface-visibility: hidden;
+	}
+
+	.mod-card.thumb-loading {
+		content-visibility: visible;
 	}
 
 	.mod-card:hover {

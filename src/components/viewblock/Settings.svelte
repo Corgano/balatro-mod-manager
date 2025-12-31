@@ -5,7 +5,17 @@ import { addMessage } from "$lib/stores";
 import { onMount } from "svelte";
 import { fade, fly } from "svelte/transition";
 import { invoke } from "@tauri-apps/api/core";
-import { backgroundEnabled } from "../../stores/modStore";
+import {
+	backgroundEnabled,
+	cachedVersions,
+	catalogLastRefreshed,
+	catalogResetNonce,
+	currentJokerView,
+	currentModView,
+	modsStore,
+	searchResults,
+} from "../../stores/modStore";
+import { descriptionsStore } from "../../stores/descriptions";
     import { cardScale } from "../../stores/ui";
 import { browser } from "$app/environment";
 
@@ -52,9 +62,19 @@ import { browser } from "$app/environment";
 				localStorage.removeItem("version-cache-talisman");
 				localStorage.removeItem("mods-cache");
 				localStorage.removeItem("mods-cache-ts");
+				localStorage.removeItem("mods-descriptions-cache");
 			} catch (e) {
 				// ignore storage errors
 			}
+			// Clear in-memory stores so the Mods view refetches fresh data.
+			modsStore.set([]);
+			searchResults.set([]);
+			currentModView.set(null);
+			currentJokerView.set(null);
+			catalogLastRefreshed.set(null);
+			catalogResetNonce.update((n) => n + 1);
+			cachedVersions.set({ steamodded: [], talisman: [] });
+			descriptionsStore.set({});
 			addMessage("Successfully cleared all caches!", "success");
 		} catch (error) {
 			addMessage("Failed to clear cache: " + error, "error");
