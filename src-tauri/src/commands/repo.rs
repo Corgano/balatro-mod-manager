@@ -1,3 +1,4 @@
+use std::cmp::Ordering;
 use std::path::PathBuf;
 
 use crate::bmi::{self, BmiClient, SortMode, SyncCache};
@@ -95,6 +96,7 @@ pub async fn fetch_repo_mods(sort: Option<String>) -> Result<Vec<ArchiveModItem>
     }
     if !matches!(sort_mode, SortMode::DownloadsAsc | SortMode::DownloadsDesc) {
         let _ = client.refresh_downloads(&mut items, sort_mode).await;
+        sort_archive_items(&mut items, sort_mode);
     }
 
     // Persist cache for future incremental sync
@@ -137,6 +139,40 @@ fn load_bmi_cache(cache_file: &PathBuf) -> Option<SyncCache> {
     std::fs::File::open(cache_file)
         .ok()
         .and_then(|f| serde_json::from_reader::<_, SyncCache>(f).ok())
+}
+
+fn sort_archive_items(items: &mut [ArchiveModItem], sort_mode: SortMode) {
+    match sort_mode {
+        SortMode::NameAsc => items.sort_by(|a, b| {
+            let a_key = a.meta.title.to_lowercase();
+            let b_key = b.meta.title.to_lowercase();
+            match a_key.cmp(&b_key) {
+                Ordering::Equal => a.dir_name.cmp(&b.dir_name),
+                other => other,
+            }
+        }),
+        SortMode::NameDesc => items.sort_by(|a, b| {
+            let a_key = a.meta.title.to_lowercase();
+            let b_key = b.meta.title.to_lowercase();
+            match b_key.cmp(&a_key) {
+                Ordering::Equal => a.dir_name.cmp(&b.dir_name),
+                other => other,
+            }
+        }),
+        SortMode::UpdatedAsc => {
+            items.sort_by(|a, b| match a.meta.last_updated.cmp(&b.meta.last_updated) {
+                Ordering::Equal => a.dir_name.cmp(&b.dir_name),
+                other => other,
+            })
+        }
+        SortMode::UpdatedDesc => {
+            items.sort_by(|a, b| match b.meta.last_updated.cmp(&a.meta.last_updated) {
+                Ordering::Equal => a.dir_name.cmp(&b.dir_name),
+                other => other,
+            })
+        }
+        SortMode::DownloadsAsc | SortMode::DownloadsDesc => {}
+    }
 }
 
 fn is_legal_char(c: char) -> bool {
