@@ -78,7 +78,7 @@ fn is_proton_mods_path(path: &Path) -> bool {
         && (path_str.contains("/Balatro/Mods") || path_str.ends_with("/Balatro/Mods"))
 }
 
-fn mod_dir_candidates() -> Result<Vec<PathBuf>, String> {
+pub fn mod_dir_candidates() -> Result<Vec<PathBuf>, String> {
     let config_dir =
         dirs::config_dir().ok_or_else(|| "Could not find config directory".to_string())?;
     let primary = config_dir.join("Balatro").join("Mods");

@@ -1,5 +1,5 @@
 use crate::errors::AppError;
-use crate::local_mod_detection::resolve_mods_dir_path;
+use crate::local_mod_detection::{mod_dir_candidates, resolve_mods_dir_path};
 use flate2::read::GzDecoder;
 use reqwest::Client;
 use reqwest::header::{CONTENT_DISPOSITION, CONTENT_TYPE};
@@ -524,8 +524,9 @@ pub fn uninstall_mod(path: PathBuf) -> Result<(), AppError> {
     log::info!("Uninstalling mod: {path:?}");
 
     let mods_dir = resolve_mods_dir()?;
+    let candidates = mod_dir_candidates().unwrap_or_else(|_| vec![mods_dir.clone()]);
 
-    validate_uninstall_path(&path, &mods_dir)?;
+    validate_uninstall_path(&path, &candidates)?;
 
     if let Some(dir_name) = path.file_name().and_then(|n| n.to_str())
         && dir_name.starts_with("Steamodded-smods-")
@@ -539,7 +540,7 @@ pub fn uninstall_mod(path: PathBuf) -> Result<(), AppError> {
     })
 }
 
-fn validate_uninstall_path(path: &PathBuf, mods_dir: &PathBuf) -> Result<(), AppError> {
+fn validate_uninstall_path(path: &PathBuf, mods_dirs: &[PathBuf]) -> Result<(), AppError> {
     if !path.exists() {
         return Err(AppError::PathValidation {
             path: path.clone(),
@@ -547,13 +548,13 @@ fn validate_uninstall_path(path: &PathBuf, mods_dir: &PathBuf) -> Result<(), App
         });
     }
 
-    if path == mods_dir {
+    if mods_dirs.iter().any(|mods_dir| path == mods_dir) {
         return Err(AppError::InvalidState(
             "Blocked attempt to delete Mods directory".into(),
         ));
     }
 
-    if !path.starts_with(mods_dir) {
+    if !mods_dirs.iter().any(|mods_dir| path.starts_with(mods_dir)) {
         return Err(AppError::PathValidation {
             path: path.clone(),
             reason: "Path outside Mods directory".into(),
@@ -670,8 +671,21 @@ mod tests {
         std::fs::create_dir_all(&mods_dir).unwrap();
 
         // Should not allow deleting Mods root
-        let res = validate_uninstall_path(&mods_dir.clone(), &mods_dir.clone());
+        let res = validate_uninstall_path(&mods_dir.clone(), &[mods_dir.clone()]);
         assert!(res.is_err());
+    }
+
+    #[test]
+    fn validate_uninstall_path_accepts_any_candidate() {
+        let td = tempdir().unwrap();
+        let mods_dir = td.path().join("Mods");
+        let alt_mods_dir = td.path().join("AltMods");
+        let alt_mod = alt_mods_dir.join("Talisman");
+        std::fs::create_dir_all(&mods_dir).unwrap();
+        std::fs::create_dir_all(&alt_mod).unwrap();
+
+        let res = validate_uninstall_path(&alt_mod, &[mods_dir, alt_mods_dir]);
+        assert!(res.is_ok());
     }
 
     #[test]
