@@ -24,6 +24,8 @@ pub struct ThumbnailManager {
     enqueued: Arc<Mutex<HashSet<String>>>,
 }
 
+const THUMB_CACHE_TTL_SECS: u64 = 60 * 60 * 24 * 7;
+
 impl ThumbnailManager {
     pub fn new() -> Self {
         // Bounded queue to avoid memory spikes on first run
@@ -217,9 +219,28 @@ fn file_exists_for_title(title: &str) -> bool {
     let slug = safe_slug(title);
     if let Ok((thumbs, _)) = ensure_assets_dirs() {
         let p = thumbs.join(format!("{slug}.jpg"));
-        return p.exists();
+        if !p.exists() {
+            return false;
+        }
+        if !is_thumb_fresh(&p) {
+            let _ = std::fs::remove_file(&p);
+            return false;
+        }
+        return true;
     }
     false
+}
+
+fn is_thumb_fresh(path: &std::path::Path) -> bool {
+    let modified = match std::fs::metadata(path).and_then(|m| m.modified()) {
+        Ok(ts) => ts,
+        Err(_) => return false,
+    };
+    let age = match std::time::SystemTime::now().duration_since(modified) {
+        Ok(d) => d,
+        Err(_) => return false,
+    };
+    age.as_secs() < THUMB_CACHE_TTL_SECS
 }
 
 fn write_thumbnail(title: &str, bytes: &[u8]) -> Result<(), String> {

@@ -693,12 +693,14 @@ mod tests {
                 meta: sample_meta("Alpha", 10),
                 description: "Old".to_string(),
                 image_url: "https://example.com/thumb.webp".to_string(),
+                has_thumbnail: true,
             },
             crate::commands::repo::ArchiveModItem {
                 dir_name: "mod-2".to_string(),
                 meta: sample_meta("Beta", 20),
                 description: "Keep".to_string(),
                 image_url: "https://example.com/thumb2.webp".to_string(),
+                has_thumbnail: true,
             },
         ];
         let changed = vec![

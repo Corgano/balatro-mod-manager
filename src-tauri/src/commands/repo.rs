@@ -8,6 +8,7 @@ use bmm_lib::errors::AppError;
 use serde::{Deserialize, Serialize};
 
 const BMI_CACHE_FILE: &str = "bmi_mods_cache";
+const THUMB_CACHE_TTL_SECS: u64 = 60 * 60 * 24 * 7;
 
 #[tauri::command]
 pub async fn list_repo_mods() -> Result<Vec<String>, String> {
@@ -244,12 +245,28 @@ fn ensure_assets_dirs() -> Result<(std::path::PathBuf, std::path::PathBuf), Stri
     Ok((thumbs, descs))
 }
 
+fn is_thumb_fresh(path: &std::path::Path) -> bool {
+    let modified = match std::fs::metadata(path).and_then(|m| m.modified()) {
+        Ok(ts) => ts,
+        Err(_) => return false,
+    };
+    let age = match std::time::SystemTime::now().duration_since(modified) {
+        Ok(d) => d,
+        Err(_) => return false,
+    };
+    age.as_secs() < THUMB_CACHE_TTL_SECS
+}
+
 #[tauri::command]
 pub async fn get_cached_thumbnail_by_title(title: String) -> Result<Option<String>, String> {
     let (thumbs_dir, _) = ensure_assets_dirs()?;
     let slug = safe_slug(&title);
     let path = thumbs_dir.join(format!("{slug}.jpg"));
     if !path.exists() {
+        return Ok(None);
+    }
+    if !is_thumb_fresh(&path) {
+        let _ = std::fs::remove_file(&path);
         return Ok(None);
     }
     Ok(Some(
@@ -269,10 +286,12 @@ pub async fn get_cached_thumbnails_map(
     for title in titles {
         let slug = safe_slug(&title);
         let path = thumbs_dir.join(format!("{slug}.jpg"));
-        if path.exists()
-            && let Some(s) = path.to_str()
-        {
-            out.insert(title, s.to_string());
+        if path.exists() && is_thumb_fresh(&path) {
+            if let Some(s) = path.to_str() {
+                out.insert(title, s.to_string());
+            }
+        } else if path.exists() {
+            let _ = std::fs::remove_file(&path);
         }
     }
     Ok(out)
@@ -289,7 +308,10 @@ pub async fn cache_thumbnail_from_url(
     let slug = safe_slug(&title);
     let path = thumbs_dir.join(format!("{slug}.jpg"));
     if path.exists() {
-        return Ok(false);
+        if is_thumb_fresh(&path) {
+            return Ok(false);
+        }
+        let _ = std::fs::remove_file(&path);
     }
 
     // Enqueue background fetch with 429-aware backoff; return immediately
@@ -319,11 +341,15 @@ pub async fn get_cached_installed_thumbnail(
     let slug = safe_slug(&title);
     let path = thumbs_dir.join(format!("{slug}.jpg"));
     if path.exists() {
-        return Ok(Some(
-            path.to_str()
-                .ok_or_else(|| "Failed to convert thumbnail path".to_string())?
-                .to_string(),
-        ));
+        if !is_thumb_fresh(&path) {
+            let _ = std::fs::remove_file(&path);
+        } else {
+            return Ok(Some(
+                path.to_str()
+                    .ok_or_else(|| "Failed to convert thumbnail path".to_string())?
+                    .to_string(),
+            ));
+        }
     }
 
     // Not cached yet: try to download from repo raw and store.

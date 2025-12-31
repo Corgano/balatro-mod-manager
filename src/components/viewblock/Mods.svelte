@@ -39,7 +39,11 @@ import {
 	setDescriptions,
 	withDescriptionsPersistenceSuspended,
 } from "../../stores/descriptions";
-	import { catalogLoading, catalogResetNonce } from "../../stores/modStore";
+import {
+	catalogLastRefreshed,
+	catalogLoading,
+	catalogResetNonce,
+} from "../../stores/modStore";
 	import type { InstalledMod } from "../../stores/modStore";
 	import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 // Lazy-load SearchView only when Search tab is active
@@ -155,7 +159,7 @@ let modsScrollContainer: HTMLDivElement | null = $state(null);
 						isLoading = false;
 					});
 			} else {
-				refreshCatalogInBackground(false).catch(() => {});
+				refreshCatalogInBackground(showMessages).catch(() => {});
 			}
 		}, waitMs);
 	}
@@ -474,12 +478,45 @@ const { handleDependencyCheck, mod } = $props<{
 				if ($currentCategory === "Installed Mods") {
 					await seedInstalledPlaceholders();
 				}
-				// If we have no cached catalog yet, do a foreground load for first-run
+				// If we have no cached catalog yet, try to hydrate from Rust cache first
 				if ($modsStore.length === 0) {
-					await loadCatalogForeground();
+					let hydrated = false;
+					try {
+						const cached = await invoke<[CachedModItem[], number] | null>(
+							"load_mods_cache",
+						);
+						if (cached) {
+							const [items, ts] = cached;
+							if (items && items.length > 0) {
+								modsStore.set(mapCachedMods(items));
+								if (ts) {
+									catalogLastRefreshed.set(ts * 1000);
+								}
+								hydrated = true;
+							}
+						}
+					} catch (_) {
+						// ignore cache read errors
+					}
+					if (hydrated) {
+						refreshCatalogInBackground(false).catch(() => {});
+					} else {
+						await loadCatalogForeground();
+					}
 				} else {
 					// Otherwise, refresh in the background
-				refreshCatalogInBackground();
+					refreshCatalogInBackground();
+					// Also try to hydrate missing descriptions/images from Rust cache.
+					try {
+						const cached = await invoke<[CachedModItem[], number] | null>(
+							"load_mods_cache",
+						);
+						if (cached) {
+							applyCachedDetails(cached[0]);
+						}
+					} catch (_) {
+						// ignore cache read errors
+					}
 				}
 
 				// After mods load, update install status and local mods if needed
@@ -1005,6 +1042,22 @@ const { handleDependencyCheck, mod } = $props<{
 		has_thumbnail?: boolean;
 	}
 
+	interface CachedModItem {
+		title: string;
+		description: string;
+		image: string;
+		categories: Category[];
+		colors: { color1: string; color2: string };
+		installed: boolean;
+		requires_steamodded: boolean;
+		requires_talisman: boolean;
+		publisher: string;
+		repo: string;
+		downloadURL: string;
+		folderName?: string | null;
+		version?: string | null;
+	}
+
 	function mapArchiveItems(
 		items: ArchiveModItem[],
 		cachedMap?: Record<string, string>,
@@ -1044,6 +1097,60 @@ const { handleDependencyCheck, mod } = $props<{
 				_dirName: item.dir_name,
 			};
 		});
+	}
+
+	function mapCachedMods(items: CachedModItem[]): Mod[] {
+		return items.map((item) => {
+			const image = item.image?.trim() || "/images/cover.jpg";
+			const hasThumb = !/\/images\/cover\.jpg$/i.test(image);
+			return {
+				title: item.title,
+				description: item.description ?? "",
+				image,
+				imageFallback: hasThumb ? image : undefined,
+				colors: item.colors ?? getRandomColorPair(),
+				categories: item.categories ?? [],
+				requires_steamodded: item.requires_steamodded ?? false,
+				requires_talisman: item.requires_talisman ?? false,
+				publisher: item.publisher ?? "",
+				repo: item.repo ?? "",
+				downloadURL: item.downloadURL ?? "",
+				folderName: item.folderName ?? null,
+				version: item.version ?? null,
+				installed: item.installed ?? false,
+				last_updated: 0,
+				_hasThumbnail: hasThumb,
+			};
+		});
+	}
+
+	function applyCachedDetails(items: CachedModItem[]) {
+		if (!items || items.length === 0) return;
+		const byTitle = new Map(items.map((item) => [item.title, item]));
+		const descriptionUpdates: Record<string, string> = {};
+		modsStore.update((arr) =>
+			arr.map((m) => {
+				const cached = byTitle.get(m.title);
+				if (!cached) return m;
+				const desc = cached.description?.trim();
+				const image = cached.image?.trim();
+				const hasThumb = image ? !/\/images\/cover\.jpg$/i.test(image) : false;
+				const updated: Mod = { ...m };
+				if ((!updated.description || updated.description.trim().length === 0) && desc) {
+					updated.description = desc;
+					descriptionUpdates[m.title] = desc;
+				}
+				if (image && (!updated.image || /\/images\/cover\.jpg$/i.test(updated.image))) {
+					updated.image = image;
+					updated.imageFallback = hasThumb ? image : undefined;
+				}
+				if (updated._hasThumbnail === undefined && image) {
+					updated._hasThumbnail = hasThumb;
+				}
+				return updated;
+			}),
+		);
+		setDescriptions(descriptionUpdates);
 	}
 
 	async function refreshCatalogInBackground(showMessages: boolean = true): Promise<void> {
