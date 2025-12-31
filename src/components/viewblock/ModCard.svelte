@@ -24,6 +24,7 @@ import { isLinuxPlatform } from "$lib/platform";
 		onuninstallclick?: (mod: Mod) => void;
 		onToggleEnabled?: () => Promise<void>;
 		deferImages?: boolean;
+		searchSpacing?: boolean;
 	}
 
 	let {
@@ -33,6 +34,7 @@ import { isLinuxPlatform } from "$lib/platform";
 		onmodclick,
 		onToggleEnabled,
 		deferImages = false,
+		searchSpacing = false,
 	}: Props = $props();
 
 	let isEnabled = $state(true); // Default to enabled if not yet checked
@@ -294,6 +296,7 @@ import { isLinuxPlatform } from "$lib/platform";
 	class="mod-card"
 	class:compact={$cardScale <= 0.85}
 	class:thumb-loading={!thumbLoaded}
+	class:search-spacing={searchSpacing}
 	onclick={openModView}
 	onkeydown={(e) => e.key === "Enter" && openModView()}
 	role="button"
@@ -429,6 +432,10 @@ import { isLinuxPlatform } from "$lib/platform";
 		);
 		will-change: transform;
 		backface-visibility: hidden;
+	}
+
+	.mod-card.search-spacing {
+		margin: 1rem auto 0.5rem;
 	}
 
 	.mod-card.thumb-loading {

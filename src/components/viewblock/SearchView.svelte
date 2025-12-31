@@ -352,6 +352,7 @@ import ModCard from "./ModCard.svelte";
 							oninstallclick={installMod}
 							onuninstallclick={uninstallMod}
 							onmodclick={handleModClick}
+							searchSpacing={true}
 						/>
 					{/each}
 				</div>
