@@ -7,12 +7,16 @@ use std::fs;
 #[cfg(target_os = "linux")]
 use std::fs::remove_file;
 #[cfg(target_os = "linux")]
+use std::os::unix::fs::PermissionsExt;
+#[cfg(target_os = "linux")]
 use std::os::unix::fs::symlink;
 #[cfg(target_os = "linux")]
 use std::os::unix::process::CommandExt;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
 use std::process::Command;
+#[cfg(target_os = "linux")]
+use std::process::Stdio;
 
 use crate::bmi::BmiClient;
 use crate::state::AppState;
@@ -21,9 +25,13 @@ use bmm_lib::errors::AppError;
 #[cfg(target_os = "macos")]
 use bmm_lib::lovely;
 #[cfg(target_os = "linux")]
+use bmm_lib::lovely::ensure_version_dll_exists;
+#[cfg(target_os = "linux")]
 use bmm_lib::lovely::{ensure_love_binary, ensure_lovely_so_exists, get_latest_lovely_version};
 use bmm_lib::smods_installer::{ModInstaller, ModType};
 use bmm_lib::{cache, database::InstalledMod};
+#[cfg(target_os = "linux")]
+use shell_words::split as split_shell_words;
 
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 fn get_installation_and_console(
@@ -120,6 +128,139 @@ fn strip_wrapper_env(cmd: &mut Command) {
 }
 
 #[cfg(target_os = "linux")]
+fn log_launch_env(label: &str) {
+    let keys = [
+        "FLATPAK_ID",
+        "XDG_SESSION_TYPE",
+        "XDG_CURRENT_DESKTOP",
+        "XDG_CONFIG_HOME",
+        "XDG_DATA_HOME",
+        "DISPLAY",
+        "WAYLAND_DISPLAY",
+        "SDL_VIDEODRIVER",
+        "GDK_BACKEND",
+        "MESA_GL_VERSION_OVERRIDE",
+        "MESA_GLSL_VERSION_OVERRIDE",
+        "VK_ICD_FILENAMES",
+        "VK_DRIVER_FILES",
+        "DRI_PRIME",
+        "LIBGL_ALWAYS_SOFTWARE",
+        "LIBGL_ALWAYS_INDIRECT",
+    ];
+
+    let mut dump = String::new();
+    for key in keys {
+        let val = std::env::var(key).unwrap_or_else(|_| "<unset>".to_string());
+        dump.push_str(key);
+        dump.push('=');
+        dump.push_str(&val);
+        dump.push('\n');
+    }
+    info!("Linux launch env ({label}):\n{dump}");
+}
+
+#[cfg(target_os = "linux")]
+fn split_prefix_env(parts: &[String]) -> (Vec<(String, String)>, Vec<String>) {
+    let mut envs = Vec::new();
+    let mut rest = Vec::new();
+    let mut in_env = true;
+
+    for part in parts {
+        if in_env
+            && is_env_assignment(part)
+            && let Some((key, value)) = part.split_once('=')
+        {
+            envs.push((key.to_string(), value.to_string()));
+            continue;
+        }
+        in_env = false;
+        rest.push(part.clone());
+    }
+
+    (envs, rest)
+}
+
+#[cfg(target_os = "linux")]
+fn is_env_assignment(value: &str) -> bool {
+    let Some((key, rhs)) = value.split_once('=') else {
+        return false;
+    };
+    if key.is_empty() || rhs.is_empty() {
+        return false;
+    }
+    let mut chars = key.chars();
+    let Some(first) = chars.next() else {
+        return false;
+    };
+    if !(first.is_ascii_alphabetic() || first == '_') {
+        return false;
+    }
+    chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
+}
+
+#[cfg(target_os = "linux")]
+fn ensure_prefix_log_dir(envs: &[(String, String)]) -> Result<(), String> {
+    let log_dir = envs
+        .iter()
+        .find(|(key, _)| key == "PROTON_LOG_DIR")
+        .map(|(_, value)| value);
+    let Some(log_dir) = log_dir else {
+        return Ok(());
+    };
+    if log_dir.trim().is_empty() {
+        return Ok(());
+    }
+    fs::create_dir_all(log_dir)
+        .map_err(|e| format!("Failed to create PROTON_LOG_DIR {log_dir}: {e}"))?;
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn open_prefix_log_file() -> Result<std::fs::File, String> {
+    let Some(config_dir) = dirs::config_dir() else {
+        return Err("Failed to resolve config directory for prefix log".to_string());
+    };
+    let log_dir = config_dir.join("Balatro/logs");
+    fs::create_dir_all(&log_dir)
+        .map_err(|e| format!("Failed to create prefix log dir {}: {e}", log_dir.display()))?;
+    let log_path = log_dir.join("prefix-launch.log");
+    std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&log_path)
+        .map_err(|e| format!("Failed to open prefix log file {}: {e}", log_path.display()))
+}
+
+#[cfg(target_os = "linux")]
+fn validate_prefix_executable(exe: &str) -> Result<(), String> {
+    if !exe.contains('/') {
+        return Ok(());
+    }
+    let path = std::path::Path::new(exe);
+    if !path.exists() {
+        return Err(format!("Prefix executable not found: {}", path.display()));
+    }
+    if !path.is_file() {
+        return Err(format!(
+            "Prefix executable is not a file: {}",
+            path.display()
+        ));
+    }
+    let mode = path
+        .metadata()
+        .map_err(|e| format!("Failed to stat prefix executable: {e}"))?
+        .permissions()
+        .mode();
+    if mode & 0o111 == 0 {
+        return Err(format!(
+            "Prefix executable is not executable: {}",
+            path.display()
+        ));
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
 fn ensure_native_mod_dir_link() -> Result<(), String> {
     // Prefer host config/data paths even inside Flatpak, so mods/logs live on the host.
     let Some(home_dir) = dirs::home_dir() else {
@@ -184,6 +325,81 @@ fn ensure_native_mod_dir_link() -> Result<(), String> {
     Ok(())
 }
 
+#[cfg(target_os = "linux")]
+fn find_steamapps_root(game_path: &Path) -> Option<PathBuf> {
+    let common_dir = game_path.parent()?;
+    if common_dir.file_name().and_then(|n| n.to_str()) != Some("common") {
+        return None;
+    }
+    let steamapps_dir = common_dir.parent()?;
+    if steamapps_dir.file_name().and_then(|n| n.to_str()) != Some("steamapps") {
+        return None;
+    }
+    Some(steamapps_dir.to_path_buf())
+}
+
+#[cfg(target_os = "linux")]
+fn ensure_proton_mod_dir_link(game_path: &Path) -> Result<(), String> {
+    let host_mods = dirs::config_dir()
+        .map(|d| d.join("Balatro").join("Mods"))
+        .ok_or_else(|| "Could not resolve config directory".to_string())?;
+
+    let steamapps_dir = find_steamapps_root(game_path).or_else(|| {
+        dirs::home_dir()
+            .map(|h| h.join(".local/share/Steam/steamapps"))
+            .filter(|p| p.exists())
+    });
+    let Some(steamapps_dir) = steamapps_dir else {
+        return Ok(());
+    };
+
+    let compat_mods = steamapps_dir
+        .join("compatdata/2379780/pfx/drive_c/users/steamuser/AppData/Roaming/Balatro/Mods");
+
+    if let Some(parent) = compat_mods.parent()
+        && let Err(e) = fs::create_dir_all(parent)
+    {
+        return Err(format!(
+            "Failed to create Proton mods parent {}: {}",
+            parent.display(),
+            e
+        ));
+    }
+
+    if compat_mods.exists() {
+        if compat_mods.is_symlink() {
+            return Ok(());
+        }
+        warn!(
+            "Proton Mods path already exists and is not a symlink: {}",
+            compat_mods.display()
+        );
+        return Ok(());
+    }
+
+    if let Err(e) = fs::create_dir_all(&host_mods) {
+        warn!(
+            "Failed to create host mods dir {}: {}",
+            host_mods.display(),
+            e
+        );
+    }
+    symlink(&host_mods, &compat_mods).map_err(|e| {
+        format!(
+            "Failed to link Proton mods dir {} -> {}: {}",
+            compat_mods.display(),
+            host_mods.display(),
+            e
+        )
+    })?;
+    info!(
+        "Linked Proton mods dir to host: {} -> {}",
+        compat_mods.display(),
+        host_mods.display()
+    );
+    Ok(())
+}
+
 #[cfg(target_os = "windows")]
 #[tauri::command]
 pub async fn launch_balatro(state: tauri::State<'_, AppState>) -> Result<(), String> {
@@ -235,16 +451,142 @@ pub async fn launch_balatro(state: tauri::State<'_, AppState>) -> Result<(), Str
         .or_else(|| bmm_lib::finder::get_balatro_paths().into_iter().next())
         .ok_or_else(|| "No Balatro installation path is configured or detected".to_string())?;
 
-    let lovely_console_enabled = {
+    let (lovely_console_enabled, linux_prefix) = {
         let db = state.db.lock().map_err(|_| {
             AppError::LockPoisoned("Database lock poisoned".to_string()).to_string()
         })?;
-        db.is_lovely_console_enabled().map_err(|e| e.to_string())?
+        let lovely = db.is_lovely_console_enabled().map_err(|e| e.to_string())?;
+        let prefix = db
+            .get_linux_prefix()
+            .map_err(|e| e.to_string())?
+            .unwrap_or_default();
+        (lovely, prefix)
     };
 
     // Validate Balatro path
     let _balatro = bmm_lib::balamod::Balatro::from_custom_path(path.clone())
         .ok_or_else(|| "Stored Balatro path is no longer valid".to_string())?;
+
+    let linux_prefix = linux_prefix.trim().to_string();
+    if !linux_prefix.is_empty() {
+        let parts = split_shell_words(&linux_prefix)
+            .map_err(|e| format!("Invalid Linux prefix command: {e}"))?;
+        if parts.is_empty() {
+            return Err("Linux prefix command is empty".to_string());
+        }
+        let (envs, cmd_parts) = split_prefix_env(&parts);
+        if cmd_parts.is_empty() {
+            return Err("Linux prefix command missing executable".to_string());
+        }
+        validate_prefix_executable(&cmd_parts[0])?;
+        ensure_prefix_log_dir(&envs)?;
+
+        ensure_version_dll_exists(&path)
+            .await
+            .map_err(|e| format!("Failed to ensure version.dll: {e}"))?;
+
+        ensure_proton_mod_dir_link(&path)?;
+
+        let exe_path = find_executable_in_directory(&path)
+            .ok_or_else(|| format!("No executable found in {}", path.display()))?;
+        log_launch_env("pre-spawn (prefix)");
+        info!(
+            "Launching Balatro via Linux prefix\n  prefix_cmd={}\n  exe={}\n  cwd={}",
+            linux_prefix,
+            exe_path.display(),
+            path.display()
+        );
+
+        let exe_arg = exe_path.to_string_lossy().to_string();
+        let uses_placeholder = cmd_parts.iter().any(|part| part == "{exe}");
+        let resolved_parts: Vec<String> = cmd_parts
+            .iter()
+            .map(|part| {
+                if part == "{exe}" {
+                    exe_arg.clone()
+                } else {
+                    part.clone()
+                }
+            })
+            .collect();
+        let is_steam_applaunch = resolved_parts.first().is_some_and(|first| {
+            let last = first.rsplit('/').next().unwrap_or(first.as_str());
+            (last == "steam" || last == "steam.sh")
+                && resolved_parts.iter().any(|p| p == "-applaunch")
+        });
+        let mut launch_parts = resolved_parts.clone();
+        if is_steam_applaunch && std::env::var_os("FLATPAK_ID").is_some() {
+            // Flatpak sandbox can't see host steam directly; route via flatpak-spawn.
+            if let Some(first) = launch_parts.first().cloned() {
+                launch_parts = vec!["flatpak-spawn".to_string(), "--host".to_string(), first];
+                launch_parts.extend(resolved_parts.iter().skip(1).cloned());
+                info!("Flatpak detected; using flatpak-spawn --host for Steam launch");
+            }
+        }
+        let append_exe = !uses_placeholder && !is_steam_applaunch;
+
+        info!(
+            "Prefix exec: {} args: {:?} append_exe={}",
+            launch_parts[0],
+            &launch_parts[1..],
+            append_exe
+        );
+        let mut cmd = Command::new(&launch_parts[0]);
+        if launch_parts.len() > 1 {
+            cmd.args(&launch_parts[1..]);
+        }
+        let winedll_idx = envs
+            .iter()
+            .position(|(key, _)| key.eq_ignore_ascii_case("WINEDLLOVERRIDES"));
+        for (key, value) in &envs {
+            cmd.env(key, value);
+        }
+        match winedll_idx {
+            None => {
+                cmd.env("WINEDLLOVERRIDES", "version=n,b");
+                info!("WINEDLLOVERRIDES not set; defaulting to version=n,b for Lovely injection");
+            }
+            Some(idx) => {
+                let value = envs.get(idx).map(|(_, v)| v.as_str()).unwrap_or("");
+                if !value.contains("version") {
+                    let updated = if value.is_empty() {
+                        "version=n,b".to_string()
+                    } else {
+                        format!("{value};version=n,b")
+                    };
+                    cmd.env("WINEDLLOVERRIDES", updated);
+                    info!(
+                        "WINEDLLOVERRIDES missing version; appended version=n,b for Lovely injection"
+                    );
+                }
+            }
+        }
+        cmd.current_dir(&path);
+        if append_exe {
+            cmd.arg(exe_arg);
+        }
+        if !lovely_console_enabled {
+            cmd.arg("--disable-console");
+        }
+        if let Ok(log_file) = open_prefix_log_file() {
+            let stderr_file = match log_file.try_clone() {
+                Ok(file) => file,
+                Err(_) => {
+                    // If clone fails, avoid capturing stderr rather than moving stdout handle.
+                    cmd.stdout(Stdio::from(log_file));
+                    return cmd
+                        .spawn()
+                        .map_err(|e| format!("Failed to launch via prefix: {e}"))
+                        .map(|_| ());
+                }
+            };
+            cmd.stdout(Stdio::from(log_file));
+            cmd.stderr(Stdio::from(stderr_file));
+        }
+        cmd.spawn()
+            .map_err(|e| format!("Failed to launch via prefix: {e}"))?;
+        return Ok(());
+    }
 
     // Ensure host mods map to LOVE's native mods dir
     ensure_native_mod_dir_link()?;
@@ -342,6 +684,7 @@ pub async fn launch_balatro(state: tauri::State<'_, AppState>) -> Result<(), Str
     }
     strip_python_env(&mut love_cmd);
     strip_wrapper_env(&mut love_cmd);
+    log_launch_env("pre-spawn");
     info!(
         "Launching Balatro via LOVE\n  love_bin={}\n  love_lib={}\n  preload={}\n  cwd={}",
         love_bin_path.display(),
@@ -357,6 +700,36 @@ pub async fn launch_balatro(state: tauri::State<'_, AppState>) -> Result<(), Str
     spawn_result.map_err(|e| format!("Failed to launch Balatro via native LOVE: {e}"))?;
 
     Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn find_executable_in_directory(dir: &PathBuf) -> Option<PathBuf> {
+    if let Ok(entries) = std::fs::read_dir(dir) {
+        let mut executables: Vec<PathBuf> = Vec::new();
+
+        for entry in entries.filter_map(Result::ok) {
+            let path = entry.path();
+            if path.is_file() && path.extension() == Some(std::ffi::OsStr::new("exe")) {
+                executables.push(path);
+            }
+        }
+
+        if executables.is_empty() {
+            return None;
+        }
+
+        for exe in &executables {
+            if let Some(file_name) = exe.file_name().and_then(|n| n.to_str())
+                && file_name.to_lowercase().contains("balatro")
+            {
+                return Some(exe.clone());
+            }
+        }
+
+        return Some(executables[0].clone());
+    }
+
+    None
 }
 
 #[tauri::command]

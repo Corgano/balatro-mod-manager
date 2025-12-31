@@ -4,9 +4,13 @@
 import { addMessage } from "../lib/stores";
 import { lovelyPopupStore } from "../stores/modStore";
 import { onMount } from "svelte";
+	import { get } from "svelte/store";
 
 let showAlert = false;
 let isLinux = false;
+let isLaunching = false;
+let launchCheckTimer: ReturnType<typeof setInterval> | null = null;
+let launchTimeoutTimer: ReturnType<typeof setTimeout> | null = null;
 
 onMount(async () => {
 	try {
@@ -19,29 +23,37 @@ onMount(async () => {
 });
 
 async function doLaunch() {
-  const path = await invoke("get_balatro_path");
-  if (path && path.toString().includes("Steam")) {
-    let is_balatro_running: boolean = await invoke(
-      "check_balatro_running",
-    );
+  if (isLinux) {
+    const is_balatro_running: boolean = await invoke("check_balatro_running");
     if (is_balatro_running) {
       addMessage("Balatro is already running", "error");
-      return;
+      return false;
+    }
+  }
+
+  const path = await invoke("get_balatro_path");
+  if (path && path.toString().includes("Steam")) {
+    const is_balatro_running: boolean = await invoke("check_balatro_running");
+    if (is_balatro_running) {
+      addMessage("Balatro is already running", "error");
+      return false;
     }
     if (!isLinux) {
-      let is_steam_running: boolean = await invoke("check_steam_running");
+      const is_steam_running: boolean = await invoke("check_steam_running");
       if (!is_steam_running) {
         showAlert = true;
-        return;
+        return false;
       }
     }
   }
 
   await invoke("launch_balatro");
-  return;
+  return true;
 }
 
 	const handleLaunch = async () => {
+		if (isLaunching) return;
+		isLaunching = true;
 		// Warn if Lovely injector is missing before any launch
   if (!isLinux) {
     try {
@@ -52,14 +64,70 @@ async function doLaunch() {
           source: 'launch',
           onLaunchAnyway: async () => { await doLaunch(); },
         });
+        isLaunching = false;
         return;
       }
     } catch (_) {
       // ignore detection errors, proceed
     }
   }
-  await doLaunch();
+  let launched = false;
+  try {
+    launched = await doLaunch();
+  } finally {
+    if (!launched) {
+      isLaunching = false;
+      return;
+    }
+  }
+
+  if (launchCheckTimer) clearInterval(launchCheckTimer);
+  if (launchTimeoutTimer) clearTimeout(launchTimeoutTimer);
+
+  if (isLinux) {
+    launchTimeoutTimer = setTimeout(async () => {
+      try {
+        const running: boolean = await invoke("check_balatro_running");
+        if (running) {
+          return;
+        }
+      } catch (_) {
+        // ignore polling errors
+      }
+      isLaunching = false;
+    }, 12000);
+    return;
+  }
+
+  launchCheckTimer = setInterval(async () => {
+    try {
+      const running: boolean = await invoke("check_balatro_running");
+      if (running) {
+        if (launchCheckTimer) clearInterval(launchCheckTimer);
+        launchCheckTimer = null;
+        return;
+      }
+    } catch (_) {
+      // ignore polling errors
+    }
+  }, 500);
+
+  launchTimeoutTimer = setTimeout(() => {
+    if (launchCheckTimer) {
+      clearInterval(launchCheckTimer);
+      launchCheckTimer = null;
+    }
+    isLaunching = false;
+    addMessage("Launch timed out. Try again.", "warning");
+  }, 12000);
 };
+
+onMount(() => {
+  return () => {
+    if (launchCheckTimer) clearInterval(launchCheckTimer);
+    if (launchTimeoutTimer) clearTimeout(launchTimeoutTimer);
+  };
+});
 
 	const handleAlertClose = () => {
 		showAlert = false;
@@ -67,7 +135,9 @@ async function doLaunch() {
 </script>
 
 <div class="launch-container">
-	<button class="launch-button" on:click={handleLaunch}> Launch </button>
+	<button class="launch-button" on:click={handleLaunch} disabled={isLaunching}>
+		Launch
+	</button>
 </div>
 
 <LaunchAlertBox show={showAlert} onClose={handleAlertClose} />
@@ -105,6 +175,11 @@ async function doLaunch() {
 
 	.launch-button:active {
 		transform: translateY(0);
+	}
+	.launch-button:disabled {
+		opacity: 0.8;
+		cursor: not-allowed;
+		transform: none;
 	}
 
 	@media (max-width: 1160px) {

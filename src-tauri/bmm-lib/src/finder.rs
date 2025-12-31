@@ -1,6 +1,5 @@
 use crate::database::Database;
-use log::error;
-use log::info;
+use log::{debug, error};
 #[cfg(target_os = "linux")]
 use regex::Regex;
 use std::collections::HashSet;
@@ -37,7 +36,7 @@ fn remove_unexisting_paths(paths: &mut Vec<PathBuf>) {
             i += 1;
         }
     }
-    info!("Found {} Balatro installations.", paths.len());
+    debug!("Found {} Balatro installations.", paths.len());
 }
 
 #[cfg(target_os = "windows")]
