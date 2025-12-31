@@ -335,12 +335,31 @@ const { handleDependencyCheck, mod } = $props<{
 		);
 
 		// Filter local mods - explicitly check for boolean values
-		enabledLocalMods = localMods.filter(
-			(mod) => $modEnabledStore[mod.name] === true,
-		);
-		disabledLocalMods = localMods.filter(
-			(mod) => $modEnabledStore[mod.name] === false,
-		);
+		const enabled: LocalMod[] = [];
+		const disabled: LocalMod[] = [];
+		for (const mod of localMods) {
+			const direct = $modEnabledStore[mod.name];
+			if (direct === true) {
+				enabled.push(mod);
+				continue;
+			}
+			if (direct === false) {
+				disabled.push(mod);
+				continue;
+			}
+			const folderName = mod.path.split(/[\\/]/).pop();
+			const byPath =
+				folderName && folderName in $modEnabledStore
+					? $modEnabledStore[folderName]
+					: undefined;
+			if (byPath === false) {
+				disabled.push(mod);
+			} else {
+				enabled.push(mod);
+			}
+		}
+		enabledLocalMods = enabled;
+		disabledLocalMods = disabled;
 	}
 
 	// Update the lists whenever the stores change
