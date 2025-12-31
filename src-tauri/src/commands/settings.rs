@@ -67,6 +67,30 @@ pub async fn set_background_state(
 }
 
 #[tauri::command]
+pub async fn set_linux_prefix(
+    state: tauri::State<'_, AppState>,
+    value: String,
+) -> Result<(), String> {
+    let db = state
+        .db
+        .lock()
+        .map_err(|_| AppError::LockPoisoned("Database lock poisoned".to_string()))?;
+    map_error(db.set_linux_prefix(&value))
+}
+
+#[tauri::command]
+pub async fn get_linux_prefix(state: tauri::State<'_, AppState>) -> Result<String, String> {
+    let db = state
+        .db
+        .lock()
+        .map_err(|_| AppError::LockPoisoned("Database lock poisoned".to_string()))?;
+    Ok(db
+        .get_linux_prefix()
+        .map_err(|e| e.to_string())?
+        .unwrap_or_default())
+}
+
+#[tauri::command]
 pub async fn is_security_warning_acknowledged(
     state: tauri::State<'_, AppState>,
 ) -> Result<bool, String> {

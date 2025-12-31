@@ -303,6 +303,8 @@ pub fn run() {
             commands::settings::set_background_state,
             commands::settings::get_discord_rpc_status,
             commands::settings::set_discord_rpc_status,
+            commands::settings::set_linux_prefix,
+            commands::settings::get_linux_prefix,
             commands::settings::set_security_warning_acknowledged,
             commands::settings::is_security_warning_acknowledged,
             commands::cache::get_last_fetched,

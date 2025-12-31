@@ -1,8 +1,9 @@
 <script lang="ts">
 import PathSelector from "../PathSelector.svelte";
-	import { Settings2, RefreshCw, Folder } from "lucide-svelte";
+	import { Settings2, RefreshCw, Folder, Save, Info, Copy } from "lucide-svelte";
 import { addMessage } from "$lib/stores";
 import { onMount } from "svelte";
+import { fade, fly } from "svelte/transition";
 import { invoke } from "@tauri-apps/api/core";
 import { backgroundEnabled } from "../../stores/modStore";
     import { cardScale } from "../../stores/ui";
@@ -18,6 +19,9 @@ import { browser } from "$app/environment";
 	};
 	let isDiscordRpcEnabled = false;
 	let isLinux = false;
+	let linuxPrefix = "";
+	let showLinuxHelp = false;
+	let activeHelpImage: { src: string; alt: string } | null = null;
 
 	export async function performReindexMods() {
 		isReindexing = true;
@@ -117,6 +121,59 @@ import { browser } from "$app/environment";
 		}
 	}
 
+	async function handleLinuxPrefixChange() {
+		const newValue = linuxPrefix.replace(/\s+/g, " ").trim();
+		if (!newValue) {
+			addMessage("Linux prefix is empty", "error");
+			return;
+		}
+		if (newValue !== linuxPrefix) {
+			linuxPrefix = newValue;
+			addMessage("Linux prefix had extra spaces and was normalized", "warning");
+		}
+		try {
+			await invoke("set_linux_prefix", { value: newValue });
+			addMessage(`Linux prefix set to ${newValue}`, "success");
+		} catch (error) {
+			console.error("Failed to set prefix:", error);
+			addMessage("Failed to update Linux prefix", "error");
+		}
+	}
+
+	async function copyLinuxLaunchOptions() {
+		const text = 'WINEDLLOVERRIDES="version=n,b" %command%';
+		try {
+			await navigator.clipboard.writeText(text);
+			addMessage("Copied Steam launch options to clipboard", "success");
+		} catch (error) {
+			console.error("Failed to copy launch options:", error);
+			addMessage("Failed to copy Steam launch options", "error");
+		}
+	}
+
+	function toggleLinuxHelp() {
+		showLinuxHelp = !showLinuxHelp;
+	}
+
+	function openHelpImage(src: string, alt: string) {
+		activeHelpImage = { src, alt };
+	}
+
+	function closeHelpImage() {
+		activeHelpImage = null;
+	}
+
+	function handleModalKeydown(event: KeyboardEvent) {
+		if (event.key === "Escape") {
+			closeHelpImage();
+			return;
+		}
+		if (event.key === "Enter" || event.key === " ") {
+			event.preventDefault();
+			closeHelpImage();
+		}
+	}
+
 	onMount(async () => {
 		// Detect platform for Linux-specific UI gating
 		try {
@@ -148,6 +205,19 @@ import { browser } from "$app/environment";
 		} catch (error) {
 			console.error("Failed to get background status:", error);
 			addMessage("Error fetching background animation status", "error");
+		}
+		if (isLinux) {
+			try {
+				linuxPrefix = await invoke("get_linux_prefix");
+				if (!linuxPrefix) {
+					linuxPrefix = "steam -applaunch 2379780";
+					await invoke("set_linux_prefix", { value: linuxPrefix });
+					addMessage("Linux prefix defaulted to steam -applaunch 2379780", "info");
+				}
+			} catch (error) {
+				console.error("Failed to get Linux prefix:", error);
+				addMessage("Error fetching Linux prefix", "error");
+			}
 		}
 	});
 </script>
@@ -224,6 +294,137 @@ import { browser } from "$app/environment";
 					remove:
 					<br />• Database entries for missing mod installations
 				</p>
+				{#if isLinux}
+					<div class="linux-note">
+						<span class="linux-note-icon">
+							<Info size={18} />
+						</span>
+						<div class="linux-note-content">
+							<strong>Linux Steam launch:</strong>
+							Set Steam launch options for Balatro to
+							<code>WINEDLLOVERRIDES="version=n,b" %command%</code> so Lovely and mods load
+							when using <code>steam -applaunch 2379780</code>.
+							<div class="linux-note-actions">
+								<button class="linux-copy-button" on:click={copyLinuxLaunchOptions}>
+									<Copy size={16} />
+									Copy launch options
+								</button>
+								<button class="linux-what-button" on:click={toggleLinuxHelp}>
+									{showLinuxHelp ? "Hide" : "What?"}
+								</button>
+							</div>
+							{#if showLinuxHelp}
+								<div class="linux-help">
+									<figure>
+										<button
+											type="button"
+											class="linux-help-button"
+											on:click={() =>
+												openHelpImage(
+													"/images/steam-help-first.png",
+													"Open Balatro properties from Steam library",
+												)}
+											aria-label="Open step 1 help image"
+										>
+											<img
+												src="/images/steam-help-first.png"
+												alt="Open Balatro properties from Steam library"
+												draggable="false"
+											/>
+										</button>
+										<figcaption>1. Right-click Balatro → Properties.</figcaption>
+									</figure>
+									<figure>
+										<button
+											type="button"
+											class="linux-help-button"
+											on:click={() =>
+												openHelpImage(
+													"/images/steam-help-1.png",
+													"Steam launch options menu",
+												)}
+											aria-label="Open step 2 help image"
+										>
+											<img
+												src="/images/steam-help-1.png"
+												alt="Steam launch options menu"
+												draggable="false"
+											/>
+										</button>
+										<figcaption>2. Find the Launch Options field.</figcaption>
+									</figure>
+									<figure>
+										<button
+											type="button"
+											class="linux-help-button"
+											on:click={() =>
+												openHelpImage(
+													"/images/steam-help-2.png",
+													"Set WINEDLLOVERRIDES launch options",
+												)}
+											aria-label="Open step 3 help image"
+										>
+											<img
+												src="/images/steam-help-2.png"
+												alt="Set WINEDLLOVERRIDES launch options"
+												draggable="false"
+											/>
+										</button>
+										<figcaption>3. Paste the WINEDLLOVERRIDES line.</figcaption>
+									</figure>
+								</div>
+							{/if}
+						</div>
+					</div>
+					{#if activeHelpImage}
+						<div
+							class="image-modal"
+							role="button"
+							aria-label="Close image preview"
+							tabindex="0"
+							on:click={closeHelpImage}
+							on:keydown={handleModalKeydown}
+							transition:fade={{ duration: 120 }}
+						>
+							<div
+								class="image-modal-content"
+								role="presentation"
+								on:click|stopPropagation
+								transition:fly={{ y: 12, duration: 180 }}
+							>
+								<button class="image-modal-close" on:click={closeHelpImage}>
+									×
+								</button>
+								<img
+									src={activeHelpImage.src}
+									alt={activeHelpImage.alt}
+									draggable="false"
+								/>
+								<p>{activeHelpImage.alt}</p>
+							</div>
+						</div>
+					{/if}
+					<input
+						type="text"
+						bind:value={linuxPrefix}
+						placeholder="Linux prefix (e.g. proton, protontricks-launch)"
+						class="prefix-input"
+					/>
+					<button
+						class="prefix-button"
+						on:click={handleLinuxPrefixChange}
+						title="Update Linux prefix"
+					>
+						<Save size={20} />
+						Save Prefix
+					</button>
+					<p class="description-small">
+						Launch command for Linux (Proton/Wine/Steam). Leave blank to use native LOVE.
+						Use `{'{exe}'}` to place the Balatro.exe path, or `steam -applaunch 2379780` to
+						launch via Steam. Lovely requires `WINEDLLOVERRIDES=version=n,b` and uses
+						the Proton Mods folder (linked from your host Mods dir).
+					</p>
+				{/if}
 			</div>
 			<h3>Appearance</h3>
 			{#if !isLinux}
@@ -415,6 +616,224 @@ import { browser } from "$app/environment";
 
 	.open-folder-button:active {
 		transform: translateY(1px);
+	}
+	.prefix-input {
+		margin-top: 1rem;
+		background: #1f1f1f;
+		color: #f4eee0;
+		border: 2px solid #5b21b6;
+		border-radius: 4px;
+		padding: 0.6rem 0.8rem;
+		font-family: "M6X11", sans-serif;
+		font-size: 1.1rem;
+		min-width: 320px;
+	}
+	.prefix-input::placeholder {
+		color: #bfb8a8;
+	}
+	.prefix-button {
+		margin-top: 0.6rem;
+		background: #7c3aed;
+		color: #f4eee0;
+		border: none;
+		outline: #5b21b6 solid 2px;
+		border-radius: 4px;
+		padding: 0.6rem 1.2rem;
+		font-family: "M6X11", sans-serif;
+		font-size: 1.1rem;
+		cursor: pointer;
+		transition: all 0.2s ease;
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+	}
+	.prefix-button:hover {
+		background: #8b5cf6;
+		transform: translateY(-2px);
+	}
+	.linux-note {
+		margin-top: 0.8rem;
+		padding: 1rem 1.1rem;
+		background: #8a5b1a;
+		border: 1px solid #d89b3f;
+		border-radius: 4px;
+		color: #f4eee0;
+		font-size: 1.1rem;
+		max-width: 100%;
+		line-height: 1.4;
+		display: flex;
+		align-items: flex-start;
+		gap: 0.6rem;
+	}
+	.linux-note-icon {
+		color: #fdcf51;
+		margin-top: 2px;
+		display: inline-flex;
+	}
+	.linux-note-icon :global(svg) {
+		display: block;
+	}
+	.linux-note-content {
+		flex: 1;
+	}
+	.linux-note code {
+		font-family: "M6X11", sans-serif;
+		background: #6b4413;
+		padding: 0.1rem 0.3rem;
+		border-radius: 3px;
+	}
+	.linux-note-actions {
+		margin-top: 0.5rem;
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+	}
+	.linux-copy-button {
+		background: #c9971e;
+		color: #f4eee0;
+		border: 2px solid #e3a93a;
+		border-radius: 4px;
+		padding: 0.4rem 0.6rem;
+		font-family: "M6X11", sans-serif;
+		font-size: 1.15rem;
+		cursor: pointer;
+		display: inline-flex;
+		align-items: center;
+		gap: 0.4rem;
+		transition: transform 0.15s ease, background 0.15s ease, border-color 0.15s ease;
+	}
+	.linux-copy-button:hover {
+		background: #d3a428;
+		border-color: #d28a22;
+		transform: translateY(-1px);
+	}
+	.linux-copy-button:focus-visible {
+		outline: 2px solid #fdcf51;
+		outline-offset: 2px;
+	}
+	.linux-copy-button:active {
+		transform: translateY(0);
+		background: #b48518;
+		border-color: #c07a16;
+	}
+	.linux-what-button {
+		background: #2878c8;
+		color: #f4eee0;
+		border: 2px solid #2b9ce9;
+		border-radius: 4px;
+		padding: 0.4rem 0.6rem;
+		font-family: "M6X11", sans-serif;
+		font-size: 1.15rem;
+		cursor: pointer;
+		transition: transform 0.15s ease, background 0.15s ease, border-color 0.15s ease;
+	}
+	.linux-what-button:hover {
+		background: #2f88da;
+		border-color: #33a6f2;
+		transform: translateY(-1px);
+	}
+	.linux-what-button:focus-visible {
+		outline: 2px solid #8ad7ff;
+		outline-offset: 2px;
+	}
+	.linux-what-button:active {
+		transform: translateY(0);
+		background: #1f6bb3;
+		border-color: #1f8ed6;
+	}
+	.linux-help {
+		margin-top: 0.7rem;
+		display: grid;
+		grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+		gap: 1rem;
+		width: 100%;
+	}
+	.linux-help figure {
+		margin: 0;
+		display: flex;
+		flex-direction: column;
+		gap: 0.35rem;
+	}
+	.linux-help-button {
+		background: transparent;
+		border: none;
+		padding: 0;
+		cursor: zoom-in;
+	}
+	.linux-help-button:focus-visible {
+		outline: 2px solid #8ad7ff;
+		outline-offset: 3px;
+		border-radius: 6px;
+	}
+	.linux-help img {
+		width: 100%;
+		height: auto;
+		display: block;
+		border: 2px solid #2b9ce9;
+		border-radius: 6px;
+		background: #0f1a2e;
+	}
+	.linux-help figcaption {
+		color: #f4eee0;
+		font-size: 1.2rem;
+		opacity: 0.9;
+	}
+	.image-modal {
+		position: fixed;
+		inset: 0;
+		background: rgba(10, 10, 12, 0.7);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		z-index: 1000;
+		padding: 1.5rem;
+		width: 100%;
+		height: 100%;
+		cursor: pointer;
+	}
+	.image-modal-content {
+		position: relative;
+		max-width: min(1100px, 92vw);
+		max-height: 90vh;
+		background: #0f1a2e;
+		border: 2px solid #2b9ce9;
+		border-radius: 10px;
+		padding: 1rem 1.2rem 1.2rem;
+		display: flex;
+		flex-direction: column;
+		gap: 0.6rem;
+	}
+	.image-modal-content img {
+		width: 100%;
+		height: auto;
+		max-height: 75vh;
+		object-fit: contain;
+		border-radius: 6px;
+	}
+	.image-modal-content p {
+		margin: 0;
+		color: #f4eee0;
+		font-size: 1.1rem;
+	}
+	.image-modal-close {
+		position: absolute;
+		top: 8px;
+		right: 10px;
+		background: #2878c8;
+		color: #f4eee0;
+		border: 2px solid #2b9ce9;
+		border-radius: 6px;
+		width: 32px;
+		height: 32px;
+		font-size: 1.2rem;
+		line-height: 1;
+		cursor: pointer;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+	}
+	.image-modal-close:hover {
+		background: #2f88da;
 	}
 	.description {
 		color: #f4eee0;

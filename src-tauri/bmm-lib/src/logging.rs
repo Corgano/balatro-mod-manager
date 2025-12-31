@@ -56,6 +56,7 @@ pub fn init_logger() -> Result<(), AppError> {
                 record.args()
             )
         })
+        .filter_module("discord_rich_presence", LevelFilter::Warn)
         .filter(None, LevelFilter::Debug) // Capture all logs
         .write_style(env_logger::WriteStyle::Never)
         .target(env_logger::Target::Pipe(Box::new(file_writer)))
