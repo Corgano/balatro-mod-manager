@@ -104,6 +104,9 @@ pub fn mod_dir_candidates() -> Result<Vec<PathBuf>, String> {
                 compat_candidates.push(home.join(
                     ".local/share/Steam/steamapps/compatdata/2379780/pfx/drive_c/users/steamuser/AppData/Roaming/Balatro/Mods",
                 ));
+                compat_candidates.push(home.join(
+                    ".var/app/com.valvesoftware.Steam/.local/share/Steam/steamapps/compatdata/2379780/pfx/drive_c/users/steamuser/AppData/Roaming/Balatro/Mods",
+                ));
             }
             candidates.extend(compat_candidates);
         }
