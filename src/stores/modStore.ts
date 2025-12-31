@@ -49,7 +49,7 @@ export enum SortOption {
 
 export const backgroundEnabled = writable(false);
 
-export const currentSort = writable<SortOption>(SortOption.LastUpdatedDesc);
+export const currentSort = writable<SortOption>(SortOption.DownloadsDesc);
 
 export const updateAvailableStore = writable<{ [key: string]: boolean }>({});
 
