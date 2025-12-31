@@ -84,25 +84,15 @@ import { openExternal } from "$lib/opener";
 	let paginationIdleTimer: number | null = null;
 	let hydrationTimer: number | null = null;
 	let hydrationPending = false;
-	let downloadsRefreshTimer: number | null = null;
-	let downloadsRefreshing = false;
+let downloadsRefreshTimer: number | null = null;
+let downloadsRefreshing = false;
 let isLinux = false;
 let modsScrollContainer: HTMLDivElement | null = $state(null);
 let scrollIdleTimer: number | null = null;
 let isUserScrolling = $state(false);
-const gridGap = 30;
-let virtualPaddingTop = $state(0);
-let virtualPaddingBottom = $state(0);
-let virtualCols = $state(1);
-let virtualRowHeight = $state(390);
-const virtualOverscanRows = 2;
 let renderLimitLocal = $state(60);
 const renderChunkLocal = 24;
 let localSentinel: HTMLDivElement | null = $state(null);
-let modsGridEl: HTMLDivElement | null = $state(null);
-let firstCardEl: HTMLElement | null = null;
-let scrollRaf: number | null = null;
-let resizeObs: ResizeObserver | null = null;
 
 	async function handleModUninstalled() {
 		// Refresh the local mods list
@@ -1615,11 +1605,6 @@ const { handleDependencyCheck, mod } = $props<{
 			isUserScrolling = false;
 			if (hydrationPending) scheduleHydration();
 		}, delay);
-		if (scrollRaf !== null) cancelAnimationFrame(scrollRaf);
-		scrollRaf = requestAnimationFrame(() => {
-			scrollRaf = null;
-			updateVirtualWindow();
-		});
 	}
 
 // Safely register global click handler with cleanup to avoid duplicates
@@ -1681,100 +1666,8 @@ onDestroy(() => {
 
 	let visiblePaginatedMods: Mod[] = $state([]);
 
-	function measureGrid() {
-		if (!modsGridEl) return;
-		const width = modsGridEl.clientWidth || 0;
-		const estimatedCardWidth = Math.max(
-			260,
-			firstCardEl?.getBoundingClientRect().width || 280,
-		);
-		const cols = Math.max(
-			1,
-			Math.floor((width + gridGap) / (estimatedCardWidth + gridGap)),
-		);
-		virtualCols = cols;
-		const measuredHeight = firstCardEl?.getBoundingClientRect().height;
-		if (measuredHeight && measuredHeight > 0) {
-			virtualRowHeight = Math.round(measuredHeight + gridGap);
-		}
-	}
-
 	function updateVirtualWindow() {
-		if ($currentCategory === "Installed Mods") {
-			visiblePaginatedMods = paginatedMods;
-			virtualPaddingTop = 0;
-			virtualPaddingBottom = 0;
-			return;
-		}
-
-		if (!modsScrollContainer) {
-			visiblePaginatedMods = paginatedMods;
-			virtualPaddingTop = 0;
-			virtualPaddingBottom = 0;
-			return;
-		}
-
-		measureGrid();
-
-		const total = paginatedMods.length;
-		if (total === 0) {
-			visiblePaginatedMods = [];
-			virtualPaddingTop = 0;
-			virtualPaddingBottom = 0;
-			return;
-		}
-
-		const rowHeight = Math.max(120, virtualRowHeight);
-		const viewportHeight = modsScrollContainer.clientHeight || 800;
-		const scrollTop = modsScrollContainer.scrollTop;
-		const totalRows = Math.max(1, Math.ceil(total / virtualCols));
-		const startRow = Math.max(
-			0,
-			Math.floor(scrollTop / rowHeight) - virtualOverscanRows,
-		);
-		const endRow = Math.min(
-			totalRows,
-			Math.ceil((scrollTop + viewportHeight) / rowHeight) + virtualOverscanRows,
-		);
-		const startIdx = startRow * virtualCols;
-		const endIdx = Math.min(total, endRow * virtualCols);
-		if (endIdx <= startIdx) {
-			visiblePaginatedMods = paginatedMods.slice(
-				0,
-				Math.min(total, virtualCols),
-			);
-		} else {
-			visiblePaginatedMods = paginatedMods.slice(startIdx, endIdx);
-		}
-		virtualPaddingTop = startRow * rowHeight;
-		virtualPaddingBottom = Math.max(
-			0,
-			totalRows * rowHeight - endRow * rowHeight,
-		);
-	}
-
-	function measureCell(node: HTMLElement, index: number) {
-		if (index === 0) {
-			firstCardEl = node;
-			measureGrid();
-			updateVirtualWindow();
-		}
-		return {
-			update(newIndex: number) {
-				if (newIndex === 0) {
-					firstCardEl = node;
-					measureGrid();
-					updateVirtualWindow();
-				} else if (firstCardEl === node) {
-					firstCardEl = null;
-				}
-			},
-			destroy() {
-				if (firstCardEl === node) {
-					firstCardEl = null;
-				}
-			},
-		};
+		visiblePaginatedMods = paginatedMods;
 	}
 
 // Whenever the visible page changes, try to quickly hydrate from cache and recalc window
@@ -1791,42 +1684,11 @@ $effect(() => {
     scheduleHydration();
 });
 
-onMount(() => {
-	if (typeof ResizeObserver !== "undefined") {
-		resizeObs = new ResizeObserver(() => {
-			measureGrid();
-			updateVirtualWindow();
-		});
-		if (modsScrollContainer) {
-			resizeObs.observe(modsScrollContainer);
-		}
-	}
-});
-
-$effect(() => {
-	if (!resizeObs || !modsScrollContainer) return;
-	resizeObs.disconnect();
-	resizeObs.observe(modsScrollContainer);
-});
-
-$effect(() => {
-	modsGridEl;
-	measureGrid();
-	updateVirtualWindow();
-});
-
 onDestroy(() => {
     if (visibleHydrateTimer !== null) {
         clearTimeout(visibleHydrateTimer);
         visibleHydrateTimer = null;
     }
-	if (resizeObs) {
-		try {
-			resizeObs.disconnect();
-		} catch (_) {
-			/* ignore */
-		}
-	}
 });
 
 	const maxVisiblePages = 5;
@@ -2212,17 +2074,11 @@ onDestroy(() => {
 								<div
 									class="mods-grid"
 									class:has-local-mods={localMods.length > 0}
-									bind:this={modsGridEl}
 								>
-									<div
-										class="virtual-spacer"
-										style={`height:${virtualPaddingTop}px`}
-										aria-hidden="true"
-									></div>
 									{#each visiblePaginatedMods.filter((m) =>
 										enabledMods.some((e) => e.title === m.title)
 									) as mod, index (mod.title)}
-										<div class="virtual-cell" use:measureCell={index}>
+										<div class="virtual-cell">
 											<ModCard
 												{mod}
 												deferImages={paginating}
@@ -2233,11 +2089,6 @@ onDestroy(() => {
 											/>
 										</div>
 									{/each}
-									<div
-										class="virtual-spacer"
-										style={`height:${virtualPaddingBottom}px`}
-										aria-hidden="true"
-									></div>
 								</div>
 							{/if}
 
@@ -2255,17 +2106,11 @@ onDestroy(() => {
 								<div
 									class="mods-grid"
 									class:has-local-mods={localMods.length > 0}
-									bind:this={modsGridEl}
 								>
-									<div
-										class="virtual-spacer"
-										style={`height:${virtualPaddingTop}px`}
-										aria-hidden="true"
-									></div>
 									{#each visiblePaginatedMods.filter((m) =>
 										disabledMods.some((e) => e.title === m.title)
 									) as mod, index (mod.title)}
-										<div class="virtual-cell" use:measureCell={index}>
+										<div class="virtual-cell">
 											<ModCard
 												{mod}
 												deferImages={paginating}
@@ -2276,24 +2121,14 @@ onDestroy(() => {
 											/>
 										</div>
 									{/each}
-									<div
-										class="virtual-spacer"
-										style={`height:${virtualPaddingBottom}px`}
-										aria-hidden="true"
-									></div>
 								</div>
 							{/if}
 
 							{#if enabledMods.length === 0 && disabledMods.length === 0}
 								<!-- Fallback: show installed catalog mods before enabled state resolves -->
-								<div class="mods-grid" bind:this={modsGridEl}>
-									<div
-										class="virtual-spacer"
-										style={`height:${virtualPaddingTop}px`}
-										aria-hidden="true"
-									></div>
+								<div class="mods-grid">
 									{#each visiblePaginatedMods as mod, index (mod.title)}
-										<div class="virtual-cell" use:measureCell={index}>
+										<div class="virtual-cell">
 											<ModCard
 												{mod}
 												deferImages={paginating}
@@ -2304,24 +2139,14 @@ onDestroy(() => {
 											/>
 										</div>
 									{/each}
-									<div
-										class="virtual-spacer"
-										style={`height:${virtualPaddingBottom}px`}
-										aria-hidden="true"
-									></div>
 								</div>
 							{/if}
 						{/if}
 					{:else}
 						<!-- Original non-InstalledMods categories -->
-						<div class="mods-grid" bind:this={modsGridEl}>
-							<div
-								class="virtual-spacer"
-								style={`height:${virtualPaddingTop}px`}
-								aria-hidden="true"
-							></div>
+						<div class="mods-grid">
 							{#each visiblePaginatedMods as mod, index (mod.title)}
-								<div class="virtual-cell" use:measureCell={index}>
+								<div class="virtual-cell">
 									<ModCard
 										{mod}
 										deferImages={paginating}
@@ -2331,11 +2156,6 @@ onDestroy(() => {
 									/>
 								</div>
 							{/each}
-							<div
-								class="virtual-spacer"
-								style={`height:${virtualPaddingBottom}px`}
-								aria-hidden="true"
-							></div>
 						</div>
 					{/if}
 				</div>
@@ -2521,12 +2341,6 @@ onDestroy(() => {
 	.render-sentinel {
 		width: 100%;
 		height: 1px;
-	}
-
-	.virtual-spacer {
-		grid-column: 1 / -1;
-		width: 100%;
-		pointer-events: none;
 	}
 
 	.virtual-cell {
