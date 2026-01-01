@@ -683,8 +683,14 @@ let modView: HTMLDivElement;
 			skipHistoryUpdate = false;
 			return;
 		}
-
-		history = [{ isMod: true, modName: mod.title }];
+		if (!mod) return;
+		if (history.length === 0) {
+			history = [{ isMod: true, modName: mod.title }];
+			return;
+		}
+		if (history[0].modName !== mod.title) {
+			history = [{ isMod: true, modName: mod.title }, ...history];
+		}
 	});
 
 	// In the processInternalModLinks function
