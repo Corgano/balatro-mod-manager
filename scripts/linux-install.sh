@@ -127,9 +127,13 @@ echo -e "${YELLOW}2. Installing Flatpak bundle (release preferred)...${NC}"
 
 DOWNLOAD_DIR=$(mktemp -d)
 FLATPAK_BUNDLE="$DOWNLOAD_DIR/balatro-mod-manager.flatpak"
-RELEASE_URL=$(curl -fsSL "https://api.github.com/repos/skyline69/balatro-mod-manager/releases/latest" | \
-    grep -Eo '"browser_download_url":\s*"[^"]+\.flatpak"' | \
-    head -n1 | cut -d '"' -f4)
+RELEASE_URL=""
+RELEASE_JSON=""
+if RELEASE_JSON=$(curl -fsSL "https://api.github.com/repos/skyline69/balatro-mod-manager/releases" 2>/dev/null); then
+    RELEASE_URL=$(printf '%s' "$RELEASE_JSON" | \
+        grep -Eo '"browser_download_url":\s*"[^"]+\.flatpak"' | \
+        head -n1 | cut -d '"' -f4 || true)
+fi
 
 if [[ -n "$RELEASE_URL" ]]; then
     echo -e "${YELLOW}Downloading latest release Flatpak...${NC}"
