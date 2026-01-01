@@ -1,14 +1,15 @@
 <script lang="ts">
 	import { fade } from "svelte/transition";
 	import { cubicOut } from "svelte/easing";
-	import {
+import {
 		Download,
 		Trash2,
 		User,
 		ArrowLeft,
-	Github,
-	X,
-	RefreshCw,
+		Github,
+		X,
+		RefreshCw,
+		Layers,
 	} from "lucide-svelte";
 	import { onMount, onDestroy } from "svelte";
 	import {
@@ -41,6 +42,7 @@ import {
     import LazyImage from "../common/LazyImage.svelte";
 import { isLinuxPlatform } from "$lib/platform";
 import { openExternal } from "$lib/opener";
+import { openCollectionPicker } from "../../stores/collections";
 
 	// Store to track which mods have updates available
 	// const updateAvailable = writable<Record<string, boolean>>({});
@@ -1033,6 +1035,14 @@ let modView: HTMLDivElement;
 						</button>
 					{/if}
 
+					<button
+						class="collection-button"
+						title="Collections"
+						onclick={() => openCollectionPicker(mod.title, mod.id)}
+					>
+						<Layers size={18} />
+					</button>
+
 					{#if $installationStatus[mod.title] && $updateAvailableStore[mod.title]}
 						<!-- Update button (when installed and update available) -->
 						<button
@@ -1256,6 +1266,32 @@ let modView: HTMLDivElement;
 	}
 
 	.toggle-button:active {
+		transform: translateY(1px);
+	}
+
+	.collection-button {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 0.5rem;
+		padding: 1rem;
+		border: none;
+		border-radius: 6px;
+		font-size: 1rem;
+		cursor: pointer;
+		transition: all 0.2s ease;
+		font-family: "M6X11", sans-serif;
+		min-height: 48px;
+		background: #3b5d99;
+		color: #f4eee0;
+	}
+
+	.collection-button:hover {
+		background: #4669a9;
+		transform: translateY(-2px);
+	}
+
+	.collection-button:active {
 		transform: translateY(1px);
 	}
 

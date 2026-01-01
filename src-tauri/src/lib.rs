@@ -329,6 +329,7 @@ pub fn run() {
             commands::report::get_latest_log,
             commands::mods::is_mod_enabled,
             commands::mods::toggle_mod_enabled,
+            commands::mods::toggle_mods_enabled_batch,
             commands::mods::is_mod_enabled_by_path,
             commands::mods::toggle_mod_enabled_by_path,
             commands::mods::enabled_state_map,

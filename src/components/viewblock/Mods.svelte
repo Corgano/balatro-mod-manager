@@ -9,6 +9,7 @@
 		LayoutDashboard,
 		FolderHeart,
 		Search,
+		Layers,
 		BookOpen,
 		Folder,
 		RefreshCw,
@@ -39,6 +40,18 @@ import {
 	setDescriptions,
 	withDescriptionsPersistenceSuspended,
 } from "../../stores/descriptions";
+import {
+	collectionsStore,
+	activeCollectionId,
+	createCollection,
+	renameCollection,
+	deleteCollection,
+	setActiveCollection,
+	exportCollectionCode,
+	openCollectionImport,
+	setCollectionImportCode,
+	lastImportedCollectionId,
+} from "../../stores/collections";
 import {
 	catalogLastRefreshed,
 	catalogLoading,
@@ -99,6 +112,14 @@ let modsScrollContainer: HTMLDivElement | null = $state(null);
 	let localSentinel: HTMLDivElement | null = $state(null);
 	let thumbRefreshTimer: number | null = null;
 	let thumbRefreshAttempts = 0;
+	let selectedCollectionId = $state<string | null>(null);
+	let newCollectionName = $state("");
+	let renamingId = $state<string | null>(null);
+	let renameValue = $state("");
+	let collectionBusy = $state<string | null>(null);
+
+	const normalizeCollectionTitle = (name: string) =>
+		name.toLowerCase().replace(/[^a-z0-9+]+/g, "").trim();
 
 	async function handleModUninstalled() {
 		// Refresh the local mods list
@@ -1017,6 +1038,7 @@ const { handleDependencyCheck, mod } = $props<{
 	}
 
 	interface CachedModItem {
+		id?: string;
 		title: string;
 		description: string;
 		image: string;
@@ -1045,6 +1067,7 @@ const { handleDependencyCheck, mod } = $props<{
 			const img = cachedThumb ? convertFileSrc(cachedThumb) : "/images/cover.jpg";
 			const hasThumb = item.has_thumbnail === true;
 			return {
+				id: item.dir_name,
 				title: item.meta.title,
 				description: item.description,
 				image: img,
@@ -1077,7 +1100,13 @@ const { handleDependencyCheck, mod } = $props<{
 		return items.map((item) => {
 			const image = item.image?.trim() || "/images/cover.jpg";
 			const hasThumb = !/\/images\/cover\.jpg$/i.test(image);
+			const cachedId =
+				item.id ||
+				(item.downloadURL?.startsWith("bmi://")
+					? item.downloadURL.slice("bmi://".length)
+					: item.folderName ?? undefined);
 			return {
+				id: cachedId,
 				title: item.title,
 				description: item.description ?? "",
 				image,
@@ -1716,6 +1745,7 @@ const { handleDependencyCheck, mod } = $props<{
 	const categories = [
 		{ name: "Installed Mods", icon: Download },
 		{ name: "Search", icon: Search },
+		{ name: "Collections", icon: Layers },
 		{ name: "All Mods", icon: LayoutDashboard },
 		{ name: "Content", icon: FolderHeart },
 		{ name: "Miscellaneous", icon: BookOpen },
@@ -1812,10 +1842,51 @@ const { handleDependencyCheck, mod } = $props<{
 				);
 			case "Installed Mods":
 				return Boolean($installationStatus[mod.title]);
+			case "Collections":
+				return true;
 			default:
 				return true;
 		}
 	}));
+
+	let selectedCollection = $derived(
+		selectedCollectionId
+			? $collectionsStore.find((c) => c.id === selectedCollectionId) ?? null
+			: null,
+	);
+	let selectedCollectionMods = $derived(
+		selectedCollection
+			? (() => {
+					const wantedIds = new Set(selectedCollection.modIds ?? []);
+					const wanted = new Set(
+						selectedCollection.modTitles.map((t) =>
+							normalizeCollectionTitle(t),
+						),
+					);
+					return $modsStore.filter((m) => {
+						if (m.id && wantedIds.has(m.id)) return true;
+						return wanted.has(normalizeCollectionTitle(m.title));
+					});
+			  })()
+			: [],
+	);
+
+	$effect(() => {
+		if ($currentCategory !== "Collections") return;
+		const list = $collectionsStore;
+		if (!list || list.length === 0) {
+			selectedCollectionId = null;
+			return;
+		}
+		if (selectedCollectionId && list.some((c) => c.id === selectedCollectionId)) {
+			return;
+		}
+		const preferred =
+			$activeCollectionId && list.some((c) => c.id === $activeCollectionId)
+				? $activeCollectionId
+				: list[0].id;
+		selectedCollectionId = preferred;
+	});
 
 	function handleCategoryClick(category: string) {
 		currentPage.set(1);
@@ -1872,6 +1943,368 @@ onDestroy(() => {
 			startPage = 1;
 		}
 		refreshCatalogInBackground(false).catch(() => {});
+	}
+
+	function handleCreateCollection() {
+		const result = createCollection(newCollectionName);
+		if (!result.ok) {
+			addMessage(result.error || "Failed to create collection.", "error");
+			return;
+		}
+		newCollectionName = "";
+		if (result.id) {
+			selectedCollectionId = result.id;
+		}
+	}
+
+	function startRenameCollection(id: string, name: string) {
+		renamingId = id;
+		renameValue = name;
+	}
+
+	function cancelRenameCollection() {
+		renamingId = null;
+		renameValue = "";
+	}
+
+	function saveRenameCollection(id: string) {
+		const result = renameCollection(id, renameValue);
+		if (!result.ok) {
+			addMessage(result.error || "Failed to rename collection.", "error");
+			return;
+		}
+		cancelRenameCollection();
+	}
+
+	function handleDeleteCollection(id: string) {
+		deleteCollection(id);
+		if (selectedCollectionId === id) {
+			selectedCollectionId = null;
+		}
+	}
+
+	async function handleShareCollection(id: string) {
+		const result = exportCollectionCode(id);
+		if (!result.ok || !result.code) {
+			addMessage(result.error || "Failed to generate share code.", "error");
+			return;
+		}
+		try {
+			await navigator.clipboard.writeText(result.code);
+			addMessage("Collection code copied.", "success");
+		} catch {
+			setCollectionImportCode(result.code);
+			openCollectionImport(result.code);
+			addMessage("Copy failed. Code shown for manual copy.", "warning");
+		}
+	}
+
+	$effect(() => {
+		if ($lastImportedCollectionId) {
+			selectedCollectionId = $lastImportedCollectionId;
+			lastImportedCollectionId.set(null);
+		}
+	});
+
+
+	async function activateCollection(id: string) {
+		if (collectionBusy) return;
+		const collection = $collectionsStore.find((c) => c.id === id);
+		if (!collection) return;
+		collectionBusy = id;
+		try {
+			const normalizeName = (name: string) =>
+				name.toLowerCase().replace(/[^a-z0-9+]+/g, "").trim();
+			const localPaths = localMods.map((m) => m.path);
+
+			const normalizeInstalled = (map: Record<string, boolean>) =>
+				new Set(Object.keys(map).map((n) => normalizeName(n)));
+
+			const modsByNormalized = new Map(
+				get(modsStore).map((m) => [normalizeName(m.title), m]),
+			);
+			const modsById = new Map(
+				get(modsStore)
+					.filter((m) => m.id)
+					.map((m) => [m.id as string, m]),
+			);
+			const repoModsByNormalized = new Map<string, Mod>();
+			const repoModsById = new Map<string, Mod>();
+			let repoModsLoaded = false;
+			const ensureRepoMods = async () => {
+				if (repoModsLoaded) return;
+				const items = await invoke<ArchiveModItem[]>("fetch_repo_mods", {
+					sort: get(currentSort),
+				});
+				const mapped = mapArchiveItems(items);
+				repoModsByNormalized.clear();
+				repoModsById.clear();
+				for (const mod of mapped) {
+					repoModsByNormalized.set(normalizeName(mod.title), mod);
+					if (mod.id) repoModsById.set(mod.id, mod);
+				}
+				repoModsLoaded = true;
+			};
+
+			let enabledMap = await invoke<Record<string, boolean>>(
+				"enabled_state_map",
+				{ localPaths },
+			);
+			let installedNormalized = normalizeInstalled(enabledMap);
+
+			const desiredTitles: string[] = [...collection.modTitles];
+			const desiredIds = new Set(collection.modIds ?? []);
+			const desiredNormalized = new Set(
+				desiredTitles.map((t) => normalizeName(t)),
+			);
+			const addDesiredTitle = (title: string) => {
+				const normalized = normalizeName(title);
+				if (desiredNormalized.has(normalized)) return;
+				desiredNormalized.add(normalized);
+				desiredTitles.push(title);
+			};
+			const addDesiredMod = (mod: Mod) => {
+				addDesiredTitle(mod.title);
+				if (mod.id) desiredIds.add(mod.id);
+			};
+
+			const resolvedForDeps: Mod[] = [];
+			const resolvedKeys = new Set<string>();
+			const addResolved = (mod: Mod) => {
+				const key = mod.id ?? normalizeName(mod.title);
+				if (resolvedKeys.has(key)) return;
+				resolvedKeys.add(key);
+				resolvedForDeps.push(mod);
+			};
+
+			const missing: Mod[] = [];
+			const missingUnresolved: string[] = [];
+			const missingUnresolvedIds: string[] = [];
+
+			for (const id of collection.modIds ?? []) {
+				let match = modsById.get(id);
+				if (!match) {
+					await ensureRepoMods();
+					match = repoModsById.get(id);
+					if (!match) {
+						match = repoModsByNormalized.get(normalizeName(id));
+					}
+				}
+				if (match) {
+					addDesiredMod(match);
+					addResolved(match);
+				} else {
+					missingUnresolvedIds.push(id);
+				}
+			}
+
+			for (const title of collection.modTitles) {
+				const normalized = normalizeName(title);
+				let match = modsByNormalized.get(normalized);
+				if (!match) {
+					await ensureRepoMods();
+					match = repoModsByNormalized.get(normalized);
+				}
+				if (match) {
+					addDesiredMod(match);
+					addResolved(match);
+				}
+			}
+
+			for (const match of resolvedForDeps) {
+				if (match.requires_steamodded) addDesiredTitle("Steamodded");
+				if (match.requires_talisman) addDesiredTitle("Talisman");
+			}
+
+			const ensureDownloadUrl = (m: Mod): Mod => {
+				if (m.downloadURL && m.downloadURL.trim().length > 0) return m;
+				if (m._dirName) {
+					return { ...m, downloadURL: `bmi://${m._dirName}` };
+				}
+				return m;
+			};
+			for (const title of desiredTitles) {
+				const normalized = normalizeName(title);
+				if (installedNormalized.has(normalized)) continue;
+				let match = modsByNormalized.get(normalized);
+				if (!match || !match.downloadURL) {
+					await ensureRepoMods();
+					match = repoModsByNormalized.get(normalized);
+				}
+				if (match) {
+					const withUrl = ensureDownloadUrl(match);
+					if (withUrl.downloadURL) {
+						missing.push(withUrl);
+					} else {
+						missingUnresolved.push(title);
+					}
+				} else {
+					missingUnresolved.push(title);
+				}
+			}
+
+			const priority = (title: string) => {
+				const normalized = normalizeName(title);
+				if (normalized === "steamodded") return 0;
+				if (normalized === "talisman") return 1;
+				return 2;
+			};
+			missing.sort((a, b) => priority(a.title) - priority(b.title));
+
+			const installModSilently = async (mod: Mod) => {
+				if (!mod?.title || !mod?.downloadURL) return;
+				const folderName =
+					mod.folderName || mod.title.replace(/\s+/g, "");
+				const dependencies: string[] = [];
+				if (mod.requires_steamodded) dependencies.push("Steamodded");
+				if (mod.requires_talisman) dependencies.push("Talisman");
+				const installedPath = await invoke<string>("install_mod", {
+					url: mod.downloadURL,
+					folderName,
+				});
+				await invoke("add_installed_mod", {
+					name: mod.title,
+					path: installedPath,
+					dependencies,
+					currentVersion: mod.version || "",
+				});
+				installationStatus.update((s) => ({
+					...s,
+					[mod.title]: true,
+				}));
+				updateAvailableStore.update((s) => ({
+					...s,
+					[mod.title]: false,
+				}));
+			};
+
+			for (const mod of missing) {
+				try {
+					await installModSilently(mod);
+				} catch (error) {
+					addMessage(
+						`Failed to install ${mod.title}: ${
+							error instanceof Error ? error.message : String(error)
+						}`,
+						"error",
+					);
+				}
+			}
+			if (missingUnresolved.length > 0 || missingUnresolvedIds.length > 0) {
+				const totalMissing = missingUnresolved.length + missingUnresolvedIds.length;
+				addMessage(
+					`Missing ${totalMissing} mod(s) in the catalog. Install them manually to include in this collection.`,
+					"warning",
+				);
+			}
+
+			await refreshInstalledMods();
+			enabledMap = await invoke<Record<string, boolean>>(
+				"enabled_state_map",
+				{ localPaths },
+			);
+			const wanted = new Set(desiredTitles.map((t) => normalizeName(t)));
+			const toEnable: string[] = [];
+			const toDisable: string[] = [];
+			const installedNames = Object.keys(enabledMap);
+			let installedInCollection = 0;
+			for (const name of installedNames) {
+				const shouldEnable = wanted.has(normalizeName(name));
+				if (shouldEnable) installedInCollection += 1;
+				const current = enabledMap[name];
+				if (current !== shouldEnable) {
+					(shouldEnable ? toEnable : toDisable).push(name);
+				}
+			}
+			if (installedNames.length === 0) {
+				addMessage("No installed mods found to activate.", "info");
+				return;
+			}
+			if (toEnable.length === 0 && toDisable.length === 0) {
+				setActiveCollection(id);
+				addMessage("Collection already active.", "info");
+				return;
+			}
+			await invoke("toggle_mods_enabled_batch", {
+				enabled: toEnable,
+				disabled: toDisable,
+				localPaths,
+			});
+			modEnabledStore.update((map) => {
+				const next = { ...map };
+				for (const name of toEnable) next[name] = true;
+				for (const name of toDisable) next[name] = false;
+				return next;
+			});
+			setActiveCollection(id);
+			addMessage(`Activated "${collection.name}".`, "success");
+			await refreshStateSummary();
+		} catch (error) {
+			addMessage(
+				`Failed to activate collection: ${
+					error instanceof Error ? error.message : String(error)
+				}`,
+				"error",
+			);
+		} finally {
+			collectionBusy = null;
+		}
+	}
+
+	async function deactivateCollection(id: string) {
+		if (collectionBusy) return;
+		if ($activeCollectionId !== id) return;
+		const collection = $collectionsStore.find((c) => c.id === id);
+		if (!collection) return;
+		collectionBusy = id;
+		try {
+			const normalizeName = (name: string) =>
+				name.toLowerCase().replace(/[^a-z0-9+]+/g, "").trim();
+			const localPaths = localMods.map((m) => m.path);
+			const enabledMap = await invoke<Record<string, boolean>>(
+				"enabled_state_map",
+				{ localPaths },
+			);
+			const wanted = new Set(
+				collection.modTitles.map((t) => normalizeName(t)),
+			);
+			for (const modId of collection.modIds ?? []) {
+				const match = get(modsStore).find((m) => m.id === modId);
+				if (match) {
+					wanted.add(normalizeName(match.title));
+				} else {
+					wanted.add(normalizeName(modId));
+				}
+			}
+
+			const toDisable = Object.entries(enabledMap)
+				.filter(([name, enabled]) => enabled && wanted.has(normalizeName(name)))
+				.map(([name]) => name);
+			if (toDisable.length > 0) {
+				await invoke("toggle_mods_enabled_batch", {
+					enabled: [],
+					disabled: toDisable,
+					localPaths,
+				});
+				modEnabledStore.update((map) => {
+					const next = { ...map };
+					for (const name of toDisable) next[name] = false;
+					return next;
+				});
+			}
+			setActiveCollection(null);
+			addMessage("Collection deactivated.", "info");
+			await refreshStateSummary();
+		} catch (error) {
+			addMessage(
+				`Failed to deactivate collection: ${
+					error instanceof Error ? error.message : String(error)
+				}`,
+				"error",
+			);
+		} finally {
+			collectionBusy = null;
+		}
 	}
 
     let sortedAndFilteredMods = $derived(sortMods(filteredMods, $currentSort));
@@ -2116,6 +2549,131 @@ onDestroy(() => {
 					<p class="loading-text">Loading search…</p>
 				</div>
 			{/if}
+		{:else if $currentCategory === "Collections"}
+			<div class="mods-wrapper">
+				<div class="collections-shell">
+					<div class="collections-left default-scrollbar">
+						<div class="collections-create">
+							<input
+								class="text-input"
+								type="text"
+								placeholder="Collection name"
+								bind:value={newCollectionName}
+								onkeydown={(e) => e.key === "Enter" && handleCreateCollection()}
+							/>
+							<button class="add-button" onclick={handleCreateCollection}>
+								+
+							</button>
+						</div>
+						<div class="collections-import">
+							<button class="ghost import" type="button" onclick={() => openCollectionImport()}>
+								Import code
+							</button>
+						</div>
+
+						{#if $collectionsStore.length === 0}
+							<div class="collections-empty">
+								No collections yet. Create one to get started.
+							</div>
+						{:else}
+							<div class="collections-list">
+								{#each $collectionsStore as col (col.id)}
+									<div class="collection-row">
+										{#if renamingId === col.id}
+											<input
+												class="text-input rename-input"
+												type="text"
+												bind:value={renameValue}
+												onkeydown={(e) =>
+													e.key === "Enter" && saveRenameCollection(col.id)}
+											/>
+										{:else}
+											<button
+												type="button"
+												class="collection-item"
+												class:active={selectedCollectionId === col.id}
+												onclick={() => (selectedCollectionId = col.id)}
+											>
+												{col.name}
+											</button>
+										{/if}
+										<div class="collection-actions">
+											{#if renamingId === col.id}
+												<button class="ghost confirm" onclick={() => saveRenameCollection(col.id)}>
+													Save
+												</button>
+												<button class="ghost neutral" onclick={cancelRenameCollection}>
+													Cancel
+												</button>
+											{:else}
+												<button class="ghost rename" onclick={() => startRenameCollection(col.id, col.name)}>
+													Rename
+												</button>
+												<button class="ghost share" onclick={() => handleShareCollection(col.id)}>
+													Share
+												</button>
+												<button class="ghost delete" onclick={() => handleDeleteCollection(col.id)}>
+													Delete
+												</button>
+											{/if}
+											<button
+												class="toggle-collection"
+												class:enabled={$activeCollectionId === col.id}
+												disabled={collectionBusy === col.id}
+												onclick={() =>
+													$activeCollectionId === col.id
+														? deactivateCollection(col.id)
+														: activateCollection(col.id)}
+											>
+												{#if collectionBusy === col.id}
+													Loading{".".repeat($loadingDots)}
+												{:else}
+													{$activeCollectionId === col.id ? "On" : "Off"}
+												{/if}
+											</button>
+										</div>
+									</div>
+								{/each}
+							</div>
+						{/if}
+					</div>
+
+					<div class="collections-separator"></div>
+
+					<div class="collections-right default-scrollbar">
+						{#if selectedCollection}
+							<div class="collections-mods">
+								{#if selectedCollectionMods.length === 0}
+									<div class="collections-empty">
+										This collection has no mods yet.
+									</div>
+								{:else}
+									<div class="mods-grid collections-mods-grid">
+										{#each selectedCollectionMods as mod (mod.title)}
+											<div class="virtual-cell">
+												<ModCard
+													{mod}
+													deferImages={paginating}
+													hideDescription={true}
+													onmodclick={handleModClick}
+													oninstallclick={installMod}
+													onuninstallclick={uninstallMod}
+													onToggleEnabled={handleModToggled}
+												/>
+											</div>
+										{/each}
+									</div>
+								{/if}
+							</div>
+						{:else}
+							<div class="collections-empty">
+								Select a collection to view its mods.
+							</div>
+						{/if}
+					</div>
+
+				</div>
+			</div>
 		{:else}
 			<div class="mods-wrapper">
 				<div class="controls-container">
@@ -2398,6 +2956,7 @@ onDestroy(() => {
 		/>
 	{/if}
 </div>
+
 
 <style>
 	.container.default-scrollbar {
@@ -2731,6 +3290,389 @@ onDestroy(() => {
 		color: #393646;
 	}
 
+	.collections-shell {
+		display: flex;
+		height: 100%;
+	}
+
+	.collections-left,
+	.collections-right {
+		display: flex;
+		flex-direction: column;
+		overflow-y: auto;
+		padding: 1.5rem 0.6rem 2rem 0;
+	}
+
+	.collections-left {
+		width: 42%;
+		padding-right: 2.2rem;
+	}
+
+	.collections-right {
+		flex: 1;
+	}
+
+	.collections-separator {
+		width: 2px;
+		background: #f4eee0;
+		height: 100%;
+	}
+
+	.collections-create {
+		display: flex;
+		gap: 0.6rem;
+		align-items: center;
+		margin-bottom: 1rem;
+	}
+
+	.collections-create .text-input {
+		flex: 1;
+		min-width: 260px;
+		background: #2d2d2d;
+		color: #f4eee0;
+		border: 2px solid #f4eee0;
+		border-radius: 6px;
+		padding: 0.6rem 0.75rem;
+		font-family: "M6X11", sans-serif;
+		font-size: 1rem;
+	}
+
+	.collections-create .text-input:focus {
+		outline: none;
+		border-color: #ea9600;
+		box-shadow: 0 0 0 2px rgba(234, 150, 0, 0.35);
+	}
+
+	.collections-create .add-button {
+		min-width: 44px;
+		height: 44px;
+		border-radius: 6px;
+		border: 2px solid #f4eee0;
+		background: #27ae60;
+		color: #f4eee0;
+		font-size: 1.4rem;
+		font-family: "M6X11", sans-serif;
+		cursor: pointer;
+		transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+		box-shadow: 0 3px 0 rgba(0, 0, 0, 0.25);
+	}
+
+	.collections-create .add-button:hover {
+		transform: translateY(-2px);
+		background: #2ecc71;
+		box-shadow: 0 6px 0 rgba(0, 0, 0, 0.25);
+	}
+
+	.collections-create .add-button:active {
+		transform: translateY(1px);
+		box-shadow: 0 2px 0 rgba(0, 0, 0, 0.25);
+	}
+
+	.collections-import {
+		margin-bottom: 1rem;
+	}
+
+	.collections-import .ghost.import {
+		width: 100%;
+		background: #3c5aa6;
+		border: 2px solid #f4eee0;
+		color: #f4eee0;
+		padding: 0.7rem 0.9rem;
+		border-radius: 6px;
+		font-family: "M6X11", sans-serif;
+		font-size: 1.05rem;
+		cursor: pointer;
+		transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+	}
+
+	.collections-import .ghost.import:hover {
+		transform: translateY(-2px);
+		background: #4867bf;
+		box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2);
+	}
+
+	.collections-import .ghost.import:active {
+		transform: translateY(1px);
+		box-shadow: none;
+	}
+
+	.collections-list {
+		display: flex;
+		flex-direction: column;
+		gap: 0.8rem;
+		margin: 0 0 2rem;
+	}
+
+	.collection-row {
+		display: flex;
+		gap: 0.6rem;
+		align-items: center;
+	}
+
+	.collection-item {
+		flex: 1;
+		min-width: 180px;
+		background: #ea9600;
+		border: 2px solid #f4eee0;
+		color: #f4eee0;
+		padding: 0 0.9rem;
+		border-radius: 6px;
+		font-family: "M6X11", sans-serif;
+		font-size: 1.05rem;
+		cursor: pointer;
+		height: 44px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		text-align: center;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		box-sizing: border-box;
+		transition: transform 0.18s ease, box-shadow 0.18s ease;
+	}
+
+	.rename-input {
+		flex: 0 0 auto;
+		width: 180px;
+		max-width: 180px;
+		box-sizing: border-box;
+		background: #ea9600;
+		border: 2px solid #f4eee0;
+		color: #f4eee0;
+		padding: 0 0.9rem;
+		border-radius: 6px;
+		font-family: "M6X11", sans-serif;
+		font-size: 1.05rem;
+		text-align: center;
+		height: 44px;
+	}
+
+	.rename-input:focus {
+		outline: none;
+		background: #d9791c;
+		box-shadow: 0 0 0 2px rgba(244, 238, 224, 0.35);
+	}
+
+	.rename-input::selection {
+		background: #f4eee0;
+		color: #393646;
+	}
+
+	.collection-item.active {
+		background: #f4eee0;
+		color: #393646;
+	}
+
+	.collection-item:hover {
+		transform: translateY(-2px);
+		box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2);
+	}
+
+	.collection-item:active {
+		transform: translateY(1px);
+		box-shadow: none;
+	}
+
+	.collection-actions {
+		display: flex;
+		align-items: center;
+		gap: 0.4rem;
+	}
+
+	.collection-actions .ghost {
+		background: transparent;
+		border: 2px solid #f4eee0;
+		color: #f4eee0;
+		padding: 0.7rem 0.9rem;
+		border-radius: 6px;
+		font-family: "M6X11", sans-serif;
+		font-size: 1.05rem;
+		cursor: pointer;
+		transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+	}
+
+	.collection-actions .ghost.rename {
+		background: #ea9600;
+		border-color: #f4eee0;
+		color: #f4eee0;
+	}
+
+	.collection-actions .ghost.delete {
+		background: #e74c3c;
+		border-color: #f4eee0;
+		color: #f4eee0;
+	}
+
+	.collection-actions .ghost.share {
+		background: #3c5aa6;
+		border-color: #f4eee0;
+		color: #f4eee0;
+	}
+
+	.collection-actions .ghost.confirm {
+		background: #27ae60;
+		border-color: #f4eee0;
+		color: #f4eee0;
+	}
+
+	.collection-actions .ghost.neutral {
+		background: #b86a2b;
+		border-color: #f4eee0;
+		color: #f4eee0;
+	}
+
+	.collection-actions .ghost:hover {
+		transform: translateY(-2px);
+		box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2);
+	}
+
+	.collection-actions .ghost:active {
+		transform: translateY(1px);
+		box-shadow: none;
+	}
+
+	.toggle-collection {
+		background: #ea9600;
+		color: #f4eee0;
+		border: 2px solid #f4eee0;
+		border-radius: 6px;
+		padding: 0.7rem 0.9rem;
+		font-family: "M6X11", sans-serif;
+		font-size: 1.05rem;
+		cursor: pointer;
+		transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+	}
+
+	.toggle-collection.enabled {
+		background: #27ae60;
+	}
+
+	.toggle-collection:hover:not(:disabled) {
+		transform: translateY(-2px);
+		box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2);
+	}
+
+	.toggle-collection:active:not(:disabled) {
+		transform: translateY(1px);
+		box-shadow: none;
+	}
+
+	.toggle-collection:disabled {
+		opacity: 0.6;
+		cursor: not-allowed;
+	}
+
+
+	@media (max-width: 1200px) {
+		.collections-left {
+			width: 38%;
+			padding-right: 3.2rem;
+		}
+
+		.collections-create .text-input {
+			min-width: 200px;
+			font-size: 0.95rem;
+			padding: 0.5rem 0.65rem;
+		}
+
+		.collections-create .add-button {
+			min-width: 40px;
+			height: 40px;
+			font-size: 1.2rem;
+		}
+
+		.collection-item {
+			min-width: 160px;
+			font-size: 0.95rem;
+			padding: 0.6rem 0.75rem;
+		}
+
+		.collection-actions .ghost,
+		.toggle-collection {
+			font-size: 0.95rem;
+			padding: 0.6rem 0.75rem;
+		}
+
+		.rename-input {
+			width: 165px;
+			max-width: 165px;
+		}
+	}
+
+	@media (max-width: 980px) {
+		.collections-left {
+			width: 42%;
+			padding-right: 2.6rem;
+		}
+
+		.collections-create .text-input {
+			min-width: 180px;
+			font-size: 0.9rem;
+		}
+
+		.collections-create .add-button {
+			min-width: 36px;
+			height: 36px;
+			font-size: 1.1rem;
+		}
+
+		.collection-item {
+			min-width: 150px;
+			font-size: 0.9rem;
+		}
+
+		.collection-actions .ghost,
+		.toggle-collection {
+			font-size: 0.9rem;
+			padding: 0.55rem 0.7rem;
+		}
+
+		.rename-input {
+			width: 150px;
+			max-width: 150px;
+		}
+	}
+
+	@media (max-width: 1500px) {
+		.collection-row {
+			flex-wrap: wrap;
+			row-gap: 0.5rem;
+		}
+
+		.collection-item {
+			flex: 1 1 100%;
+		}
+
+		.collection-actions {
+			width: 100%;
+			justify-content: space-between;
+		}
+
+		.collection-actions .ghost,
+		.toggle-collection {
+			flex: 1 1 0;
+		}
+
+		.rename-input {
+			width: 100%;
+			max-width: 100%;
+		}
+	}
+
+	.collections-empty {
+		text-align: center;
+		color: #f4eee0;
+		opacity: 0.9;
+		padding: 2rem 1rem;
+		font-size: 1.4rem;
+	}
+
+	.collections-mods {
+		margin: 0 0 1.5rem;
+	}
+
+
 	.mods-scroll-container {
 		overflow-y: auto;
 		flex: 1 1 auto;
@@ -2763,6 +3705,15 @@ onDestroy(() => {
 		gap: 30px;
 		content-visibility: auto;
 		contain-intrinsic-size: 900px 1200px;
+	}
+
+	.collections-mods-grid {
+		--card-scale: 0.8;
+		grid-template-columns: repeat(
+			auto-fill,
+			minmax(calc(250px * var(--card-scale, 1)), 1fr)
+		);
+		gap: 24px;
 	}
 
 	.local-mods-grid {

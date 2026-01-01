@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { Mod } from "../../stores/modStore";
-	import { Download, Trash2, RefreshCw } from "lucide-svelte";
+	import { Download, Trash2, RefreshCw, Layers } from "lucide-svelte";
 import {
 	installationStatus,
 	loadingStates2 as loadingStates,
@@ -8,13 +8,14 @@ import {
 	updateAvailableStore,
 } from "../../stores/modStore";
 import { descriptionsStore } from "../../stores/descriptions";
+import { openCollectionPicker } from "../../stores/collections";
 	import { stripMarkdown } from "../../utils/helpers";
 	import { invoke } from "@tauri-apps/api/core";
 	import { lovelyPopupStore } from "../../stores/modStore";
 	import { forceRefreshCache } from "../../stores/modCache";
 import LazyImage from "../common/LazyImage.svelte";
 	import { cardScale } from "../../stores/ui";
-import { onMount } from "svelte";
+import { onMount, onDestroy } from "svelte";
 import { isLinuxPlatform } from "$lib/platform";
 
 	interface Props {
@@ -25,6 +26,7 @@ import { isLinuxPlatform } from "$lib/platform";
 		onToggleEnabled?: () => Promise<void>;
 		deferImages?: boolean;
 		searchSpacing?: boolean;
+		hideDescription?: boolean;
 	}
 
 	let {
@@ -35,6 +37,7 @@ import { isLinuxPlatform } from "$lib/platform";
 		onToggleEnabled,
 		deferImages = false,
 		searchSpacing = false,
+		hideDescription = false,
 	}: Props = $props();
 
 	let isEnabled = $state(true); // Default to enabled if not yet checked
@@ -45,6 +48,9 @@ import { isLinuxPlatform } from "$lib/platform";
 	);
 	let thumbLoaded = $state(false);
 	let lastThumbKey = "";
+	let titleEl: HTMLHeadingElement | null = $state(null);
+	let titleScale = $state(1);
+	let titleResizeObserver: ResizeObserver | null = null;
 
 	$effect(() => {
 		const key = `${mod.title}|${mod.image}`;
@@ -72,6 +78,46 @@ import { isLinuxPlatform } from "$lib/platform";
 
 	onMount(async () => {
 		isLinux = await isLinuxPlatform();
+	});
+
+	const updateTitleScale = () => {
+		if (!titleEl || !hideDescription) {
+			titleScale = 1;
+			return;
+		}
+		const available = titleEl.clientWidth;
+		const needed = titleEl.scrollWidth;
+		if (available > 0 && needed > 0) {
+			const ratio = Math.min(1, available / needed);
+			titleScale = Math.max(0.8, ratio);
+		} else {
+			titleScale = 1;
+		}
+	};
+
+	$effect(() => {
+		if (!hideDescription) {
+			titleScale = 1;
+			return;
+		}
+		mod.title;
+		$cardScale;
+		requestAnimationFrame(updateTitleScale);
+	});
+
+	onMount(() => {
+		if (typeof ResizeObserver === "undefined") return;
+		titleResizeObserver = new ResizeObserver(() => {
+			updateTitleScale();
+		});
+		if (titleEl) {
+			titleResizeObserver.observe(titleEl);
+		}
+	});
+
+	onDestroy(() => {
+		titleResizeObserver?.disconnect();
+		titleResizeObserver = null;
 	});
 
 	async function checkModEnabled(modName: string) {
@@ -159,6 +205,11 @@ import { isLinuxPlatform } from "$lib/platform";
 	function uninstallMod(e: Event) {
 		e.stopPropagation();
 		if (onuninstallclick) onuninstallclick(mod);
+	}
+
+	function openCollections(e: Event) {
+		e.stopPropagation();
+		openCollectionPicker(mod.title, mod.id);
 	}
 
 	function openModView() {
@@ -295,6 +346,7 @@ import { isLinuxPlatform } from "$lib/platform";
 <div
 	class="mod-card"
 	class:compact={$cardScale <= 0.85}
+	class:desc-hidden={hideDescription}
 	class:thumb-loading={!thumbLoaded}
 	class:search-spacing={searchSpacing}
 	onclick={openModView}
@@ -325,10 +377,10 @@ import { isLinuxPlatform } from "$lib/platform";
 	</div>
 
 	<div class="mod-info">
-		<h3>{mod.title}</h3>
-		{#if descriptionText && descriptionText.trim().length > 0}
+		<h3 bind:this={titleEl} style={`--title-scale: ${titleScale}`}>{mod.title}</h3>
+		{#if !hideDescription && descriptionText && descriptionText.trim().length > 0}
 			<p>{truncateDynamic(stripMarkdown(descriptionText), $cardScale)}</p>
-		{:else}
+		{:else if !hideDescription}
 			<div class="desc-skeleton" aria-hidden="true">
 				<div class="line" style="width: 92%"></div>
 				<div class="line" style="width: 84%"></div>
@@ -398,6 +450,14 @@ import { isLinuxPlatform } from "$lib/platform";
 				<Trash2 size={18} />
 			</button>
 		{/if}
+
+		<button
+			class="collection-button"
+			title="Add to collection"
+			onclick={openCollections}
+		>
+			<Layers size={18} />
+		</button>
 	</div>
 </div>
 
@@ -500,6 +560,15 @@ import { isLinuxPlatform } from "$lib/platform";
 		margin-bottom: 0.2rem;
 	}
 
+	.mod-card.desc-hidden .mod-info h3 {
+		font-size: calc(2rem * var(--card-scale, 1) * var(--title-scale, 1));
+		margin-bottom: 0.4rem;
+		margin-top: 0.4rem;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+
 	.mod-info p {
 		color: #f4eee0;
 		font-size: calc(1rem * var(--card-scale, 1));
@@ -510,6 +579,28 @@ import { isLinuxPlatform } from "$lib/platform";
 	.mod-card.compact .mod-info > p {
 		-webkit-line-clamp: 1;
 		line-clamp: 1;
+	}
+
+	.mod-card.desc-hidden {
+		height: calc(275px * var(--card-scale, 1));
+	}
+
+	.mod-card.desc-hidden .mod-image {
+		height: calc(130px * var(--card-scale, 1));
+	}
+
+.mod-card.desc-hidden .mod-info {
+		bottom: -0.4rem;
+		padding-bottom: calc(44px * var(--card-scale, 1));
+		padding-top: 0.2rem;
+	}
+
+	.mod-card.desc-hidden .mod-info h3 {
+		margin-top: 0.4rem;
+	}
+
+	.mod-card.desc-hidden .button-container {
+		bottom: 0.4rem;
 	}
 
 	/* Description skeleton */
@@ -643,6 +734,31 @@ import { isLinuxPlatform } from "$lib/platform";
 	}
 
 	.delete-button:active {
+		transform: translateY(1px);
+	}
+
+	.collection-button {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		min-width: calc(42px * var(--card-scale, 1));
+		height: calc(42px * var(--card-scale, 1));
+		padding: calc(8px * var(--card-scale, 1));
+		background: #3b5d99;
+		color: #f4eee0;
+		border: none;
+		outline: #2f4c80 solid 2px;
+		border-radius: 4px;
+		cursor: pointer;
+		transition: all 0.2s ease;
+	}
+
+	.collection-button:hover {
+		background: #4669a9;
+		transform: translateY(-2px);
+	}
+
+	.collection-button:active {
 		transform: translateY(1px);
 	}
 
