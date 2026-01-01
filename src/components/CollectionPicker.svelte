@@ -8,8 +8,15 @@
     createCollection,
     setModInCollection,
   } from "../stores/collections";
-  import { modsStore } from "../stores/modStore";
+  import {
+    modsStore,
+    installationStatus,
+    loadingStates2,
+    updateAvailableStore,
+  } from "../stores/modStore";
   import { get } from "svelte/store";
+  import { invoke } from "@tauri-apps/api/core";
+  import type { Mod } from "../stores/modStore";
 
   let newName = $state("");
   let creating = $state(false);
@@ -30,12 +37,65 @@
     return collection.modTitles.includes(title);
   };
 
+  const ensureDownloadUrl = (mod: Mod): Mod => {
+    if (mod.downloadURL && mod.downloadURL.trim().length > 0) return mod;
+    if (mod._dirName) {
+      return { ...mod, downloadURL: `bmi://${mod._dirName}` };
+    }
+    if (mod.id) {
+      return { ...mod, downloadURL: `bmi://${mod.id}` };
+    }
+    return mod;
+  };
+
+  const installIfNeeded = async (mod: Mod | undefined) => {
+    if (!mod) return;
+    if (get(installationStatus)[mod.title]) return;
+    if (get(loadingStates2)[mod.title]) return;
+    const withUrl = ensureDownloadUrl(mod);
+    if (!withUrl.downloadURL) return;
+    loadingStates2.update((s) => ({ ...s, [mod.title]: true }));
+    const dependencies: string[] = [];
+    if (mod.requires_steamodded) dependencies.push("Steamodded");
+    if (mod.requires_talisman) dependencies.push("Talisman");
+    const folderName = mod.folderName || mod.title.replace(/\s+/g, "");
+    try {
+      const installedPath = await invoke<string>("install_mod", {
+        url: withUrl.downloadURL,
+        folderName,
+      });
+      await invoke("add_installed_mod", {
+        name: mod.title,
+        path: installedPath,
+        dependencies,
+        currentVersion: mod.version || "",
+      });
+      installationStatus.update((s) => ({
+        ...s,
+        [mod.title]: true,
+      }));
+      updateAvailableStore.update((s) => ({
+        ...s,
+        [mod.title]: false,
+      }));
+    } catch (error) {
+      addMessage(
+        `Failed to install ${mod.title}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+        "error",
+      );
+    } finally {
+      loadingStates2.update((s) => ({ ...s, [mod.title]: false }));
+    }
+  };
+
   const close = () => {
     closeCollectionPicker();
     newName = "";
   };
 
-  function handleCreate() {
+  async function handleCreate() {
     if (creating) return;
     creating = true;
     const result = createCollection(newName);
@@ -51,6 +111,7 @@
       const collection = $collectionsStore.find((c) => c.id === result.id);
       if (collection) {
         const mod = get(modsStore).find((m) => m.title === modTitle);
+        await installIfNeeded(mod);
         if (mod) {
           const required: string[] = [];
           if (mod.requires_steamodded) required.push("Steamodded");
@@ -98,7 +159,7 @@
     creating = false;
   }
 
-  function handleToggle(id: string) {
+  async function handleToggle(id: string) {
     const modTitle = $collectionPickerStore.modTitle;
     const modId = $collectionPickerStore.modId;
     if (!modTitle) return;
@@ -114,6 +175,7 @@
     setModInCollection(id, modTitle, true, modId);
 
     const mod = get(modsStore).find((m) => m.title === modTitle);
+    await installIfNeeded(mod);
     if (!mod) return;
     const required: string[] = [];
     if (mod.requires_steamodded) required.push("Steamodded");
@@ -157,11 +219,12 @@
     depPrompt = null;
   }
 
-  function acceptDepPrompt() {
+  async function acceptDepPrompt() {
     if (!depPrompt) return;
     for (const dep of depPrompt.missing) {
       const depMod = get(modsStore).find((m) => m.title === dep);
       setModInCollection(depPrompt.collectionId, dep, true, depMod?.id ?? null);
+      await installIfNeeded(depMod);
     }
     depPrompt = null;
   }
