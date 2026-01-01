@@ -2677,9 +2677,13 @@ onDestroy(() => {
 		flex-direction: column;
 		gap: 0.5rem;
 		overflow-y: auto;
+		scrollbar-width: none;
+		-ms-overflow-style: none;
 		padding: 2rem 0;
 		&::-webkit-scrollbar {
-			width: 10px;
+			width: 0;
+			height: 0;
+			display: none;
 		}
 		&::-webkit-scrollbar-track {
 			background: transparent;
