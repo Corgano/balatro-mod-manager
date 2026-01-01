@@ -2325,11 +2325,13 @@ onDestroy(() => {
 
     let totalPages = $derived(Math.ceil(sortedAndFilteredMods.length / $itemsPerPage));
 	let paginatedMods = $derived(
-        sortedAndFilteredMods.slice(
-            ($currentPage - 1) * $itemsPerPage,
-            $currentPage * $itemsPerPage,
-        )
-    );
+		$currentCategory === "Installed Mods"
+			? sortedAndFilteredMods
+			: sortedAndFilteredMods.slice(
+					($currentPage - 1) * $itemsPerPage,
+					$currentPage * $itemsPerPage,
+			  )
+	);
 
 	let visiblePaginatedMods: Mod[] = $state([]);
 
