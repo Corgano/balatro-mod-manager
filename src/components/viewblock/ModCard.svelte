@@ -27,6 +27,7 @@ import { isLinuxPlatform } from "$lib/platform";
 		deferImages?: boolean;
 		searchSpacing?: boolean;
 		hideDescription?: boolean;
+		disableInstall?: boolean;
 	}
 
 	let {
@@ -38,6 +39,7 @@ import { isLinuxPlatform } from "$lib/platform";
 		deferImages = false,
 		searchSpacing = false,
 		hideDescription = false,
+		disableInstall = false,
 	}: Props = $props();
 
 	let isEnabled = $state(true); // Default to enabled if not yet checked
@@ -179,7 +181,13 @@ import { isLinuxPlatform } from "$lib/platform";
 	function installMod(e: Event) {
 		e.stopPropagation();
 		// Guard: don't allow re-entrancy or duplicate installs
-		if ($loadingStates[mod.title] || $installationStatus[mod.title]) return;
+		if (
+			$loadingStates[mod.title] ||
+			$installationStatus[mod.title] ||
+			(disableInstall && !$installationStatus[mod.title])
+		) {
+			return;
+		}
 		if (mod.title.toLowerCase() === "steamodded") {
 			// Set loading immediately to prevent multiple clicks while fetching URL
 			loadingStates.update((s) => ({ ...s, [mod.title]: true }));
@@ -429,7 +437,8 @@ import { isLinuxPlatform } from "$lib/platform";
 				class="download-button"
 				class:installed={$installationStatus[mod.title]}
 				disabled={$installationStatus[mod.title] ||
-					$loadingStates[mod.title]}
+					$loadingStates[mod.title] ||
+					(disableInstall && !$installationStatus[mod.title])}
 				onclick={installMod}
 			>
 				{#if $loadingStates[mod.title]}

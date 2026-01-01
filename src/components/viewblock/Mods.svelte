@@ -2153,29 +2153,34 @@ onDestroy(() => {
 
 			const installModSilently = async (mod: Mod) => {
 				if (!mod?.title || !mod?.downloadURL) return;
+				loadingStates2.update((s) => ({ ...s, [mod.title]: true }));
 				const folderName =
 					mod.folderName || mod.title.replace(/\s+/g, "");
 				const dependencies: string[] = [];
 				if (mod.requires_steamodded) dependencies.push("Steamodded");
 				if (mod.requires_talisman) dependencies.push("Talisman");
-				const installedPath = await invoke<string>("install_mod", {
-					url: mod.downloadURL,
-					folderName,
-				});
-				await invoke("add_installed_mod", {
-					name: mod.title,
-					path: installedPath,
-					dependencies,
-					currentVersion: mod.version || "",
-				});
-				installationStatus.update((s) => ({
-					...s,
-					[mod.title]: true,
-				}));
-				updateAvailableStore.update((s) => ({
-					...s,
-					[mod.title]: false,
-				}));
+				try {
+					const installedPath = await invoke<string>("install_mod", {
+						url: mod.downloadURL,
+						folderName,
+					});
+					await invoke("add_installed_mod", {
+						name: mod.title,
+						path: installedPath,
+						dependencies,
+						currentVersion: mod.version || "",
+					});
+					installationStatus.update((s) => ({
+						...s,
+						[mod.title]: true,
+					}));
+					updateAvailableStore.update((s) => ({
+						...s,
+						[mod.title]: false,
+					}));
+				} finally {
+					loadingStates2.update((s) => ({ ...s, [mod.title]: false }));
+				}
 			};
 
 			for (const mod of missing) {
@@ -2655,6 +2660,7 @@ onDestroy(() => {
 													{mod}
 													deferImages={paginating}
 													hideDescription={true}
+													disableInstall={$activeCollectionId === selectedCollectionId || collectionBusy === selectedCollectionId}
 													onmodclick={handleModClick}
 													oninstallclick={installMod}
 													onuninstallclick={uninstallMod}
