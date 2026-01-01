@@ -76,6 +76,11 @@ export const selectedModStore = writable<{ name: string; path: string } | null>(
 export const dependentsStore = writable<string[]>([]);
 export const currentPage = writable(1);
 export const itemsPerPage = writable(12);
+export const paginationWindow = writable({
+  startPage: 1,
+  totalPages: 1,
+  maxVisiblePages: 5,
+});
 
 export type UninstallResult = {
   success: boolean;

@@ -11,9 +11,10 @@ let ShaderBackgroundComp = $state<Component | null>(null);
 	import SecurityPopup from "../../components/SecurityPopup.svelte";
 	import LovelyMissingPopup from "../../components/LovelyMissingPopup.svelte";
 	import type { DependencyCheck, InstalledMod } from "../../stores/modStore";
-	import { currentModView, modsStore } from "../../stores/modStore";
+	import { currentModView, currentCategory, modsStore } from "../../stores/modStore";
 	import { backgroundEnabled } from "../../stores/modStore";
 	import { selectedModStore, dependentsStore } from "../../stores/modStore";
+	import { currentPage, paginationWindow } from "../../stores/modStore";
 	import {
 		installationStatus,
 		showWarningPopup,
@@ -27,6 +28,7 @@ import { lovelyPopupStore } from "../../stores/modStore";
 import { cardScale } from "../../stores/ui";
 import { get } from "svelte/store";
 import ReportIssue from "../../components/ReportIssue.svelte";
+import { fade } from "svelte/transition";
 import { isLinuxPlatform } from "$lib/platform";
 
 	let currentSection = $state("mods");
@@ -111,6 +113,23 @@ import { isLinuxPlatform } from "$lib/platform";
 		showSecurityPopup = false;
 		storedDownloadAction = null;
 		originalDownloadAction = null;
+	}
+
+	function nextPage() {
+		if ($currentPage < $paginationWindow.totalPages) {
+			currentPage.update((n) => n + 1);
+		}
+	}
+
+	function previousPage() {
+		if ($currentPage > 1) {
+			currentPage.update((n) => n - 1);
+		}
+	}
+
+	function goToPage(page: number) {
+		if (page < 1 || page > $paginationWindow.totalPages) return;
+		currentPage.set(page);
 	}
 
 	function handleProceedDownload() {
@@ -306,7 +325,7 @@ import { isLinuxPlatform } from "$lib/platform";
 		</nav>
 	</header>
 
-    <div
+	<div
 		class="content"
 		class:modal-open={!!$currentModView && currentSection == "mods"}
 		bind:this={contentElement}
@@ -327,6 +346,32 @@ import { isLinuxPlatform } from "$lib/platform";
 			<About />
 		{/if}
 	</div>
+
+	{#if currentSection === "mods" && !$currentModView && $currentCategory !== "Search" && $paginationWindow.totalPages > 1}
+		<div class="pagination-footer" in:fade={{ duration: 150 }} out:fade={{ duration: 120 }}>
+			<div class="pagination-controls">
+				<button onclick={previousPage} disabled={$currentPage === 1}>
+					Previous
+				</button>
+				{#each Array(Math.min($paginationWindow.maxVisiblePages, $paginationWindow.totalPages)) as _, i}
+					{#if $paginationWindow.startPage + i <= $paginationWindow.totalPages}
+						<button
+							class:active={$currentPage === $paginationWindow.startPage + i}
+							onclick={() => goToPage($paginationWindow.startPage + i)}
+						>
+							{$paginationWindow.startPage + i}
+						</button>
+					{/if}
+				{/each}
+				<button
+					onclick={nextPage}
+					disabled={$currentPage === $paginationWindow.totalPages}
+				>
+					Next
+				</button>
+			</div>
+		</div>
+	{/if}
 
 	<RequiresPopup
 		bind:show={showRequiresPopup}
@@ -458,6 +503,52 @@ import { isLinuxPlatform } from "$lib/platform";
 	.header-content {
 		position: relative;
 		margin-bottom: 2rem;
+	}
+
+	.pagination-footer {
+		position: fixed;
+		left: 50%;
+		bottom: 1.1rem;
+		transform: translateX(-50%);
+		display: flex;
+		justify-content: center;
+		z-index: 1400;
+	}
+
+	.pagination-controls {
+		display: flex;
+		gap: 0.4rem;
+		padding: 0;
+		background: transparent;
+		border: none;
+		box-shadow: none;
+	}
+
+	.pagination-controls button {
+		padding: 0.45rem 0.9rem;
+		background: #ea9600;
+		border: 1px solid #f4eee0;
+		color: #f4eee0;
+		font-family: "M6X11", sans-serif;
+		font-size: 0.9rem;
+		cursor: pointer;
+		border-radius: 3px;
+		transition: all 0.2s ease;
+	}
+
+	.pagination-controls button:hover:not(:disabled) {
+		background: #f4eee0;
+		color: #393646;
+	}
+
+	.pagination-controls button.active {
+		background: #f4eee0;
+		color: #393646;
+	}
+
+	.pagination-controls button:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
 	}
 	header {
 		margin-bottom: -1rem;

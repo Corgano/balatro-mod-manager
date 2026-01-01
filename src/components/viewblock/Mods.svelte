@@ -53,7 +53,7 @@ import { onMount, onDestroy } from "svelte";
 import { listen } from "@tauri-apps/api/event";
 import { get, writable } from "svelte/store";
 	import { addMessage } from "$lib/stores";
-	import { currentPage, itemsPerPage } from "../../stores/modStore";
+import { currentPage, itemsPerPage, paginationWindow } from "../../stores/modStore";
 	import ModCard from "./ModCard.svelte";
 	import LocalModCard from "./LocalModCard.svelte";
 import {
@@ -329,32 +329,6 @@ const { handleDependencyCheck, mod } = $props<{
     ) => void;
     mod: Mod | null;
 }>();
-
-	// Update the pagination functions to reset scroll position when switching pages
-	function nextPage() {
-		if ($currentPage < totalPages) {
-			currentPage.update((n) => n + 1);
-			updatePaginationWindow();
-			scrollToTop();
-			markPaginating();
-		}
-	}
-
-	function previousPage() {
-		if ($currentPage > 1) {
-			currentPage.update((n) => n - 1);
-			updatePaginationWindow();
-			scrollToTop();
-			markPaginating();
-		}
-	}
-
-	function goToPage(page: number) {
-		currentPage.set(page);
-		updatePaginationWindow();
-		scrollToTop();
-		markPaginating();
-	}
 
 	// Add this helper function to handle scrolling to top
 	function scrollToTop() {
@@ -1983,6 +1957,30 @@ onDestroy(() => {
 		}
 	}
 
+	let lastPage = $state<number | null>(null);
+	$effect(() => {
+		const page = $currentPage;
+		updatePaginationWindow();
+		if (lastPage === null) {
+			lastPage = page;
+			return;
+		}
+		if (page !== lastPage) {
+			lastPage = page;
+			updatePaginationWindow();
+			scrollToTop();
+			markPaginating();
+		}
+	});
+
+	$effect(() => {
+		paginationWindow.set({
+			startPage,
+			totalPages,
+			maxVisiblePages,
+		});
+	});
+
 	async function refreshInstalledMods() {
 		try {
 			await forceRefreshCache();
@@ -2142,31 +2140,6 @@ onDestroy(() => {
 							</button>
 						{/if}
 					{/if}
-
-					<div
-						class="pagination-controls"
-						in:fly={{ duration: 400, y: 10, opacity: 0.2 }}
-					>
-						<button
-							onclick={previousPage}
-							disabled={$currentPage === 1}>Previous</button
-						>
-						{#each Array(Math.min(maxVisiblePages, totalPages)) as _, i}
-							{#if startPage + i <= totalPages}
-								<button
-									class:active={$currentPage ===
-										startPage + i}
-									onclick={() => goToPage(startPage + i)}
-								>
-									{startPage + i}
-								</button>
-							{/if}
-						{/each}
-						<button
-							onclick={nextPage}
-							disabled={$currentPage === totalPages}>Next</button
-						>
-					</div>
 
 					<div
 						class="sort-controls"
@@ -2688,48 +2661,6 @@ onDestroy(() => {
 		height: 100%;
 	}
 
-	.pagination-controls {
-		position: absolute;
-		/*top: 0.05rem;*/
-		left: 50%;
-		transform: translateX(-50%);
-		z-index: 1000;
-		background: #c14139;
-		border: 2px solid #f4eee0;
-		border-radius: 8px;
-		padding: 0.5rem 1rem;
-		display: flex;
-		gap: 0.5rem;
-		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-	}
-
-	.pagination-controls button {
-		padding: 0.5rem 1rem;
-		background: #ea9600;
-		border: 2px solid #f4eee0;
-		color: #f4eee0;
-		font-family: "M6X11", sans-serif;
-		font-size: 0.8rem;
-		cursor: pointer;
-		border-radius: 4px;
-		transition: all 0.2s ease;
-	}
-
-	.pagination-controls button:hover:not(:disabled) {
-		background: #f4eee0;
-		color: #393646;
-	}
-
-	.pagination-controls button.active {
-		background: #f4eee0;
-		color: #393646;
-	}
-
-	.pagination-controls button:disabled {
-		opacity: 0.5;
-		cursor: not-allowed;
-	}
-
 	.controls-container {
 		height: 75px;
 		width: 100%;
@@ -2798,7 +2729,9 @@ onDestroy(() => {
 
 	.mods-scroll-container {
 		overflow-y: auto;
-		height: 100%;
+		flex: 1 1 auto;
+		min-height: 0;
+		height: auto;
 		contain: layout paint;
 		scrollbar-gutter: stable;
 		backface-visibility: hidden;
@@ -2815,7 +2748,7 @@ onDestroy(() => {
 		margin-top: 3rem !important;
 	}
 
-    .mods-grid {
+	.mods-grid {
 		padding: 1rem 2rem 2rem 2rem;
 		flex: 1;
 		display: grid;
@@ -2870,6 +2803,8 @@ onDestroy(() => {
 		/*192px being the width of the catagories + seperator*/
 		width: calc(100% - 192px);
 		padding: 0 1rem;
+		display: flex;
+		flex-direction: column;
 		contain: layout paint;
 	}
 
@@ -2931,16 +2866,6 @@ onDestroy(() => {
 	}
 
 	@media (max-width: 1160px) {
-		.pagination-controls button {
-			min-width: 3rem;
-			padding: 0.4rem 0.6rem;
-			font-size: 0.75rem;
-		}
-
-		.pagination-controls {
-			left: 20rem;
-		}
-
 		.controls-container {
 			margin-bottom: 0.5rem;
 		}
