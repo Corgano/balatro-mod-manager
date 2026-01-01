@@ -120,6 +120,25 @@ const attemptedDescriptions = new Set<string>();
 		return true;
 	}
 
+	function looksLikeFullDescription(desc: string): boolean {
+		const trimmed = desc.trim();
+		if (!trimmed) return false;
+		if (/<[a-z][\s\S]*>/i.test(trimmed)) return true;
+		if (/^#{1,6}\s/m.test(trimmed)) return true;
+		if (/^\s*(?:[-*+]|\d+\.)\s+/m.test(trimmed)) return true;
+		if (/\n\s*\n/.test(trimmed)) return true;
+		return trimmed.length >= 200;
+	}
+
+	function shouldFetchFullDescription(
+		desc: string | null | undefined,
+		title: string,
+	): boolean {
+		if (!desc || desc.trim().length === 0) return true;
+		if (!hasMeaningfulDescription(desc, title)) return true;
+		return !looksLikeFullDescription(desc);
+	}
+
 	async function hydrateRequirements(mod: Mod): Promise<Mod> {
 		if (!mod._dirName) return mod;
 		if (mod.requires_steamodded || mod.requires_talisman) return mod;
@@ -723,7 +742,7 @@ let modView: HTMLDivElement;
         if (!m) return;
         const cached = $descriptionsStore[m.title];
         const current = cached ?? m.description ?? "";
-        if (hasMeaningfulDescription(current, m.title)) return;
+        if (!shouldFetchFullDescription(current, m.title)) return;
         if (attemptedDescriptions.has(m.title)) return;
         const dir = m._dirName as string | undefined;
         if (!dir) return;
