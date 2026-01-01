@@ -6,53 +6,9 @@ use rayon::prelude::*;
 use std::collections::HashMap;
 use std::fs;
 
-#[tauri::command]
-pub async fn is_mod_enabled(
-    state: tauri::State<'_, AppState>,
-    mod_name: String,
-) -> Result<bool, String> {
-    let db = state
-        .db
-        .lock()
-        .map_err(|_| AppError::LockPoisoned("Database lock poisoned".to_string()))?;
-    let installed_mods = db.get_installed_mods()?;
-    let mod_dir = &installed_mods
-        .iter()
-        .find(|m| m.name == mod_name)
-        .ok_or_else(|| format!("Mod not found: {mod_name}"))?
-        .path
-        .clone();
-    let mod_dir: &Path = Path::new(mod_dir);
-
+fn set_mod_enabled_at_path(mod_dir: &Path, enabled: bool) -> Result<(), String> {
     if !mod_dir.exists() {
-        return Err(format!("Mod directory not found: {mod_name}"));
-    }
-
-    let ignore_file_path = mod_dir.join(".lovelyignore");
-    Ok(!ignore_file_path.exists())
-}
-
-#[tauri::command]
-pub async fn toggle_mod_enabled(
-    state: tauri::State<'_, AppState>,
-    mod_name: String,
-    enabled: bool,
-) -> Result<(), String> {
-    let db = state
-        .db
-        .lock()
-        .map_err(|_| AppError::LockPoisoned("Database lock poisoned".to_string()))?;
-    let installed_mods = db.get_installed_mods()?;
-    let mod_dir = &installed_mods
-        .iter()
-        .find(|m| m.name == mod_name)
-        .ok_or_else(|| format!("Mod not found: {mod_name}"))?
-        .path
-        .clone();
-    let mod_dir: &Path = Path::new(mod_dir);
-
-    if !mod_dir.exists() {
-        return Err(format!("Mod directory not found: {mod_name}"));
+        return Err(format!("Mod path does not exist: {}", mod_dir.display()));
     }
 
     let entries: Vec<_> = fs::read_dir(mod_dir)
@@ -107,6 +63,53 @@ pub async fn toggle_mod_enabled(
 }
 
 #[tauri::command]
+pub async fn is_mod_enabled(
+    state: tauri::State<'_, AppState>,
+    mod_name: String,
+) -> Result<bool, String> {
+    let db = state
+        .db
+        .lock()
+        .map_err(|_| AppError::LockPoisoned("Database lock poisoned".to_string()))?;
+    let installed_mods = db.get_installed_mods()?;
+    let mod_dir = &installed_mods
+        .iter()
+        .find(|m| m.name == mod_name)
+        .ok_or_else(|| format!("Mod not found: {mod_name}"))?
+        .path
+        .clone();
+    let mod_dir: &Path = Path::new(mod_dir);
+
+    if !mod_dir.exists() {
+        return Err(format!("Mod directory not found: {mod_name}"));
+    }
+
+    let ignore_file_path = mod_dir.join(".lovelyignore");
+    Ok(!ignore_file_path.exists())
+}
+
+#[tauri::command]
+pub async fn toggle_mod_enabled(
+    state: tauri::State<'_, AppState>,
+    mod_name: String,
+    enabled: bool,
+) -> Result<(), String> {
+    let db = state
+        .db
+        .lock()
+        .map_err(|_| AppError::LockPoisoned("Database lock poisoned".to_string()))?;
+    let installed_mods = db.get_installed_mods()?;
+    let mod_dir = &installed_mods
+        .iter()
+        .find(|m| m.name == mod_name)
+        .ok_or_else(|| format!("Mod not found: {mod_name}"))?
+        .path
+        .clone();
+    let mod_dir: &Path = Path::new(mod_dir);
+    set_mod_enabled_at_path(mod_dir, enabled)
+}
+
+#[tauri::command]
 pub async fn is_mod_enabled_by_path(mod_path: String) -> Result<bool, String> {
     let path = PathBuf::from(&mod_path);
     if !path.exists() {
@@ -119,57 +122,57 @@ pub async fn is_mod_enabled_by_path(mod_path: String) -> Result<bool, String> {
 #[tauri::command]
 pub async fn toggle_mod_enabled_by_path(mod_path: String, enabled: bool) -> Result<(), String> {
     let path = PathBuf::from(&mod_path);
-    if !path.exists() {
-        return Err(format!("Mod path does not exist: {mod_path}"));
-    }
+    set_mod_enabled_at_path(&path, enabled)
+}
 
-    let entries = fs::read_dir(&path)
-        .map_err(|e| format!("Failed to read mod directory: {e}"))?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| format!("Failed to collect directory entries: {e}"))?;
+#[tauri::command]
+pub async fn toggle_mods_enabled_batch(
+    state: tauri::State<'_, AppState>,
+    enabled: Vec<String>,
+    disabled: Vec<String>,
+    local_paths: Option<Vec<String>>,
+) -> Result<(), String> {
+    let db = state
+        .db
+        .lock()
+        .map_err(|_| AppError::LockPoisoned("Database lock poisoned".to_string()))?;
+    let installed_mods = db.get_installed_mods()?;
+    let path_map: HashMap<String, PathBuf> = installed_mods
+        .into_iter()
+        .map(|m| (m.name, PathBuf::from(m.path)))
+        .collect();
+    let mut path_map = path_map;
 
-    let ignore_file_path = path.join(".lovelyignore");
-
-    if enabled {
-        entries
-            .par_iter()
-            .filter(|entry| entry.path().is_dir())
-            .try_for_each(|entry| {
-                let subdir_ignore = entry.path().join(".lovelyignore");
-                if subdir_ignore.exists() {
-                    fs::remove_file(&subdir_ignore).map_err(|e| {
-                        format!(
-                            "Failed to remove .lovelyignore in {}: {}",
-                            entry.path().display(),
-                            e
-                        )
-                    })
-                } else {
-                    Ok(())
-                }
-            })?;
-
-        if ignore_file_path.exists() {
-            fs::remove_file(&ignore_file_path)
-                .map_err(|e| format!("Failed to remove .lovelyignore file: {e}"))?;
+    if let Some(paths) = local_paths {
+        for p in paths {
+            let path = PathBuf::from(&p);
+            let name = path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or_default()
+                .to_string();
+            if name.is_empty() {
+                continue;
+            }
+            path_map.entry(name).or_insert(path);
         }
-    } else {
-        entries
-            .par_iter()
-            .filter(|entry| entry.path().is_dir())
-            .try_for_each(|entry| {
-                fs::write(entry.path().join(".lovelyignore"), "").map_err(|e| {
-                    format!(
-                        "Failed to create .lovelyignore in {}: {}",
-                        entry.path().display(),
-                        e
-                    )
-                })
-            })?;
-
-        fs::write(&ignore_file_path, "")
-            .map_err(|e| format!("Failed to create .lovelyignore file: {e}"))?;
     }
+
+    let mut tasks: Vec<(PathBuf, bool)> = Vec::new();
+    for name in enabled {
+        if let Some(path) = path_map.get(&name) {
+            tasks.push((path.clone(), true));
+        }
+    }
+    for name in disabled {
+        if let Some(path) = path_map.get(&name) {
+            tasks.push((path.clone(), false));
+        }
+    }
+
+    tasks
+        .par_iter()
+        .try_for_each(|(path, enabled)| set_mod_enabled_at_path(path, *enabled))?;
 
     Ok(())
 }

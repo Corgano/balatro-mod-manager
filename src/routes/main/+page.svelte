@@ -10,6 +10,7 @@ let ShaderBackgroundComp = $state<Component | null>(null);
 	import WarningPopup from "../../components/WarningPopup.svelte";
 	import SecurityPopup from "../../components/SecurityPopup.svelte";
 	import LovelyMissingPopup from "../../components/LovelyMissingPopup.svelte";
+	import CollectionImportPopup from "../../components/CollectionImportPopup.svelte";
 	import type { DependencyCheck, InstalledMod } from "../../stores/modStore";
 	import { currentModView, currentCategory, modsStore } from "../../stores/modStore";
 	import { backgroundEnabled } from "../../stores/modStore";
@@ -28,6 +29,7 @@ import { lovelyPopupStore } from "../../stores/modStore";
 import { cardScale } from "../../stores/ui";
 import { get } from "svelte/store";
 import ReportIssue from "../../components/ReportIssue.svelte";
+import CollectionPicker from "../../components/CollectionPicker.svelte";
 import { fade } from "svelte/transition";
 import { isLinuxPlatform } from "$lib/platform";
 
@@ -347,7 +349,7 @@ import { isLinuxPlatform } from "$lib/platform";
 		{/if}
 	</div>
 
-	{#if currentSection === "mods" && !$currentModView && $currentCategory !== "Search" && $paginationWindow.totalPages > 1}
+	{#if currentSection === "mods" && !$currentModView && $currentCategory !== "Search" && $currentCategory !== "Collections" && $paginationWindow.totalPages > 1}
 		<div class="pagination-footer" in:fade={{ duration: 150 }} out:fade={{ duration: 120 }}>
 			<div class="pagination-controls">
 				<button onclick={previousPage} disabled={$currentPage === 1}>
@@ -407,8 +409,10 @@ import { isLinuxPlatform } from "$lib/platform";
 	<div class="version-text">v0.3.5</div>
 </div>
 
-<LovelyMissingPopup />
-<ReportIssue />
+	<LovelyMissingPopup />
+	<CollectionPicker />
+	<CollectionImportPopup />
+	<ReportIssue />
 
 <style>
 	.main-page {

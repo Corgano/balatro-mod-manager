@@ -1,0 +1,341 @@
+import { writable, type Writable, get } from "svelte/store";
+
+export type ModCollection = {
+  id: string;
+  name: string;
+  modTitles: string[];
+  modIds: string[];
+  createdAt: number;
+  updatedAt: number;
+};
+
+const COLLECTIONS_KEY = "mods-collections";
+const ACTIVE_COLLECTION_KEY = "mods-collections-active";
+const COLLECTION_SHARE_PREFIX = "BMMCOLL1:";
+
+function generateId(): string {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return crypto.randomUUID();
+  }
+  return `col_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+export const collectionsStore: Writable<ModCollection[]> = writable([]);
+export const activeCollectionId = writable<string | null>(null);
+export const lastImportedCollectionId = writable<string | null>(null);
+export const collectionImportStore = writable<{
+  open: boolean;
+  code: string;
+}>({ open: false, code: "" });
+
+export const collectionPickerStore = writable<{
+  open: boolean;
+  modTitle: string | null;
+  modId: string | null;
+}>({ open: false, modTitle: null, modId: null });
+
+export function openCollectionPicker(modTitle: string, modId?: string | null) {
+  collectionPickerStore.set({ open: true, modTitle, modId: modId ?? null });
+}
+
+export function closeCollectionPicker() {
+  collectionPickerStore.set({ open: false, modTitle: null, modId: null });
+}
+
+export function openCollectionImport(code = "") {
+  collectionImportStore.set({ open: true, code });
+}
+
+export function closeCollectionImport() {
+  collectionImportStore.set({ open: false, code: "" });
+}
+
+export function setCollectionImportCode(code: string) {
+  collectionImportStore.update((state) => ({ ...state, code }));
+}
+
+function normalizeName(name: string): string {
+  return name.trim().toLowerCase();
+}
+
+function makeUniqueName(base: string, existing: Set<string>): string {
+  let name = base;
+  let counter = 1;
+  while (existing.has(normalizeName(name))) {
+    name = `${base} (${counter})`;
+    counter += 1;
+  }
+  return name;
+}
+
+function encodeSharePayload(payload: unknown): string {
+  const json = JSON.stringify(payload);
+  const base64 = btoa(unescape(encodeURIComponent(json)));
+  return `${COLLECTION_SHARE_PREFIX}${base64}`;
+}
+
+function decodeSharePayload(code: string): unknown {
+  const trimmed = code.trim();
+  const raw = trimmed.startsWith(COLLECTION_SHARE_PREFIX)
+    ? trimmed.slice(COLLECTION_SHARE_PREFIX.length)
+    : trimmed;
+  const json = decodeURIComponent(escape(atob(raw)));
+  return JSON.parse(json);
+}
+
+export function createCollection(name: string): {
+  ok: boolean;
+  id?: string;
+  error?: string;
+} {
+  const trimmed = name.trim();
+  if (!trimmed) {
+    return { ok: false, error: "Collection name can't be empty." };
+  }
+  let newId = "";
+  collectionsStore.update((list) => {
+    const exists = list.some(
+      (c) => normalizeName(c.name) === normalizeName(trimmed),
+    );
+    if (exists) {
+      return list;
+    }
+    newId = generateId();
+    const now = Date.now();
+    return [
+      ...list,
+      {
+        id: newId,
+        name: trimmed,
+        modTitles: [],
+        modIds: [],
+        createdAt: now,
+        updatedAt: now,
+      },
+    ];
+  });
+  if (!newId) {
+    return { ok: false, error: "A collection with that name already exists." };
+  }
+  return { ok: true, id: newId };
+}
+
+export function renameCollection(
+  id: string,
+  name: string,
+): { ok: boolean; error?: string } {
+  const trimmed = name.trim();
+  if (!trimmed) {
+    return { ok: false, error: "Collection name can't be empty." };
+  }
+  let didRename = false;
+  collectionsStore.update((list) => {
+    const exists = list.some(
+      (c) => c.id !== id && normalizeName(c.name) === normalizeName(trimmed),
+    );
+    if (exists) return list;
+    didRename = true;
+    return list.map((c) =>
+      c.id === id ? { ...c, name: trimmed, updatedAt: Date.now() } : c,
+    );
+  });
+  if (!didRename) {
+    return { ok: false, error: "A collection with that name already exists." };
+  }
+  return { ok: true };
+}
+
+export function deleteCollection(id: string) {
+  collectionsStore.update((list) => list.filter((c) => c.id !== id));
+  activeCollectionId.update((cur) => (cur === id ? null : cur));
+}
+
+export function toggleModInCollection(
+  id: string,
+  modTitle: string,
+  modId?: string | null,
+) {
+  collectionsStore.update((list) =>
+    list.map((c) => {
+      if (c.id !== id) return c;
+      const idValue = modId ?? "";
+      const has = c.modTitles.includes(modTitle);
+      const next = has
+        ? c.modTitles.filter((t) => t !== modTitle)
+        : [...c.modTitles, modTitle];
+      const nextIds = idValue
+        ? has
+          ? c.modIds.filter((t) => t !== idValue)
+          : c.modIds.includes(idValue)
+            ? c.modIds
+            : [...c.modIds, idValue]
+        : c.modIds;
+      return { ...c, modTitles: next, modIds: nextIds, updatedAt: Date.now() };
+    }),
+  );
+}
+
+export function setModInCollection(
+  id: string,
+  modTitle: string,
+  enabled: boolean,
+  modId?: string | null,
+) {
+  collectionsStore.update((list) =>
+    list.map((c) => {
+      if (c.id !== id) return c;
+      const idValue = modId ?? "";
+      const has = c.modTitles.includes(modTitle);
+      if (enabled) {
+        const nextIds = idValue
+          ? c.modIds.includes(idValue)
+            ? c.modIds
+            : [...c.modIds, idValue]
+          : c.modIds;
+        if (!has) {
+          return {
+            ...c,
+            modTitles: [...c.modTitles, modTitle],
+            modIds: nextIds,
+            updatedAt: Date.now(),
+          };
+        }
+        if (nextIds !== c.modIds) {
+          return { ...c, modIds: nextIds, updatedAt: Date.now() };
+        }
+      }
+      if (!enabled && has) {
+        const nextIds = idValue
+          ? c.modIds.filter((t) => t !== idValue)
+          : c.modIds;
+        return {
+          ...c,
+          modTitles: c.modTitles.filter((t) => t !== modTitle),
+          modIds: nextIds,
+          updatedAt: Date.now(),
+        };
+      }
+      return c;
+    }),
+  );
+}
+
+export function setActiveCollection(id: string | null) {
+  activeCollectionId.set(id);
+}
+
+export function exportCollectionCode(id: string): {
+  ok: boolean;
+  code?: string;
+  error?: string;
+} {
+  const collection = get(collectionsStore).find((c) => c.id === id) ?? null;
+  if (!collection) {
+    return { ok: false, error: "Collection not found." };
+  }
+  const payload = {
+    v: 1,
+    name: collection.name,
+    modIds: collection.modIds,
+    modTitles: collection.modTitles,
+  };
+  return { ok: true, code: encodeSharePayload(payload) };
+}
+
+export function importCollectionCode(code: string): {
+  ok: boolean;
+  id?: string;
+  error?: string;
+} {
+  if (!code.trim()) {
+    return { ok: false, error: "Paste a collection code first." };
+  }
+  let payload: any;
+  try {
+    payload = decodeSharePayload(code);
+  } catch {
+    return { ok: false, error: "Invalid collection code." };
+  }
+  const name =
+    typeof payload?.name === "string" && payload.name.trim()
+      ? payload.name.trim()
+      : "Imported Collection";
+  const modTitles = Array.isArray(payload?.modTitles)
+    ? (payload.modTitles as unknown[])
+        .filter((t): t is string => typeof t === "string")
+        .map((t) => t.trim())
+    : [];
+  const modIds = Array.isArray(payload?.modIds)
+    ? (payload.modIds as unknown[])
+        .filter((t): t is string => typeof t === "string")
+        .map((t) => t.trim())
+    : [];
+  const deduped: string[] = Array.from(new Set(modTitles.filter(Boolean)));
+  const dedupedIds: string[] = Array.from(new Set(modIds.filter(Boolean)));
+
+  let newId = "";
+  collectionsStore.update((list) => {
+    const existing = new Set(list.map((c) => normalizeName(c.name)));
+    const uniqueName = makeUniqueName(name, existing);
+    newId = generateId();
+    const now = Date.now();
+    return [
+      ...list,
+      {
+        id: newId,
+        name: uniqueName,
+        modTitles: deduped,
+        modIds: dedupedIds,
+        createdAt: now,
+        updatedAt: now,
+      },
+    ];
+  });
+  if (!newId) {
+    return { ok: false, error: "Failed to import collection." };
+  }
+  lastImportedCollectionId.set(newId);
+  return { ok: true, id: newId };
+}
+
+if (typeof window !== "undefined") {
+  try {
+    const raw = window.localStorage.getItem(COLLECTIONS_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        const hydrated = parsed.map((item) => ({
+          ...item,
+          modIds: Array.isArray(item.modIds) ? item.modIds : [],
+        }));
+        collectionsStore.set(hydrated);
+      }
+    }
+    const active = window.localStorage.getItem(ACTIVE_COLLECTION_KEY);
+    if (active) {
+      activeCollectionId.set(active);
+    }
+  } catch {
+    // ignore malformed cache
+  }
+
+  collectionsStore.subscribe((val) => {
+    try {
+      window.localStorage.setItem(COLLECTIONS_KEY, JSON.stringify(val));
+    } catch {
+      // ignore quota errors
+    }
+  });
+
+  activeCollectionId.subscribe((val) => {
+    try {
+      if (val) {
+        window.localStorage.setItem(ACTIVE_COLLECTION_KEY, val);
+      } else {
+        window.localStorage.removeItem(ACTIVE_COLLECTION_KEY);
+      }
+    } catch {
+      // ignore
+    }
+  });
+}

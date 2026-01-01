@@ -1,6 +1,7 @@
 import { writable, type Writable } from "svelte/store";
 
 export interface Mod {
+  id?: string;
   title: string;
   description: string;
   image: string;
