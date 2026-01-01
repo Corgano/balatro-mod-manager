@@ -150,6 +150,9 @@ jobs:
           # Upload original non-Windows artifacts AND the newly signed Windows executable
           files: |
             artifacts/**/*.dmg
+            artifacts/**/*.AppImage
+            artifacts/**/*.deb
+            artifacts/**/*.rpm
             signed-artifact/**/*.exe
             signed-artifact/**/*.msi
             artifacts/**/*.flatpak
