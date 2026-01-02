@@ -417,7 +417,15 @@ async fn decode_json<T: DeserializeOwned>(
 ) -> Result<T, String> {
     let status = resp.status();
     let body = resp.bytes().await.map_err(|e| e.to_string())?;
-    serde_json::from_slice::<T>(&body).map_err(|_e| {
+    serde_json::from_slice::<T>(&body).map_err(|e| {
+        let payload = payload_preview(&body);
+        log::error!(
+            "BMI {} decode failed (status {}): {}; payload={}",
+            context,
+            status,
+            e,
+            payload
+        );
         format!(
             "BMI {} decode failed (status {}): {}",
             context,
@@ -425,6 +433,20 @@ async fn decode_json<T: DeserializeOwned>(
             preview_bytes(&body)
         )
     })
+}
+
+fn payload_preview(bytes: &[u8]) -> String {
+    const MAX_LOG_BYTES: usize = 50_000;
+    let text = String::from_utf8_lossy(bytes);
+    if bytes.len() <= MAX_LOG_BYTES {
+        text.trim().to_string()
+    } else {
+        format!(
+            "{}...[truncated {} bytes]",
+            text.chars().take(2000).collect::<String>().trim(),
+            bytes.len().saturating_sub(MAX_LOG_BYTES)
+        )
+    }
 }
 
 fn preview_bytes(bytes: &[u8]) -> String {
