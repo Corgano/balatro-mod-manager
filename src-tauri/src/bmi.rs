@@ -487,6 +487,35 @@ pub fn bmi_to_archive(
             downloads: item.downloads.clone(),
         },
     };
+    if meta.title.trim().is_empty() {
+        meta.title = item.name.clone().unwrap_or_else(|| id.clone());
+    }
+    if meta.author.trim().is_empty() {
+        meta.author = item.author.clone().unwrap_or_else(|| "Unknown".to_string());
+    }
+    if meta.repo.trim().is_empty() {
+        meta.repo = item
+            .repo
+            .clone()
+            .or(item.homepage.clone())
+            .unwrap_or_default();
+    }
+    if meta.categories.is_empty() {
+        meta.categories = if item.categories.is_empty() {
+            vec!["Miscellaneous".to_string()]
+        } else {
+            item.categories.clone()
+        };
+    }
+    if meta.download_url.is_none() {
+        meta.download_url = item.download_url.clone();
+    }
+    if meta.folder_name.trim().is_empty() {
+        meta.folder_name = item.folder_name.clone().unwrap_or_default();
+    }
+    if meta.version.trim().is_empty() {
+        meta.version = item.version.clone().unwrap_or_default();
+    }
     let (req_steam, req_talisman) = derive_requires(&item);
     meta.requires_steamodded = meta.requires_steamodded || req_steam;
     meta.requires_talisman = meta.requires_talisman || req_talisman;
