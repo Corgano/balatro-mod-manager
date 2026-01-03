@@ -216,6 +216,7 @@ let modsScrollContainer: HTMLDivElement | null = $state(null);
 
 	let localMods: LocalMod[] = $state([]);
 	let isLoadingLocalMods = $state(false);
+	let catalogLoadError = $state<string | null>(null);
 
 	async function handleModToggled(): Promise<void> {
 		if ($currentCategory === "Installed Mods") {
@@ -1159,6 +1160,7 @@ const { handleDependencyCheck, mod } = $props<{
 	async function refreshCatalogInBackground(showMessages: boolean = true): Promise<void> {
 		if ($catalogLoading) return;
 		catalogLoading.set(true);
+		catalogLoadError = null;
 		if (showMessages) {
 			addMessage("Loading mods in background…", "info");
 		}
@@ -1242,6 +1244,8 @@ const { handleDependencyCheck, mod } = $props<{
 				scheduleCatalogRetry("background", showMessages);
 				return;
 			}
+			catalogLoadError =
+				error instanceof Error ? error.message : String(error);
 			if (showMessages) {
 				addMessage(
 					`Background load failed: ${error instanceof Error ? error.message : String(error)}`,
@@ -1257,11 +1261,17 @@ const { handleDependencyCheck, mod } = $props<{
 	async function loadCatalogForeground(): Promise<void> {
 		if ($catalogLoading) return;
 		catalogLoading.set(true);
+		catalogLoadError = null;
         try {
             const items = await invoke<ArchiveModItem[]>("fetch_repo_mods", {
                 sort: $currentSort,
             });
 			clearCatalogRetry();
+			if (items.length === 0) {
+				catalogLoadError = "Catalog returned no mods.";
+				addMessage("Catalog returned no mods.", "error");
+				return;
+			}
             const titles = items.map((i) => i.meta.title);
             const cachedMap = await invoke<Record<string, string>>(
                 "get_cached_thumbnails_map",
@@ -1333,11 +1343,27 @@ const { handleDependencyCheck, mod } = $props<{
             if (isRateLimitError(error)) {
                 scheduleCatalogRetry("foreground", true);
             } else {
-                throw error;
+				catalogLoadError =
+					error instanceof Error ? error.message : String(error);
+				addMessage(
+					`Failed to load catalog: ${catalogLoadError}`,
+					"error",
+				);
             }
         } finally {
             catalogLoading.set(false);
         }
+	}
+
+	async function retryCatalogLoad() {
+		if ($catalogLoading) return;
+		catalogLoadError = null;
+		isLoading = true;
+		try {
+			await loadCatalogForeground();
+		} finally {
+			isLoading = false;
+		}
 	}
 
 	async function fillDescriptions(mods: (Mod & { _dirName?: string })[]) {
@@ -2684,6 +2710,19 @@ onDestroy(() => {
 			</div>
 		{:else}
 			<div class="mods-wrapper">
+				{#if $modsStore.length === 0 && !isLoading && !$catalogLoading && !catalogRetryPending && $currentCategory !== "Installed Mods"}
+					<div class="no-mods-message">
+						<p>No catalog mods loaded.</p>
+						{#if catalogLoadError}
+							<p>{catalogLoadError}</p>
+						{/if}
+						<div class="no-mods-buttons">
+							<button class="open-folder-button" onclick={retryCatalogLoad}>
+								<RefreshCw size={18} /> Retry
+							</button>
+						</div>
+					</div>
+				{:else}
 				<div class="controls-container">
 					{#if $currentCategory === "Installed Mods" && !$currentModView}
 						<button
@@ -2738,8 +2777,8 @@ onDestroy(() => {
 							</select>
 						</div>
 					</div>
-				</div>
-
+					</div>
+				{/if}
 				<div
 					class="mods-scroll-container default-scrollbar"
 					class:no-local-mods={localMods.length === 0}

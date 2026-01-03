@@ -16,6 +16,9 @@
   // Error fallback modal
   let showCopyPrompt = $state(false);
   let copying = $state(false);
+  let reportError = $state<string | null>(null);
+  let logPreview = $state<string | null>(null);
+  let logFilename = $state<string | null>(null);
 
   function resetForm() {
     title = "";
@@ -40,6 +43,7 @@
       resetForm();
       close();
     } catch (e) {
+      reportError = e instanceof Error ? e.message : String(e);
       console.error("Error reporting the issue:", e);
       addMessage("Error reporting the issue!", "error");
       // Offer to copy logs to clipboard
@@ -50,18 +54,40 @@
     }
   }
 
+  $effect(() => {
+    if (!showCopyPrompt) {
+      reportError = null;
+      logPreview = null;
+      logFilename = null;
+    }
+  });
+
   async function copyLogToClipboard() {
     copying = true;
     try {
       const [filename, text] = await invoke<[string, string]>("get_latest_log");
-      await navigator.clipboard.writeText(text);
-      addMessage(`Copied ${filename} to clipboard.`, "success");
-    } catch (e) {
-      console.error("Failed to copy log:", e);
-      addMessage("Failed to copy log to clipboard.", "error");
+      logFilename = filename;
+      logPreview = text;
+      try {
+        await navigator.clipboard.writeText(text);
+        addMessage(`Copied ${filename} to clipboard.`, "success");
+        showCopyPrompt = false;
+      } catch (e) {
+        console.error("Failed to copy log:", e);
+        addMessage("Failed to copy log to clipboard.", "error");
+      }
     } finally {
       copying = false;
-      showCopyPrompt = false;
+    }
+  }
+
+  async function openLogsFolder() {
+    try {
+      const logsPath = await invoke<string>("get_logs_folder");
+      await invoke("open_directory", { path: logsPath });
+    } catch (e) {
+      console.error("Failed to open logs folder:", e);
+      addMessage("Failed to open logs folder.", "error");
     }
   }
 
@@ -138,10 +164,25 @@
     <div class="modal" transition:scale={{ duration: 200, start: 0.95, opacity: 1 }}>
       <h2>Reporting the issue failed.</h2>
       <p class="desc">Would you like to copy the log to your clipboard?</p>
+      {#if reportError}
+        <p class="desc error">Reason: {reportError}</p>
+      {/if}
+      {#if logPreview}
+        <label class="input-label" for="report-log-preview">
+          {logFilename ?? "Latest log"}
+        </label>
+        <textarea
+          id="report-log-preview"
+          class="text-area default-scrollbar"
+          rows={6}
+          readonly
+        >{logPreview}</textarea>
+      {/if}
       <div class="buttons">
         <button class="cancel" onclick={() => (showCopyPrompt = false)} disabled={copying}>No</button>
+        <button class="cancel" onclick={openLogsFolder} disabled={copying}>Open Logs Folder</button>
         <button class="submit" onclick={copyLogToClipboard} disabled={copying}>
-          {#if copying}Copying...{:else}Yes{/if}
+          {#if copying}Copying...{:else}Copy Log{/if}
         </button>
       </div>
     </div>
@@ -205,6 +246,7 @@
   }
   h2 { font-family: "M6X11", sans-serif; margin: 0; }
   .desc { font-family: "M6X11", sans-serif; margin: 0.5rem 0 1.25rem; }
+  .desc.error { color: #ffb3b3; }
 
   .input-label {
     display: block;

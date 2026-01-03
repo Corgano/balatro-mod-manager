@@ -63,7 +63,11 @@ pub struct ArchiveModItem {
 #[tauri::command]
 pub async fn fetch_repo_mods(sort: Option<String>) -> Result<Vec<ArchiveModItem>, String> {
     let client = BmiClient::new()?;
-    client.check_health().await?;
+    client.check_health().await.map_err(|e| {
+        let msg = format!("BMI health check failed: {e}");
+        log::warn!("{msg}");
+        msg
+    })?;
     let sort_mode = SortMode::from_optional(sort.clone());
     let (cache_dir, cache_file) = bmi_cache_paths(sort.as_deref())?;
     let cache = load_bmi_cache(&cache_file);
@@ -90,11 +94,23 @@ pub async fn fetch_repo_mods(sort: Option<String>) -> Result<Vec<ArchiveModItem>
 
     let force_full_refresh = matches!(sort_mode, SortMode::DownloadsAsc | SortMode::DownloadsDesc);
     if force_full_refresh || items.is_empty() || latest_updated.is_none() {
-        let (fresh, updated_at) = client.fetch_all_mods(sort_mode).await?;
+        let (fresh, updated_at) = client.fetch_all_mods(sort_mode).await.map_err(|e| {
+            let msg = format!("BMI fetch_all_mods failed: {e}");
+            log::warn!("{msg}");
+            msg
+        })?;
         items = fresh;
         latest_updated = updated_at;
     } else if let Some(since) = latest_updated.clone() {
-        let (changed, updated_at) = client.fetch_changed_mods(&since, sort_mode).await?;
+        let (changed, updated_at) =
+            client
+                .fetch_changed_mods(&since, sort_mode)
+                .await
+                .map_err(|e| {
+                    let msg = format!("BMI fetch_changed_mods failed: {e}");
+                    log::warn!("{msg}");
+                    msg
+                })?;
         if !changed.is_empty() {
             items = bmi::apply_changed(&items, changed, &client)?;
         }

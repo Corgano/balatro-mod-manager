@@ -335,6 +335,7 @@ pub fn run() {
             commands::thumbnails::enqueue_thumbnail,
             commands::report::submit_report,
             commands::report::get_latest_log,
+            commands::report::get_logs_folder,
             commands::mods::is_mod_enabled,
             commands::mods::toggle_mod_enabled,
             commands::mods::toggle_mods_enabled_batch,

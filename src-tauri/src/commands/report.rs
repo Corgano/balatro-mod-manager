@@ -87,6 +87,16 @@ pub async fn get_latest_log() -> Result<(String, String), String> {
     latest_log().ok_or_else(|| "No logs found.".to_string())
 }
 
+#[tauri::command]
+pub async fn get_logs_folder() -> Result<String, String> {
+    let dir = dirs::config_dir()
+        .ok_or_else(|| "config directory not found".to_string())?
+        .join("Balatro")
+        .join("logs");
+    fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    Ok(dir.to_string_lossy().to_string())
+}
+
 fn latest_log() -> Option<(String, String)> {
     let dir = dirs::config_dir()?.join("Balatro").join("logs");
     let entries = fs::read_dir(&dir).ok()?;
