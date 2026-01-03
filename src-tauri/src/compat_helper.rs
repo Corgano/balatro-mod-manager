@@ -863,6 +863,74 @@ end
 
 local fatal_triggered = false
 
+local function write_ignore(path)
+  local ok, file = pcall(io.open, path, "w")
+  if ok and file then
+    file:write("")
+    file:close()
+    return true
+  end
+  return false
+end
+
+local function build_mod_id_map(mods_dir)
+  local map = {}
+  if type(mods_dir) ~= "string" or mods_dir == "" then
+    return map
+  end
+  local items = list_dir(mods_dir)
+  for _, name in ipairs(items) do
+    if type(name) == "string" then
+      map[name:lower()] = name
+      local meta_path = mods_dir .. "/" .. name .. "/smods.json"
+      local okf, file = pcall(io.open, meta_path, "r")
+      if okf and file then
+        local data = file:read("*a") or ""
+        file:close()
+        local mod_id = data:match('"id"%s*:%s*"([^"]+)"')
+        if mod_id then
+          map[mod_id:lower()] = name
+        end
+      end
+    end
+  end
+  return map
+end
+
+local function extract_mods_from_issues(issues)
+  local mods = {}
+  for _, issue in ipairs(issues) do
+    if type(issue) == "string" then
+      local lower = issue:lower()
+      if lower:find("multiplayer") then
+        mods["multiplayer"] = "Multiplayer"
+      end
+      local mod = issue:match("for ([^:]+):")
+      if mod and mod ~= "" then
+        mods[mod:lower()] = mod
+      end
+    end
+  end
+  local out = {}
+  for _, mod in pairs(mods) do
+    out[#out + 1] = mod
+  end
+  table.sort(out)
+  return out
+end
+
+local function disable_mod(mods_dir, name)
+  if type(mods_dir) ~= "string" or mods_dir == "" or type(name) ~= "string" then
+    return false
+  end
+  local mod_path = mods_dir .. "/" .. name
+  local ok = write_ignore(mod_path .. "/.lovelyignore")
+  if ok then
+    log_line(("disabled mod=%s via compat helper"):format(name))
+  end
+  return ok
+end
+
 local function fail_with_issues(issues)
   if #issues == 0 then
     return
@@ -880,9 +948,62 @@ local function fail_with_issues(issues)
     msg = msg .. string.format("...and %d more.\n", #issues - limit)
   end
   msg = msg .. "\nPlease update Steamodded or disable incompatible mods."
+  local mods_to_disable = extract_mods_from_issues(issues)
+  local id_map = build_mod_id_map(cfg.mods_dir)
+  local resolved = {}
+  for _, mod in ipairs(mods_to_disable) do
+    local key = mod:lower()
+    local folder = id_map[key]
+    if folder then
+      resolved[#resolved + 1] = folder
+    end
+  end
+  if #resolved == 0 and is_mod_enabled(cfg.mods_dir, "Multiplayer") then
+    for _, mod in ipairs(mods_to_disable) do
+      if mod:lower() == "multiplayer" then
+        resolved[#resolved + 1] = "Multiplayer"
+        break
+      end
+    end
+  end
+  local can_disable = #resolved > 0
   log_line("fatal " .. msg:gsub("\n", " | "))
   if love and love.window and love.window.showMessageBox then
-    pcall(love.window.showMessageBox, "BMM Compatibility", msg, "error")
+    if can_disable then
+      local ok_box, res = pcall(love.window.showMessageBox, "BMM Compatibility", msg, {
+        "Disable Incompatible Mods",
+        "OK",
+      })
+      if ok_box and type(res) == "number" then
+        if res == 1 then
+          local disabled = {}
+          for _, folder in ipairs(resolved) do
+            if disable_mod(cfg.mods_dir, folder) then
+              disabled[#disabled + 1] = folder
+            end
+          end
+          if #disabled > 0 then
+            pcall(
+              love.window.showMessageBox,
+              "BMM Compatibility",
+              "Disabled: " .. table.concat(disabled, ", ") .. "\nPlease restart the game.",
+              "info"
+            )
+          else
+            pcall(
+              love.window.showMessageBox,
+              "BMM Compatibility",
+              "Failed to disable incompatible mods automatically. Please disable them manually.",
+              "error"
+            )
+          end
+        end
+      else
+        pcall(love.window.showMessageBox, "BMM Compatibility", msg, "error")
+      end
+    else
+      pcall(love.window.showMessageBox, "BMM Compatibility", msg, "error")
+    end
     if love.event and love.event.quit then
       love.event.quit()
     end
