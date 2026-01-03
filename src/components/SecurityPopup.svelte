@@ -37,10 +37,10 @@
 </script>
 
 {#if visible}
-	<div class="modal-background" transition:fade={{ duration: 100 }}>
+	<div class="modal-background" transition:fade={{ duration: 160 }}>
 		<div
 			class="modal"
-			transition:scale={{ duration: 200, start: 0.95, opacity: 1 }}
+			transition:scale={{ duration: 160, start: 0.95, opacity: 1 }}
 		>
 			<h2>Security Notice</h2>
 			<p>

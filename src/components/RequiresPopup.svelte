@@ -48,10 +48,10 @@
 </script>
 
 {#if show}
-	<div class="popup-overlay" transition:fade={{ duration: 100 }}>
+	<div class="popup-overlay" transition:fade={{ duration: 160 }}>
 		<div
 			class="popup-content"
-			transition:scale={{ duration: 200, start: 0.95, opacity: 1 }}
+			transition:scale={{ duration: 160, start: 0.95, opacity: 1 }}
 		>
 			<div class="popup-header">
 				<CircleAlert size={32} color="#fdcf51" />

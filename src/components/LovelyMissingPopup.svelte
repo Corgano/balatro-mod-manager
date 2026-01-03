@@ -91,8 +91,8 @@
 </script>
 
 {#if $lovelyPopupStore.visible}
-  <div class="modal-background" transition:fade={{ duration: 100 }}>
-    <div class="modal" transition:scale={{ duration: 200, start: 0.95, opacity: 1 }}>
+  <div class="modal-background" transition:fade={{ duration: 160 }}>
+    <div class="modal" transition:scale={{ duration: 160, start: 0.95, opacity: 1 }}>
       <h2>Lovely Not Detected</h2>
       <p>
         The Lovely injector was not detected. Mods require Lovely to load.

@@ -115,8 +115,8 @@
 </script>
 
 {#if show}
-	<div class="dialog-overlay" transition:fade={{ duration: 100 }}>
-		<div class="dialog-content" transition:scale={{ duration: 200 }}>
+	<div class="dialog-overlay" transition:fade={{ duration: 160 }}>
+		<div class="dialog-content" transition:scale={{ duration: 160 }}>
 			<h2>Uninstall {modName}?</h2>
 
 			{#if dependents.length > 0}

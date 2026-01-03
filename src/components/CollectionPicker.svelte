@@ -241,7 +241,7 @@
 {#if $collectionPickerStore.open}
   <div
     class="picker-backdrop"
-    transition:fade={{ duration: 120 }}
+    transition:fade={{ duration: 160 }}
     role="button"
     tabindex="0"
     onpointerdown={close}
