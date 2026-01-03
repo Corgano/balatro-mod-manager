@@ -1,5 +1,4 @@
 use anyhow::{Context, Result, anyhow};
-use dirs;
 use log::info;
 use reqwest::header::{HeaderMap, HeaderValue, USER_AGENT};
 use serde::{Deserialize, Serialize};
@@ -98,14 +97,12 @@ impl ModInstaller {
     }
 
     fn get_installation_path(&self) -> Result<PathBuf> {
-        // Construct the mods path
-        let mod_path = dirs::config_dir()
-            .context("Failed to get config directory")?
-            .join("Balatro")
-            .join("Mods");
-
-        // dbg!(&mod_path);
-
+        let mod_path = crate::local_mod_detection::resolve_mods_dir_path()
+            .map_err(|e| anyhow!(e))
+            .context("Failed to resolve mods directory")?;
+        fs::create_dir_all(&mod_path).with_context(|| {
+            format!("Failed to create mods directory at {}", mod_path.display())
+        })?;
         Ok(mod_path)
     }
 
@@ -270,7 +267,7 @@ impl ModInstaller {
 
     pub async fn uninstall(&self) -> Result<()> {
         let installation_path = self.get_installation_path()?;
-        let mods_dir = installation_path.join("Mods");
+        let mods_dir = installation_path;
 
         if !mods_dir.exists() {
             info!("Mods directory not found");
