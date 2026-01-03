@@ -605,7 +605,18 @@ local function file_exists(path)
   return false
 end
 
+local function is_mod_enabled(mods_dir, name)
+  if type(mods_dir) ~= "string" or mods_dir == "" or type(name) ~= "string" then
+    return true
+  end
+  local ignore_path = mods_dir .. "/" .. name .. "/.lovelyignore"
+  return not file_exists(ignore_path)
+end
+
 local function has_multiplayer_fallback(mods_dir)
+  if not is_mod_enabled(mods_dir, "Multiplayer") then
+    return false
+  end
   local base = mods_dir .. "/Multiplayer"
   local candidates = {
     base .. "/ui/smods.lua",
@@ -676,10 +687,11 @@ local function collect_fs_issues()
   for _, name in ipairs(items) do
     if type(name) == "string" then
       local lower = name:lower()
-      if lower:find("multiplayer") then
+      if not is_mod_enabled(mods_dir, name) then
+        -- skip disabled mods
+      elseif lower:find("multiplayer") then
         has_multiplayer = true
-      end
-      if lower:find("smods") or lower:find("steamodded") then
+      elseif lower:find("smods") or lower:find("steamodded") then
         local v = name:match("smods%-([%w%.%-%_~]+)")
         if v then
           smods_version = smods_version or v
@@ -698,6 +710,8 @@ local function collect_fs_issues()
       local lower = name:lower()
       if lower:find("lovely") or lower == "bmm-compat" then
         -- skip
+      elseif not is_mod_enabled(mods_dir, name) then
+        -- skip disabled mods
       else
         local mod_path = mods_dir .. "/" .. name
         local meta_path = mod_path .. "/smods.json"
