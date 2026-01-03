@@ -6,18 +6,6 @@ use bmm_lib::local_mod_detection;
 const MOD_FOLDER_NAME: &str = "BMM-Compat";
 const CONFIG_FILE_NAME: &str = "bmm_compat.cfg";
 
-const MODULES_TOML: &str = r#"[manifest]
-version = "0.1.0"
-dump_lua = true
-priority = -100
-
-[[patches]]
-[patches.module]
-source = "bmm_compat/init.lua"
-before = "main.lua"
-name = "bmm_compat.init"
-"#;
-
 const LOVELY_TOML: &str = r#"[manifest]
 version = "0.1.0"
 dump_lua = true
@@ -26,7 +14,7 @@ priority = -100
 [[patches]]
 [patches.copy]
 target = "main.lua"
-position = "append"
+position = "prepend"
 sources = [
   "bmm_compat/bootstrap.lua"
 ]
@@ -48,13 +36,64 @@ const BOOTSTRAP_LUA: &str = r#"local function log_bootstrap(msg)
   end
 end
 
-local ok, err = pcall(require, "bmm_compat.init")
+local function read_cfg()
+  if not love or not love.filesystem then
+    return nil
+  end
+  local ok, data = pcall(love.filesystem.read, "bmm_compat.cfg")
+  if not ok or type(data) ~= "string" then
+    return nil
+  end
+  local cfg = {}
+  for line in data:gmatch("[^\r\n]+") do
+    local key, value = line:match("^%s*([%w_]+)%s*=%s*(.+)%s*$")
+    if key and value then
+      cfg[key] = value
+    end
+  end
+  return cfg
+end
+
+local function load_init()
+  local cfg = read_cfg()
+  if not cfg or not cfg.mods_dir or cfg.mods_dir == "" then
+    return nil, "missing mods_dir in bmm_compat.cfg"
+  end
+  local init_path = cfg.mods_dir .. "/BMM-Compat/bmm_compat/init.lua"
+  local loader, err = loadfile(init_path)
+  if not loader then
+    return nil, err or ("loadfile failed: " .. init_path)
+  end
+  return pcall(loader)
+end
+
+local ok, err = load_init()
 if not ok then
-  log_bootstrap("failed to require bmm_compat.init: " .. tostring(err))
+  log_bootstrap("failed to load bmm_compat.init: " .. tostring(err))
 end
 "#;
 
-const INIT_LUA: &str = r#"local function read_config()
+const INIT_LUA: &str = r#"local function bmm_init_log(msg)
+  local home = os.getenv("HOME") or ""
+  local path = nil
+  if home ~= "" then
+    path = home .. "/Library/Application Support/Balatro/Mods/lovely/log/bmm_compat_init.log"
+  end
+  if love and love.filesystem then
+    pcall(love.filesystem.append, "logs/bmm_compat_init.log", msg .. "\n")
+  end
+  if not path then
+    return
+  end
+  local ok, f = pcall(io.open, path, "a")
+  if ok and f then
+    f:write(("[%s] %s\n"):format(os.date("%Y-%m-%d %H:%M:%S"), msg))
+    f:close()
+  end
+end
+
+local function bmm_init()
+local function read_config()
   if not love or not love.filesystem then
     return { enabled = true }
   end
@@ -68,6 +107,8 @@ const INIT_LUA: &str = r#"local function read_config()
           cfg.enabled = value ~= "false"
         elseif key == "mods_dir" then
           cfg.mods_dir = value
+        elseif key == "safe_mode" then
+          cfg.safe_mode = value ~= "false"
         end
       end
     end
@@ -80,6 +121,12 @@ local cfg = read_config()
 if not cfg.enabled then
   return
 end
+if cfg.safe_mode == nil then
+  cfg.safe_mode = true
+end
+
+local unpack = table.unpack or unpack
+local STATE_FILE = "bmm_compat_state.cfg"
 
 local pending = {}
 
@@ -195,8 +242,107 @@ local function log_line(line)
   end
 end
 
+local function read_state()
+  if not love or not love.filesystem then
+    return { disabled_once = {} }
+  end
+  local ok, data = pcall(love.filesystem.read, STATE_FILE)
+  local state = { disabled_once = {} }
+  if ok and type(data) == "string" then
+    for line in data:gmatch("[^\r\n]+") do
+      local key, value = line:match("^%s*([%w_]+)%s*=%s*(.-)%s*$")
+      if key == "disabled_once" and value then
+        for item in value:gmatch("([^,]+)") do
+          local id = item:gsub("^%s+", ""):gsub("%s+$", "")
+          if id ~= "" then
+            state.disabled_once[id] = true
+          end
+        end
+      end
+    end
+  end
+  return state
+end
+
+local function write_state(state)
+  if not love or not love.filesystem then
+    return
+  end
+  local disabled = {}
+  for id, _ in pairs(state.disabled_once or {}) do
+    disabled[#disabled + 1] = id
+  end
+  table.sort(disabled)
+  local contents = "disabled_once=" .. table.concat(disabled, ",") .. "\n"
+  pcall(love.filesystem.write, STATE_FILE, contents)
+end
+
 local function trim(s)
   return (s:gsub("^%s+", ""):gsub("%s+$", ""))
+end
+
+local state = read_state()
+local disabled_once = state.disabled_once or {}
+local safe_mode_done = false
+
+local function basename(path)
+  if type(path) ~= "string" then
+    return nil
+  end
+  local clean = path:gsub("[/\\]+$", "")
+  if clean:lower():match("%.lua$") then
+    local parent = clean:match("^(.*)[/\\][^/\\]+$")
+    if parent then
+      return parent:match("([^/\\]+)$") or parent
+    end
+  end
+  return clean:match("([^/\\]+)$") or clean
+end
+
+local function identify_mod_id(...)
+  local args = { ... }
+  for _, v in ipairs(args) do
+    if type(v) == "table" then
+      local id = v.id or v.mod_id or v.modid or v.name or v.display_name
+      if type(id) == "string" and id ~= "" then
+        return id
+      end
+      if type(v.path) == "string" then
+        local base = basename(v.path)
+        if base and base ~= "" then
+          return base
+        end
+      end
+    elseif type(v) == "string" then
+      local base = basename(v)
+      if base and base ~= "" then
+        return base
+      end
+    end
+  end
+  return nil
+end
+
+local function is_disabled_once(mod_id)
+  return mod_id and disabled_once[mod_id] == true
+end
+
+local function clear_disabled_once(mod_id)
+  if mod_id and disabled_once[mod_id] then
+    disabled_once[mod_id] = nil
+    write_state({ disabled_once = disabled_once })
+  end
+end
+
+local function add_disabled_once(mod_id, err)
+  if not mod_id or mod_id == "" then
+    return
+  end
+  if not disabled_once[mod_id] then
+    log_line(("safe_mode disabled_once mod=%s err=%s"):format(mod_id, tostring(err)))
+  end
+  disabled_once[mod_id] = true
+  write_state({ disabled_once = disabled_once })
 end
 
 local function split_alternatives(dep)
@@ -701,10 +847,16 @@ local function audit_api_expectations(mod_id, mod)
   end
 end
 
+local fatal_triggered = false
+
 local function fail_with_issues(issues)
   if #issues == 0 then
     return
   end
+  if fatal_triggered then
+    return
+  end
+  fatal_triggered = true
   local msg = "BMM compatibility checks found issues:\n\n"
   local limit = math.min(8, #issues)
   for i = 1, limit do
@@ -719,10 +871,60 @@ local function fail_with_issues(issues)
     pcall(love.window.showMessageBox, "BMM Compatibility", msg, "error")
     if love.event and love.event.quit then
       love.event.quit()
-      return
     end
   end
-  error(msg)
+  if os and os.exit then
+    pcall(os.exit, 1)
+  end
+  return
+end
+
+local function setup_safe_mode()
+  if safe_mode_done or not cfg.safe_mode then
+    return
+  end
+  if not (SMODS and type(SMODS) == "table") then
+    return
+  end
+  local function wrap_smods_fn(name)
+    local original = SMODS[name]
+    if type(original) ~= "function" then
+      return false
+    end
+    SMODS[name] = function(...)
+      local args = { ... }
+      local mod_id = identify_mod_id(unpack(args))
+      if is_disabled_once(mod_id) then
+        log_line(("safe_mode skip mod=%s hook=%s"):format(mod_id, name))
+        clear_disabled_once(mod_id)
+        return nil
+      end
+      local ok, results = xpcall(function()
+        return { original(unpack(args)) }
+      end, debug.traceback)
+      if ok then
+        return unpack(results)
+      end
+      local err = results
+      if mod_id then
+        add_disabled_once(mod_id, err)
+      else
+        log_line(("safe_mode error hook=%s err=%s"):format(name, tostring(err)))
+      end
+      return nil
+    end
+    log_line(("safe_mode hooked %s"):format(name))
+    return true
+  end
+
+  local any = false
+  any = wrap_smods_fn("load_mod") or any
+  any = wrap_smods_fn("load_mods") or any
+  any = wrap_smods_fn("register_mod") or any
+  if not any then
+    log_line("warn safe_mode_no_hook")
+  end
+  safe_mode_done = true
 end
 
 local function audit_smods()
@@ -830,6 +1032,7 @@ local preflight_done = false
 
 local function maybe_audit()
   flush_pending()
+  setup_safe_mode()
   if audit_done then
     return
   end
@@ -869,6 +1072,17 @@ if not audit_done and debug and debug.sethook then
     end
   end, "", 10000)
 end
+end
+
+local ok, err = xpcall(bmm_init, function(e)
+  if debug and debug.traceback then
+    return debug.traceback(e)
+  end
+  return tostring(e)
+end)
+if not ok then
+  bmm_init_log("init error: " .. tostring(err))
+end
 "#;
 
 pub fn sync_compat_helper(enabled: bool) -> Result<(), String> {
@@ -886,7 +1100,10 @@ fn ensure_helper_files(mods_dir: &Path) -> Result<(), String> {
     fs::create_dir_all(&lovely_dir).map_err(|e| e.to_string())?;
     fs::create_dir_all(&helper_dir).map_err(|e| e.to_string())?;
 
-    write_if_changed(lovely_dir.join("modules.toml"), MODULES_TOML)?;
+    let modules_path = lovely_dir.join("modules.toml");
+    if modules_path.exists() {
+        fs::remove_file(&modules_path).map_err(|e| e.to_string())?;
+    }
     write_if_changed(helper_dir.join("init.lua"), INIT_LUA)?;
     write_if_changed(base_dir.join("lovely.toml"), LOVELY_TOML)?;
     write_if_changed(helper_dir.join("bootstrap.lua"), BOOTSTRAP_LUA)?;
@@ -901,9 +1118,9 @@ fn write_config(enabled: bool, mods_dir: &Path) -> Result<(), String> {
     let config_path = balatro_dir.join(CONFIG_FILE_NAME);
     let mods_dir = mods_dir.to_string_lossy();
     let contents = if enabled {
-        format!("enabled=true\nmods_dir={}\n", mods_dir)
+        format!("enabled=true\nsafe_mode=true\nmods_dir={}\n", mods_dir)
     } else {
-        format!("enabled=false\nmods_dir={}\n", mods_dir)
+        format!("enabled=false\nsafe_mode=true\nmods_dir={}\n", mods_dir)
     };
     write_if_changed(config_path, &contents)?;
     Ok(())
