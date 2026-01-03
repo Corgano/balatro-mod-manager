@@ -5,6 +5,7 @@ use bmm_lib::local_mod_detection;
 
 const MOD_FOLDER_NAME: &str = "BMM-Compat";
 const CONFIG_FILE_NAME: &str = "bmm_compat.cfg";
+const MODS_INDEX_FILE_NAME: &str = "mods_index.txt";
 
 const LOVELY_TOML: &str = r#"[manifest]
 version = "0.1.0"
@@ -284,6 +285,18 @@ end
 local state = read_state()
 local disabled_once = state.disabled_once or {}
 local safe_mode_done = false
+local safe_mode_errorhook = false
+local safe_mode_fallbackhook = false
+local safe_mode_err_handler = nil
+local safe_mode_err_original = nil
+local safe_mode_err_original_base = nil
+local safe_mode_updatehook = false
+local safe_mode_handling = false
+local safe_mode_bypass = false
+local safe_mode_run_original = nil
+local safe_mode_crash_mods = {}
+local find_mod_from_trace
+local disable_mod
 
 local function basename(path)
   if type(path) ~= "string" then
@@ -343,6 +356,223 @@ local function add_disabled_once(mod_id, err)
   end
   disabled_once[mod_id] = true
   write_state({ disabled_once = disabled_once })
+end
+
+local function guess_mod_from_crash(msg, trace)
+  local text = (tostring(msg) .. "\n" .. tostring(trace or "")):lower()
+  if text:find("globals.lua:639", 1, true) and text:find("mp", 1, true) then
+    return "Multiplayer"
+  end
+  return nil
+end
+
+local function add_crash_mod(name, suspected)
+  if type(name) ~= "string" or name == "" then
+    return
+  end
+  local key = name:lower()
+  local status = safe_mode_crash_mods[key]
+  if suspected and status ~= "identified" then
+    safe_mode_crash_mods[key] = "suspected"
+  else
+    safe_mode_crash_mods[key] = "identified"
+  end
+end
+
+local function clear_crash_mods()
+  safe_mode_crash_mods = {}
+end
+
+local function list_crash_mods()
+  local out = {}
+  for key, status in pairs(safe_mode_crash_mods) do
+    out[#out + 1] = { key = key, status = status }
+  end
+  table.sort(out, function(a, b)
+    return a.key < b.key
+  end)
+  return out
+end
+
+local function handle_safe_mode_crash(msg, trace)
+  local trace_text = trace or debug.traceback(tostring(msg), 2)
+  local folder = find_mod_from_trace(trace_text)
+  if folder and folder:lower() == "bmm-compat" then
+    log_line("safe_mode crash_skip_self")
+    folder = nil
+  end
+  local guessed = nil
+  if not folder then
+    guessed = guess_mod_from_crash(msg, trace_text)
+  end
+  if folder then
+    add_crash_mod(folder, false)
+  elseif guessed then
+    add_crash_mod(guessed, true)
+  end
+  if love and love.window and love.window.showMessageBox then
+    local buttons = {}
+    local disable_index = nil
+    local crash_mods = list_crash_mods()
+    if #crash_mods > 0 then
+      disable_index = #buttons + 1
+      buttons[#buttons + 1] = "Disable Listed Mods"
+    end
+    local close_index = #buttons + 1
+    buttons[#buttons + 1] = "Close Game"
+    local continue_index = #buttons + 1
+    buttons[#buttons + 1] = "Continue crash"
+    local detail = "A mod crash was detected."
+    if #crash_mods > 0 then
+      local names = {}
+      for _, item in ipairs(crash_mods) do
+        local label = item.key
+        if item.status == "suspected" then
+          label = label .. " (suspected)"
+        end
+        names[#names + 1] = label
+      end
+      detail = detail .. "\nDetected mods: " .. table.concat(names, ", ")
+    else
+      detail = detail .. "\nCould not identify the mod from the traceback."
+    end
+    local ok_box, res = pcall(love.window.showMessageBox, "BMM Compatibility", detail, buttons)
+    if ok_box and type(res) == "number" then
+      if disable_index and res == disable_index then
+        local disabled = {}
+        local failed = {}
+        for _, item in ipairs(crash_mods) do
+          local name = item.key
+          log_line(("safe_mode crash_disable mod=%s"):format(tostring(name)))
+          if disable_mod(cfg.mods_dir, name) then
+            disabled[#disabled + 1] = name
+          else
+            failed[#failed + 1] = name
+          end
+        end
+        if #disabled > 0 then
+          pcall(
+            love.window.showMessageBox,
+            "BMM Compatibility",
+            "Disabled: " .. table.concat(disabled, ", ") .. "\nPlease restart the game.",
+            "info"
+          )
+        end
+        if #failed > 0 then
+          pcall(
+            love.window.showMessageBox,
+            "BMM Compatibility",
+            "Failed to disable: " .. table.concat(failed, ", ") .. "\nPlease disable them manually.",
+            "error"
+          )
+        end
+        if love.event and love.event.quit then
+          love.event.quit()
+        end
+        if os and os.exit then
+          pcall(os.exit, 1)
+        end
+        clear_crash_mods()
+        return nil
+      end
+      if res == close_index then
+        if love.event and love.event.quit then
+          love.event.quit()
+        end
+        if os and os.exit then
+          pcall(os.exit, 1)
+        end
+        clear_crash_mods()
+        return nil
+      end
+      if res == continue_index then
+        safe_mode_bypass = true
+        if love then
+          love.errorhandler = safe_mode_err_original_base or safe_mode_err_original
+          love.errhand = safe_mode_err_original_base or safe_mode_err_original
+          if safe_mode_run_original then
+            love.run = safe_mode_run_original
+          end
+        end
+        log_line("safe_mode continue_bypass")
+        clear_crash_mods()
+        return "continue"
+      end
+    end
+  end
+  if folder then
+    log_line(("safe_mode crash_disable mod=%s"):format(folder))
+    disable_mod(cfg.mods_dir, folder)
+  else
+    log_line(("safe_mode crash_unidentified err=%s"):format(tostring(msg)))
+  end
+  if love and love.event and love.event.quit then
+    love.event.quit()
+  end
+  if os and os.exit then
+    pcall(os.exit, 1)
+  end
+  return nil
+end
+
+local function ensure_safe_mode_errorhandler()
+  if safe_mode_bypass then
+    return false
+  end
+  if not (love and (love.errorhandler or love.errhand)) then
+    return false
+  end
+  local current = love.errorhandler or love.errhand
+  if current == safe_mode_err_handler then
+    return true
+  end
+  if safe_mode_err_original_base == nil then
+    safe_mode_err_original_base = current
+  end
+  safe_mode_err_original = current
+  safe_mode_err_handler = function(msg)
+    if safe_mode_bypass then
+      if safe_mode_err_original then
+        return safe_mode_err_original(msg)
+      end
+      return nil
+    end
+    if safe_mode_handling then
+      if safe_mode_err_original then
+        return safe_mode_err_original(msg)
+      end
+      return nil
+    end
+    safe_mode_handling = true
+    log_line(("safe_mode errorhandler invoked err=%s"):format(tostring(msg)))
+    local trace = debug.traceback(tostring(msg), 2)
+    local ok, result = pcall(handle_safe_mode_crash, msg, trace)
+    if not ok then
+      log_line(("safe_mode crash_handler_failed err=%s"):format(tostring(result)))
+    end
+    if ok and result == "continue" then
+      safe_mode_handling = false
+      local target = safe_mode_err_original_base or safe_mode_err_original
+      if target then
+        return target(msg)
+      end
+    end
+    if love and love.event and love.event.quit then
+      pcall(love.event.quit)
+    end
+    if os and os.exit then
+      pcall(os.exit, 1)
+    end
+    return nil
+  end
+  if love.errorhandler then
+    love.errorhandler = safe_mode_err_handler
+  else
+    love.errhand = safe_mode_err_handler
+  end
+  safe_mode_errorhook = true
+  log_line("safe_mode hooked errorhandler")
+  return true
 end
 
 local function split_alternatives(dep)
@@ -459,6 +689,41 @@ local function compare_version(a, b)
   return compare_rev(av.rev, bv.rev)
 end
 
+local function compare_version_numeric(a, b)
+  local av = parse_version(a)
+  local bv = parse_version(b)
+  if not av or not bv then
+    return nil
+  end
+  if av.major ~= bv.major then
+    return av.major < bv.major and -1 or 1
+  end
+  if av.minor ~= bv.minor then
+    return av.minor < bv.minor and -1 or 1
+  end
+  if av.patch ~= bv.patch then
+    return av.patch < bv.patch and -1 or 1
+  end
+  return 0
+end
+
+local function pick_best_version(current, candidate)
+  if type(candidate) ~= "string" or candidate == "" then
+    return current
+  end
+  if type(current) ~= "string" or current == "" then
+    return candidate
+  end
+  local cmp = compare_version_numeric(current, candidate)
+  if cmp == nil then
+    cmp = compare_version(current, candidate)
+  end
+  if cmp == nil then
+    return current < candidate and candidate or current
+  end
+  return cmp < 0 and candidate or current
+end
+
 local function has_wildcard(ver)
   return type(ver) == "string" and ver:find("%*") ~= nil
 end
@@ -540,21 +805,33 @@ local function check_constraints(mod_version, constraints)
 end
 
 local mounted_mods_dir = nil
+local mounted_mods_dir_norm = nil
+local read_mods_index
 
-local function list_dir(path)
-  if love and love.filesystem then
-    if mounted_mods_dir ~= path then
-      pcall(love.filesystem.unmount, "__bmm_mods")
-      local ok_mount = pcall(love.filesystem.mount, path, "__bmm_mods")
-      if ok_mount then
-        mounted_mods_dir = path
-      end
-    end
-    local ok_items, items = pcall(love.filesystem.getDirectoryItems, "__bmm_mods")
-    if ok_items and type(items) == "table" then
-      return items
-    end
+local function normalize_sep(path)
+  if type(path) ~= "string" then
+    return ""
   end
+  return path:gsub("\\", "/")
+end
+
+local function to_mounted_path(path)
+  if not mounted_mods_dir_norm or mounted_mods_dir_norm == "" then
+    return nil
+  end
+  local norm = normalize_sep(path)
+  if norm:sub(1, #mounted_mods_dir_norm) == mounted_mods_dir_norm then
+    local rel = norm:sub(#mounted_mods_dir_norm + 1)
+    rel = rel:gsub("^/+", "")
+    if rel == "" then
+      return "__bmm_mods"
+    end
+    return "__bmm_mods/" .. rel
+  end
+  return nil
+end
+
+local function list_dir_os(path)
   local sep = package.config:sub(1, 1)
   local quoted = path:gsub('"', '\\"')
   local cmd = nil
@@ -575,7 +852,102 @@ local function list_dir(path)
   return out
 end
 
+local function list_dir(path)
+  if love and love.filesystem then
+    if mounted_mods_dir ~= path then
+      pcall(love.filesystem.unmount, "__bmm_mods")
+      local ok_mount, mount_err = pcall(love.filesystem.mount, path, "__bmm_mods")
+      if ok_mount then
+        mounted_mods_dir = path
+        mounted_mods_dir_norm = normalize_sep(path)
+      else
+        log_line(("warn mods_dir_mount_failed path=%s err=%s"):format(path, tostring(mount_err)))
+      end
+    end
+    local ok_items, items = pcall(love.filesystem.getDirectoryItems, "__bmm_mods")
+    if ok_items and type(items) == "table" then
+      if #items > 0 then
+        return items
+      end
+      local os_items = list_dir_os(path)
+      if #os_items > 0 then
+        log_line(("warn mods_dir_os_fallback path=%s count=%d"):format(path, #os_items))
+        return os_items
+      end
+    else
+      log_line(("warn mods_dir_items_failed path=%s err=%s"):format(path, tostring(items)))
+    end
+  end
+  local os_items = list_dir_os(path)
+  if #os_items > 0 then
+    return os_items
+  end
+  if cfg and cfg.mods_dir and path == cfg.mods_dir then
+    local index_items = read_mods_index(path)
+    if #index_items > 0 then
+      log_line(("warn mods_dir_index_fallback path=%s count=%d"):format(path, #index_items))
+      return index_items
+    end
+  end
+  return {}
+end
+
+local function escape_pattern(s)
+  return (s:gsub("([%%%^%$%(%)%.%[%]%*%+%-%?])", "%%%1"))
+end
+
+find_mod_from_trace = function(trace)
+  if type(trace) ~= "string" or trace == "" then
+    return nil
+  end
+  local norm = normalize_sep(trace)
+  if cfg and cfg.mods_dir and cfg.mods_dir ~= "" then
+    local mods_norm = normalize_sep(cfg.mods_dir)
+    local match = norm:match(escape_pattern(mods_norm) .. "/([^/]+)/")
+    if match then
+      return match
+    end
+  end
+  local generic = norm:match("/Mods/([^/]+)/")
+  if generic then
+    return generic
+  end
+  return nil
+end
+
 local function list_lua_candidates(path)
+  if love and love.filesystem then
+    local mounted = to_mounted_path(path)
+    if mounted then
+      local out = {}
+      local function walk(dir, depth)
+        if depth > 3 then
+          return
+        end
+        local ok_items, items = pcall(love.filesystem.getDirectoryItems, dir)
+        if not ok_items or type(items) ~= "table" then
+          return
+        end
+        for _, item in ipairs(items) do
+          local full = dir .. "/" .. item
+          local ok_info, info = pcall(love.filesystem.getInfo, full)
+          if ok_info and info then
+            if info.type == "file" then
+              if item:lower():match("%.lua$") then
+                out[#out + 1] = full
+              end
+            elseif info.type == "directory" then
+              walk(full, depth + 1)
+            end
+          end
+        end
+      end
+      walk(mounted, 0)
+      if #out > 0 then
+        return out
+      end
+    end
+  end
   local sep = package.config:sub(1, 1)
   local quoted = path:gsub('"', '\\"')
   local cmd = nil
@@ -597,12 +969,69 @@ local function list_lua_candidates(path)
 end
 
 local function file_exists(path)
+  if love and love.filesystem then
+    local mounted = to_mounted_path(path)
+    if mounted then
+      local ok_info, info = pcall(love.filesystem.getInfo, mounted)
+      if ok_info and info then
+        return true
+      end
+    end
+  end
   local ok, fh = pcall(io.open, path, "r")
   if ok and fh then
     fh:close()
     return true
   end
   return false
+end
+
+local function read_file(path)
+  if love and love.filesystem then
+    local mounted = to_mounted_path(path)
+    if mounted then
+      local ok_read, data = pcall(love.filesystem.read, mounted)
+      if ok_read and type(data) == "string" then
+        return data
+      end
+    end
+  end
+  local ok, fh = pcall(io.open, path, "r")
+  if ok and fh then
+    local data = fh:read("*a") or ""
+    fh:close()
+    return data
+  end
+  return nil
+end
+
+read_mods_index = function(mods_dir)
+  local out = {}
+  if love and love.filesystem and mounted_mods_dir == mods_dir then
+    local ok_read, data = pcall(love.filesystem.read, "__bmm_mods/BMM-Compat/mods_index.txt")
+    if ok_read and type(data) == "string" and data ~= "" then
+      for line in data:gmatch("[^\r\n]+") do
+        local clean = trim(line)
+        if clean ~= "" then
+          out[#out + 1] = clean
+        end
+      end
+      return out
+    end
+  end
+  local index_path = mods_dir .. "/BMM-Compat/" .. "mods_index.txt"
+  local ok, fh = pcall(io.open, index_path, "r")
+  if not ok or not fh then
+    return {}
+  end
+  for line in fh:lines() do
+    local clean = trim(line)
+    if clean ~= "" then
+      out[#out + 1] = clean
+    end
+  end
+  fh:close()
+  return out
 end
 
 local function is_mod_enabled(mods_dir, name)
@@ -621,6 +1050,7 @@ local function has_multiplayer_fallback(mods_dir)
   local candidates = {
     base .. "/ui/smods.lua",
     base .. "/Multiplayer.lua",
+    base .. "/Multiplayer.json",
     base .. "/mod.lua",
     base .. "/lovely.toml",
     base .. "/smods.json",
@@ -633,15 +1063,68 @@ local function has_multiplayer_fallback(mods_dir)
   return false
 end
 
+local function has_multiplayer_installed(mods_dir)
+  if type(mods_dir) ~= "string" or mods_dir == "" then
+    return false, nil
+  end
+  local items = list_dir(mods_dir)
+  for _, name in ipairs(items) do
+    if type(name) == "string" and is_mod_enabled(mods_dir, name) then
+      if name:lower():find("multiplayer") then
+        return true, name
+      end
+    end
+  end
+  if has_multiplayer_fallback(mods_dir) then
+    return true, "Multiplayer"
+  end
+  return false, nil
+end
+
+local function mod_looks_smods(mod_path)
+  if type(mod_path) ~= "string" or mod_path == "" then
+    return false
+  end
+  local candidates = {
+    mod_path .. "/smods.json",
+    mod_path .. "/steamodded.lua",
+    mod_path .. "/steamodded_metadata.lua",
+    mod_path .. "/ui/smods.lua",
+  }
+  for _, path in ipairs(candidates) do
+    if file_exists(path) then
+      return true
+    end
+  end
+  return false
+end
+
+local function mod_uses_smods(mod_path)
+  if mod_looks_smods(mod_path) then
+    return true
+  end
+  local files = list_lua_candidates(mod_path)
+  for _, file in ipairs(files) do
+    local data = read_file(file)
+    if type(data) == "string" then
+      local head = data:sub(1, 8000)
+      if head:find("SMODS") then
+        return true
+      end
+    end
+  end
+  return false
+end
+
 local function parse_legacy_deps(mod_path)
   local deps = {}
   local mod_id = nil
   local files = list_lua_candidates(mod_path)
   for _, file in ipairs(files) do
-    local ok, fh = pcall(io.open, file, "r")
-    if ok and fh then
+    local data = read_file(file)
+    if type(data) == "string" then
       local i = 0
-      for line in fh:lines() do
+      for line in data:gmatch("[^\r\n]+") do
         i = i + 1
         if not mod_id then
           mod_id = line:match("^%s*%-%-%-%s*MOD_ID:%s*([%w%-%_%.]+)")
@@ -655,17 +1138,44 @@ local function parse_legacy_deps(mod_path)
               deps[#deps + 1] = clean
             end
           end
-          fh:close()
           return deps, mod_id
         end
         if i >= 120 then
           break
         end
       end
-      fh:close()
     end
   end
   return deps, mod_id
+end
+
+local function read_mod_meta(mod_path, mod_name)
+  local candidates = {
+    mod_path .. "/smods.json",
+    mod_path .. "/" .. mod_name .. ".json",
+    mod_path .. "/mod.json",
+    mod_path .. "/manifest.json",
+  }
+  for _, path in ipairs(candidates) do
+    if file_exists(path) then
+      local data = read_file(path)
+      if type(data) == "string" then
+        local mod_id = data:match('"id"%s*:%s*"([^"]+)"') or mod_name
+        local deps = {}
+        local deps_block = data:match('"dependencies"%s*:%s*%[(.-)%]')
+        if deps_block then
+          for dep in deps_block:gmatch('"([^"]+)"') do
+            deps[#deps + 1] = dep
+          end
+        end
+        return {
+          id = mod_id,
+          deps = deps,
+        }
+      end
+    end
+  end
+  return nil
 end
 
 local function collect_fs_issues()
@@ -681,22 +1191,32 @@ local function collect_fs_issues()
   local smods_version = nil
   local smods_unknown = false
   local has_multiplayer = false
+  local multiplayer_require_checked = false
+  local smods_mods = {}
   if SMODS and type(SMODS.version) == "string" then
     smods_version = SMODS.version
   end
   for _, name in ipairs(items) do
     if type(name) == "string" then
       local lower = name:lower()
+      local mod_path = mods_dir .. "/" .. name
       if not is_mod_enabled(mods_dir, name) then
         -- skip disabled mods
-      elseif lower:find("multiplayer") then
-        has_multiplayer = true
+      elseif lower:find("lovely") or lower == "bmm-compat" then
+        -- skip
       elseif lower:find("smods") or lower:find("steamodded") then
-        local v = name:match("smods%-([%w%.%-%_~]+)")
+        local v = name:match("smods%-([%w%.%-%_~]+)") or name:match("steamodded%-([%w%.%-%_~]+)")
         if v then
-          smods_version = smods_version or v
+          smods_version = pick_best_version(smods_version, v)
         else
           smods_unknown = true
+        end
+      else
+        if lower:find("multiplayer") then
+          has_multiplayer = true
+        end
+        if mod_uses_smods(mod_path) then
+          smods_mods[#smods_mods + 1] = name
         end
       end
     end
@@ -704,6 +1224,11 @@ local function collect_fs_issues()
   if not has_multiplayer and has_multiplayer_fallback(mods_dir) then
     has_multiplayer = true
     log_line("warn multiplayer_detected_fallback")
+  end
+  if not smods_version and #smods_mods > 0 then
+    for _, mod in ipairs(smods_mods) do
+      issues[#issues + 1] = ("Steamodded not detected for %s (SMODS mod)"):format(mod)
+    end
   end
   for _, name in ipairs(items) do
     if type(name) == "string" then
@@ -714,43 +1239,41 @@ local function collect_fs_issues()
         -- skip disabled mods
       else
         local mod_path = mods_dir .. "/" .. name
-        local meta_path = mod_path .. "/smods.json"
-        local okf, file = pcall(io.open, meta_path, "r")
-        if okf and file then
-          local data = file:read("*a") or ""
-          file:close()
-          local mod_id = data:match('"id"%s*:%s*"([^"]+)"') or name
-          local deps_block = data:match('"dependencies"%s*:%s*%[(.-)%]')
-          if deps_block then
-            for dep in deps_block:gmatch('"([^"]+)"') do
-              if type(dep) == "string" and dep:lower():find("steamodded") then
-                local constraints = extract_constraints(dep)
-                if smods_version then
-                  local okv, unk = check_constraints(smods_version, constraints)
-                  if okv == false then
-                    issues[#issues + 1] = ("Steamodded version mismatch for %s: %s (have %s)"):format(
-                      mod_id,
-                      dep,
-                      smods_version
-                    )
-                  elseif unk then
-                    issues[#issues + 1] = ("Steamodded version check skipped for %s: %s (have %s)"):format(
-                      mod_id,
-                      dep,
-                      smods_version
-                    )
-                  end
-                else
-                  issues[#issues + 1] = ("Steamodded version unknown for %s: %s"):format(
-                    mod_id,
-                    dep
+        if not smods_version and mod_looks_smods(mod_path) then
+          issues[#issues + 1] = ("Steamodded not detected for %s (SMODS mod)"):format(name)
+        end
+        local meta = read_mod_meta(mod_path, name)
+        if meta and meta.deps and #meta.deps > 0 then
+          if (meta.id or name):lower() == "multiplayer" then
+            multiplayer_require_checked = true
+          end
+          for _, dep in ipairs(meta.deps) do
+            if type(dep) == "string" and dep:lower():find("steamodded") then
+              local constraints = extract_constraints(dep)
+              if smods_version then
+                local okv, unk = check_constraints(smods_version, constraints)
+                if okv == false then
+                  issues[#issues + 1] = ("Steamodded version mismatch for %s: %s (have %s)"):format(
+                    meta.id or name,
+                    dep,
+                    smods_version
+                  )
+                elseif unk then
+                  issues[#issues + 1] = ("Steamodded version check skipped for %s: %s (have %s)"):format(
+                    meta.id or name,
+                    dep,
+                    smods_version
                   )
                 end
+              else
+                issues[#issues + 1] = ("Steamodded version unknown for %s: %s"):format(
+                  meta.id or name,
+                  dep
+                )
               end
             end
           end
-        end
-        if not (okf and file) then
+        else
           local deps, legacy_id = parse_legacy_deps(mod_path)
           local mod_id = legacy_id or name
           for _, dep in ipairs(deps) do
@@ -783,16 +1306,16 @@ local function collect_fs_issues()
       end
     end
   end
-  if has_multiplayer then
-    if not smods_version or smods_unknown then
-      issues[#issues + 1] = "Steamodded version unknown for Multiplayer (requires >=1.0.0)"
-    else
-      local cmp = compare_version(smods_version, "1.0.0")
+  if has_multiplayer and not multiplayer_require_checked then
+    if smods_version then
+      local cmp = compare_version_numeric(smods_version, "1.0.0")
       if cmp and cmp < 0 then
         issues[#issues + 1] = ("Steamodded %s is too old for Multiplayer (requires >=1.0.0)"):format(
           smods_version
         )
       end
+    else
+      log_line("warn multiplayer_version_deferred")
     end
   end
   return issues
@@ -882,33 +1405,80 @@ local function build_mod_id_map(mods_dir)
   for _, name in ipairs(items) do
     if type(name) == "string" then
       map[name:lower()] = name
-      local meta_path = mods_dir .. "/" .. name .. "/smods.json"
-      local okf, file = pcall(io.open, meta_path, "r")
-      if okf and file then
-        local data = file:read("*a") or ""
-        file:close()
-        local mod_id = data:match('"id"%s*:%s*"([^"]+)"')
-        if mod_id then
-          map[mod_id:lower()] = name
-        end
+      local meta = read_mod_meta(mods_dir .. "/" .. name, name)
+      if meta and meta.id then
+        map[meta.id:lower()] = name
       end
     end
   end
   return map
 end
 
+local function list_expected_mods(mods_dir)
+  local expected = {}
+  if type(mods_dir) ~= "string" or mods_dir == "" then
+    return expected
+  end
+  local items = list_dir(mods_dir)
+  for _, name in ipairs(items) do
+    if type(name) == "string" then
+      local lower = name:lower()
+      if lower:find("lovely") or lower == "bmm-compat" then
+        -- skip
+      elseif lower:find("smods") or lower:find("steamodded") then
+        -- skip
+      elseif not is_mod_enabled(mods_dir, name) then
+        -- skip disabled mods
+      else
+        local mod_path = mods_dir .. "/" .. name
+        local meta = read_mod_meta(mod_path, name)
+        if meta and meta.id then
+          expected[#expected + 1] = { id = meta.id, folder = name }
+        else
+          local deps, legacy_id = parse_legacy_deps(mod_path)
+          if legacy_id or #deps > 0 then
+            expected[#expected + 1] = { id = legacy_id or name, folder = name }
+          elseif mod_uses_smods(mod_path) then
+            expected[#expected + 1] = { id = name, folder = name }
+          end
+        end
+      end
+    end
+  end
+  return expected
+end
+
 local function extract_mods_from_issues(issues)
   local mods = {}
+  local function add(name)
+    if type(name) ~= "string" then
+      return
+    end
+    local clean = trim(name)
+    if clean ~= "" then
+      mods[clean:lower()] = clean
+    end
+  end
   for _, issue in ipairs(issues) do
     if type(issue) == "string" then
       local lower = issue:lower()
       if lower:find("multiplayer") then
-        mods["multiplayer"] = "Multiplayer"
+        add("Multiplayer")
       end
       local mod = issue:match("for ([^:]+):")
-      if mod and mod ~= "" then
-        mods[mod:lower()] = mod
-      end
+      add(mod)
+      mod = issue:match("for ([^%(]+)%s*%(")
+      add(mod)
+      mod = issue:match("too old for ([^%(]+)")
+      add(mod)
+      mod = issue:match("version unknown for ([^%(]+)")
+      add(mod)
+      mod = issue:match("not detected for ([^%(]+)")
+      add(mod)
+      mod = issue:match("mismatch for ([^:]+):")
+      add(mod)
+      local missing = issue:match("^Mod ([^ ]+) is installed but was not loaded")
+      add(missing)
     end
   end
   local out = {}
@@ -919,7 +1489,7 @@ local function extract_mods_from_issues(issues)
   return out
 end
 
-local function disable_mod(mods_dir, name)
+disable_mod = function(mods_dir, name)
   if type(mods_dir) ~= "string" or mods_dir == "" or type(name) ~= "string" then
     return false
   end
@@ -1015,12 +1585,66 @@ local function fail_with_issues(issues)
 end
 
 local function setup_safe_mode()
-  if safe_mode_done or not cfg.safe_mode then
+  if safe_mode_done or safe_mode_bypass or not cfg.safe_mode then
     return
   end
+  local function setup_safe_mode_fallback()
+    if safe_mode_fallbackhook or not (love and type(love.run) == "function") then
+      return false
+    end
+    local original = love.run
+    safe_mode_run_original = original
+    love.run = function(...)
+      local args = { ... }
+      local ok, results = xpcall(function()
+        return { original(unpack(args)) }
+      end, function(err)
+        if safe_mode_bypass then
+          return debug.traceback(tostring(err), 2)
+        end
+        if safe_mode_handling then
+          return debug.traceback(tostring(err), 2)
+        end
+        safe_mode_handling = true
+        local trace = debug.traceback(tostring(err), 2)
+        local ok_handle, result = pcall(handle_safe_mode_crash, err, trace)
+        if not ok_handle then
+          log_line(("safe_mode crash_handler_failed err=%s"):format(tostring(result)))
+        end
+        if ok_handle and result == "continue" then
+          safe_mode_handling = false
+          return trace
+        end
+        if love and love.event and love.event.quit then
+          pcall(love.event.quit)
+        end
+        if os and os.exit then
+          pcall(os.exit, 1)
+        end
+        return trace
+      end)
+      if ok then
+        return unpack(results)
+      end
+      return nil
+    end
+    safe_mode_fallbackhook = true
+    log_line("safe_mode fallback_hooked")
+    return true
+  end
+
+  local any = false
+  any = ensure_safe_mode_errorhandler() or any
+  any = setup_safe_mode_fallback() or any
   if not (SMODS and type(SMODS) == "table") then
+    if not any then
+      log_line("warn safe_mode_no_hook")
+    else
+      safe_mode_done = true
+    end
     return
   end
+
   local function wrap_smods_fn(name)
     local original = SMODS[name]
     if type(original) ~= "function" then
@@ -1052,12 +1676,12 @@ local function setup_safe_mode()
     return true
   end
 
-  local any = false
   any = wrap_smods_fn("load_mod") or any
   any = wrap_smods_fn("load_mods") or any
   any = wrap_smods_fn("register_mod") or any
   if not any then
     log_line("warn safe_mode_no_hook")
+    return
   end
   safe_mode_done = true
 end
@@ -1065,9 +1689,14 @@ end
 local function audit_smods()
   if not (SMODS and SMODS.Mods) then
     log_line("SMODS not detected at init.")
-    return
+    return false
   end
   log_line("SMODS detected at init.")
+  setup_safe_mode()
+  if type(SMODS.register_mod) ~= "function" then
+    log_line("warn api_missing path=SMODS.register_mod")
+    return false
+  end
 
   local issues = collect_fs_issues()
 
@@ -1080,6 +1709,10 @@ local function audit_smods()
       end
       audit_api_expectations(id, mod)
     end
+  end
+  local have_lower = {}
+  for id, _ in pairs(have) do
+    have_lower[id:lower()] = true
   end
 
   for id, mod in pairs(SMODS.Mods) do
@@ -1154,11 +1787,18 @@ local function audit_smods()
     log_line("warn steamodded_version_missing")
   end
 
-  if type(SMODS.register_mod) ~= "function" then
-    log_line("warn api_missing path=SMODS.register_mod")
+  local expected = list_expected_mods(cfg.mods_dir)
+  for _, entry in ipairs(expected) do
+    if entry.id and not have_lower[entry.id:lower()] then
+      log_line(("warn mod_not_loaded id=%s folder=%s"):format(entry.id, tostring(entry.folder)))
+      issues[#issues + 1] = ("Mod %s is installed but was not loaded by Steamodded."):format(
+        entry.id
+      )
+    end
   end
 
   fail_with_issues(issues)
+  return true
 end
 
 log_line("Compatibility helper enabled.")
@@ -1167,13 +1807,18 @@ local preflight_done = false
 
 local function maybe_audit()
   flush_pending()
+  if cfg.safe_mode and not safe_mode_bypass then
+    ensure_safe_mode_errorhandler()
+  end
   setup_safe_mode()
   if audit_done then
     return
   end
   if SMODS and SMODS.Mods then
-    audit_done = true
-    audit_smods()
+    local ok_audit = audit_smods()
+    if ok_audit then
+      audit_done = true
+    end
     flush_pending()
   end
 end
@@ -1195,17 +1840,35 @@ if not audit_done and love and love.update then
   local prev_update = love.update
   love.update = function(...)
     maybe_audit()
+    if cfg.safe_mode and not safe_mode_bypass then
+      ensure_safe_mode_errorhandler()
+    end
     return prev_update(...)
   end
+  safe_mode_updatehook = true
 end
 
-if not audit_done and debug and debug.sethook then
+if debug and debug.sethook and (not audit_done or cfg.safe_mode) then
+  local hook_ticks = 0
   debug.sethook(function()
     maybe_audit()
-    if audit_done then
+    if cfg.safe_mode and not safe_mode_updatehook and not safe_mode_bypass then
+      ensure_safe_mode_errorhandler()
+    end
+    hook_ticks = hook_ticks + 1
+    if audit_done and (not cfg.safe_mode or safe_mode_updatehook or hook_ticks > 200) then
       debug.sethook()
     end
   end, "", 10000)
+end
+
+if cfg.safe_mode and love and love.update and not safe_mode_updatehook and not safe_mode_bypass then
+  local prev_update = love.update
+  love.update = function(...)
+    ensure_safe_mode_errorhandler()
+    return prev_update(...)
+  end
+  safe_mode_updatehook = true
 end
 end
 
@@ -1242,6 +1905,32 @@ fn ensure_helper_files(mods_dir: &Path) -> Result<(), String> {
     write_if_changed(helper_dir.join("init.lua"), INIT_LUA)?;
     write_if_changed(base_dir.join("lovely.toml"), LOVELY_TOML)?;
     write_if_changed(helper_dir.join("bootstrap.lua"), BOOTSTRAP_LUA)?;
+    write_mods_index(mods_dir, &base_dir)?;
+    Ok(())
+}
+
+fn write_mods_index(mods_dir: &Path, base_dir: &Path) -> Result<(), String> {
+    let mut entries = Vec::new();
+    let read_dir = fs::read_dir(mods_dir).map_err(|e| e.to_string())?;
+    for entry in read_dir {
+        let entry = entry.map_err(|e| e.to_string())?;
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+        let name = entry.file_name().to_string_lossy().to_string();
+        if name.is_empty() {
+            continue;
+        }
+        entries.push(name);
+    }
+    entries.sort();
+    let mut contents = String::new();
+    for name in entries {
+        contents.push_str(&name);
+        contents.push('\n');
+    }
+    write_if_changed(base_dir.join(MODS_INDEX_FILE_NAME), &contents)?;
     Ok(())
 }
 
