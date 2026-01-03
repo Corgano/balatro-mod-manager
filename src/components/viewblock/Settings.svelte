@@ -30,6 +30,7 @@ import { browser } from "$app/environment";
 	let isDiscordRpcEnabled = false;
 	let isLinux = false;
 	let linuxPrefix = "";
+	let isCompatHelperEnabled = true;
 	let showLinuxHelp = false;
 	let activeHelpImage: { src: string; alt: string } | null = null;
 
@@ -141,6 +142,21 @@ import { browser } from "$app/environment";
 		}
 	}
 
+	async function handleCompatHelperChange() {
+		const newValue = !isCompatHelperEnabled;
+		try {
+			await invoke("set_compat_helper_status", { enabled: newValue });
+			isCompatHelperEnabled = newValue;
+			addMessage(
+				`Compatibility helper ${newValue ? "enabled" : "disabled"}`,
+				"success",
+			);
+		} catch (error) {
+			console.error("Failed to set compatibility helper:", error);
+			addMessage("Failed to update compatibility helper", "error");
+		}
+	}
+
 	async function handleLinuxPrefixChange() {
 		const newValue = linuxPrefix.replace(/\s+/g, " ").trim();
 		if (!newValue) {
@@ -226,6 +242,12 @@ import { browser } from "$app/environment";
 			console.error("Failed to get background status:", error);
 			addMessage("Error fetching background animation status", "error");
 		}
+		try {
+			isCompatHelperEnabled = await invoke("get_compat_helper_status");
+		} catch (error) {
+			console.error("Failed to get compatibility helper status:", error);
+			addMessage("Error fetching compatibility helper status", "error");
+		}
 		if (isLinux) {
 			try {
 				linuxPrefix = await invoke("get_linux_prefix");
@@ -281,6 +303,21 @@ import { browser } from "$app/environment";
 
 				<p class="description">
 					Open the folder where mods are stored on your system.
+				</p>
+				<div class="console-settings">
+					<span class="label-text">Compatibility Helper (Experimental)</span>
+					<div class="switch-container">
+						<label class="switch">
+							<input
+								type="checkbox"
+								checked={isCompatHelperEnabled}
+								on:change={handleCompatHelperChange}
+							/> <span class="slider"></span>
+						</label>
+					</div>
+				</div>
+				<p class="description-small">
+					Enables a hidden Lovely helper that runs compatibility checks before mods load.
 				</p>
 
 				<button

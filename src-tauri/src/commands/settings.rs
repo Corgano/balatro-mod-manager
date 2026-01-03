@@ -1,3 +1,4 @@
+use crate::compat_helper;
 use crate::state::AppState;
 use crate::util::map_error;
 use bmm_lib::errors::AppError;
@@ -64,6 +65,23 @@ pub async fn set_background_state(
 ) -> Result<(), String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
     map_error(db.set_background_enabled(enabled))
+}
+
+#[tauri::command]
+pub async fn get_compat_helper_status(state: tauri::State<'_, AppState>) -> Result<bool, String> {
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    map_error(db.is_compat_helper_enabled())
+}
+
+#[tauri::command]
+pub async fn set_compat_helper_status(
+    state: tauri::State<'_, AppState>,
+    enabled: bool,
+) -> Result<(), String> {
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    map_error(db.set_compat_helper_enabled(enabled))?;
+    compat_helper::sync_compat_helper(enabled)?;
+    Ok(())
 }
 
 #[tauri::command]

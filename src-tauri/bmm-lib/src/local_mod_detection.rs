@@ -672,7 +672,7 @@ fn find_bundled_dependencies(
         // Skip lovely-related and hidden/noisy directories
         if let Some(file_name) = path.file_name().and_then(|n| n.to_str()) {
             let lower_name = file_name.to_lowercase();
-            if lower_name.contains("lovely") {
+            if lower_name.contains("lovely") || lower_name == "bmm-compat" {
                 continue;
             }
             if lower_name.starts_with('.')
@@ -749,7 +749,7 @@ fn detect_mods_recursive(
         // Skip lovely-related directories
         if let Some(file_name) = path.file_name().and_then(|n| n.to_str()) {
             let lower_name = file_name.to_lowercase();
-            if lower_name.contains("lovely") {
+            if lower_name.contains("lovely") || lower_name == "bmm-compat" {
                 continue;
             }
             // Skip hidden/system/noisy dirs

@@ -560,6 +560,28 @@ impl Database {
         }
     }
 
+    pub fn set_compat_helper_enabled(&self, enabled: bool) -> Result<(), AppError> {
+        let enabled: &str = if enabled { "enabled" } else { "disabled" };
+        self.conn.execute(
+            "INSERT OR REPLACE INTO settings (setting, value) VALUES ('compat_helper', ?1)",
+            [enabled],
+        )?;
+        Ok(())
+    }
+
+    pub fn is_compat_helper_enabled(&self) -> Result<bool, AppError> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT value FROM settings WHERE setting = 'compat_helper'")?;
+        let mut rows = stmt.query([])?;
+
+        if let Some(row) = rows.next()? {
+            Ok(row.get::<_, String>(0)? == "enabled")
+        } else {
+            Ok(true)
+        }
+    }
+
     fn enable_lovely_console(&self) -> Result<(), AppError> {
         self.conn.execute(
             "INSERT OR REPLACE INTO settings (setting, value) VALUES ('lovely_console', 'enabled')",

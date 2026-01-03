@@ -1,5 +1,6 @@
 mod bmi;
 pub mod commands;
+mod compat_helper;
 mod lfs;
 mod models;
 mod state;
@@ -44,6 +45,7 @@ pub fn run() {
         .plugin(tauri_plugin_prevent_default::init())
         .setup(|app| {
             let db = map_error(Database::new())?;
+            let compat_enabled = db.is_compat_helper_enabled().unwrap_or(true);
             let discord_rpc = DiscordRpcManager::new();
             let discord_rpc_enabled = db.is_discord_rpc_enabled().unwrap_or(true);
             discord_rpc.set_enabled(discord_rpc_enabled);
@@ -83,6 +85,10 @@ pub fn run() {
                 }
             } else {
                 log::warn!("Could not resolve config directory to create Mods folder");
+            }
+
+            if let Err(e) = crate::compat_helper::sync_compat_helper(compat_enabled) {
+                log::warn!("Failed to sync compatibility helper: {}", e);
             }
 
             tauri::async_runtime::spawn(async move {
@@ -301,6 +307,8 @@ pub fn run() {
             commands::lovely::is_lovely_installed,
             commands::settings::get_background_state,
             commands::settings::set_background_state,
+            commands::settings::get_compat_helper_status,
+            commands::settings::set_compat_helper_status,
             commands::settings::get_discord_rpc_status,
             commands::settings::set_discord_rpc_status,
             commands::settings::set_linux_prefix,

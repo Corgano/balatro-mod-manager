@@ -395,7 +395,7 @@ pub fn get_installed_mods() -> Vec<String> {
         .collect();
 
     res.iter()
-        .filter(|p| !p.contains(".lovely") && !p.contains("lovely"))
+        .filter(|p| !p.contains(".lovely") && !p.contains("lovely") && !p.contains("bmm-compat"))
         .cloned()
         .collect()
 }
