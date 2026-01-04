@@ -404,11 +404,24 @@ pub fn is_balatro_running() -> bool {
     #[cfg(target_os = "windows")]
     {
         let system = System::new_all();
-        let x = system
+        let exact = system
             .processes_by_exact_name(std::ffi::OsStr::new("Balatro.exe"))
             .next()
             .is_some();
-        x
+        if exact {
+            return true;
+        }
+        for process in system.processes().values() {
+            let name = process.name().to_string_lossy().to_lowercase();
+            if name.contains("balatro")
+                && !name.contains("balatro-mod")
+                && !name.contains("balatro mod")
+                && !name.contains("balatro_mod")
+            {
+                return true;
+            }
+        }
+        false
     }
 
     #[cfg(target_family = "unix")]
@@ -419,6 +432,11 @@ pub fn is_balatro_running() -> bool {
         let balatro_roots: Vec<_> = crate::finder::get_balatro_paths()
             .into_iter()
             .map(|p| p.canonicalize().unwrap_or(p))
+            .collect();
+        #[cfg(target_os = "macos")]
+        let balatro_exec_roots: Vec<_> = balatro_roots
+            .iter()
+            .map(|root| root.join("Balatro.app").join("Contents").join("MacOS"))
             .collect();
 
         let current_pid = std::process::id() as i32;
@@ -436,6 +454,25 @@ pub fn is_balatro_running() -> bool {
 
                 if let Ok(name) = name(pid) {
                     let name_lower = name.to_lowercase();
+
+                    #[cfg(target_os = "macos")]
+                    {
+                        if let Ok(proc_path) = libproc::proc_pid::pidpath(pid) {
+                            let proc_path = PathBuf::from(proc_path);
+                            if proc_path
+                                .to_string_lossy()
+                                .to_lowercase()
+                                .contains("balatro.app")
+                            {
+                                return true;
+                            }
+                            for root in &balatro_exec_roots {
+                                if proc_path.starts_with(root) {
+                                    return true;
+                                }
+                            }
+                        }
+                    }
 
                     #[cfg(target_os = "linux")]
                     {

@@ -9,6 +9,7 @@ import { onMount } from "svelte";
 let showAlert = false;
 let isLinux = false;
 let isLaunching = false;
+let launchViaSteam = false;
 let launchCheckTimer: ReturnType<typeof setInterval> | null = null;
 let launchTimeoutTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -23,32 +24,34 @@ onMount(async () => {
 });
 
 async function doLaunch() {
+  let usesSteam = false;
   if (isLinux) {
     const is_balatro_running: boolean = await invoke("check_balatro_running");
     if (is_balatro_running) {
       addMessage("Balatro is already running", "error");
-      return false;
+      return { launched: false, usesSteam };
     }
   }
 
   const path = await invoke("get_balatro_path");
   if (path && path.toString().includes("Steam")) {
+    usesSteam = true;
     const is_balatro_running: boolean = await invoke("check_balatro_running");
     if (is_balatro_running) {
       addMessage("Balatro is already running", "error");
-      return false;
+      return { launched: false, usesSteam };
     }
     if (!isLinux) {
       const is_steam_running: boolean = await invoke("check_steam_running");
       if (!is_steam_running) {
         showAlert = true;
-        return false;
+        return { launched: false, usesSteam };
       }
     }
   }
 
   await invoke("launch_balatro");
-  return true;
+  return { launched: true, usesSteam };
 }
 
 	const handleLaunch = async () => {
@@ -72,8 +75,11 @@ async function doLaunch() {
     }
   }
   let launched = false;
+  let usesSteam = false;
   try {
-    launched = await doLaunch();
+    const res = await doLaunch();
+    launched = res.launched;
+    usesSteam = res.usesSteam;
   } catch (_) {
     launched = false;
   }
@@ -81,6 +87,7 @@ async function doLaunch() {
     isLaunching = false;
     return;
   }
+  launchViaSteam = usesSteam;
 
   if (launchCheckTimer) clearInterval(launchCheckTimer);
   if (launchTimeoutTimer) clearTimeout(launchTimeoutTimer);
@@ -106,6 +113,9 @@ async function doLaunch() {
       if (running) {
         if (launchCheckTimer) clearInterval(launchCheckTimer);
         launchCheckTimer = null;
+        if (launchTimeoutTimer) clearTimeout(launchTimeoutTimer);
+        launchTimeoutTimer = null;
+        isLaunching = false;
         return;
       }
     } catch (_) {
@@ -113,10 +123,30 @@ async function doLaunch() {
     }
   }, 500);
 
-  launchTimeoutTimer = setTimeout(() => {
+  launchTimeoutTimer = setTimeout(async () => {
     if (launchCheckTimer) {
       clearInterval(launchCheckTimer);
       launchCheckTimer = null;
+    }
+    try {
+      const running: boolean = await invoke("check_balatro_running");
+      if (running) {
+        isLaunching = false;
+        return;
+      }
+    } catch (_) {
+      // ignore polling errors
+    }
+    if (launchViaSteam) {
+      try {
+        const steamRunning: boolean = await invoke("check_steam_running");
+        if (steamRunning) {
+          isLaunching = false;
+          return;
+        }
+      } catch (_) {
+        // ignore polling errors
+      }
     }
     isLaunching = false;
     addMessage("Launch timed out. Try again.", "warning");
