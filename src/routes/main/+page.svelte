@@ -355,7 +355,7 @@ import { isLinuxPlatform } from "$lib/platform";
 				<button onclick={previousPage} disabled={$currentPage === 1}>
 					Previous
 				</button>
-				{#each Array(Math.min($paginationWindow.maxVisiblePages, $paginationWindow.totalPages)) as _, i}
+				{#each Array(Math.min($paginationWindow.maxVisiblePages, $paginationWindow.totalPages)) as _, i (i)}
 					{#if $paginationWindow.startPage + i <= $paginationWindow.totalPages}
 						<button
 							class:active={$currentPage === $paginationWindow.startPage + i}
@@ -429,7 +429,7 @@ import { isLinuxPlatform } from "$lib/platform";
 	}
 
 	h1 {
-		color: #f4eee0;
+		color: var(--ui-text);
 		font-size: 3rem;
 		margin-bottom: 2rem;
 		font-family: "M6X11", sans-serif;
@@ -448,8 +448,8 @@ import { isLinuxPlatform } from "$lib/platform";
 
 	button {
 		background: transparent;
-		border: 2px solid #f4eee0;
-		color: #f4eee0;
+		border: 2px solid var(--ui-text);
+		color: var(--ui-text);
 		padding: 0.7rem 1.4rem;
 		border-radius: 8px;
 		font-family: "M6X11", sans-serif;
@@ -460,17 +460,17 @@ import { isLinuxPlatform } from "$lib/platform";
 
 	button:hover,
 	button.active {
-		background: #f4eee0;
-		color: #393646;
+		background: var(--ui-mod-chip-active-bg);
+		color: var(--ui-mod-chip-active-text);
 	}
 
 	.content {
 		flex: 1;
-		background: rgba(193, 65, 57, 0.8);
+		background: var(--ui-danger-overlay);
 		border-radius: 5px;
 		backdrop-filter: blur(10px);
 		margin-bottom: 2rem;
-		outline: 2px solid #f4eee0;
+		outline: 2px solid var(--ui-danger-overlay-border-strong);
 		/* overflow-y: auto; Enable vertical scrolling */
 		overflow: hidden;
 		max-height: calc(100vh - 12rem);
@@ -483,7 +483,7 @@ import { isLinuxPlatform } from "$lib/platform";
 	}
 
 	/* Add scrollbar width variable for consistency */
-	:root {
+	:global(:root) {
 		--scrollbar-width: 10px;
 	}
 
@@ -496,7 +496,7 @@ import { isLinuxPlatform } from "$lib/platform";
 		position: fixed;
 		bottom: 1rem;
 		right: 1rem;
-		color: #f4eee0;
+		color: var(--ui-text);
 		font-family: "M6X11", sans-serif;
 		text-shadow:
 			-1px -1px 0 #000,
@@ -530,9 +530,9 @@ import { isLinuxPlatform } from "$lib/platform";
 
 	.pagination-controls button {
 		padding: 0.45rem 0.9rem;
-		background: #ea9600;
-		border: 1px solid #f4eee0;
-		color: #f4eee0;
+		background: var(--ui-mod-chip-bg);
+		border: 1px solid var(--ui-mod-chip-border);
+		color: var(--ui-mod-chip-text);
 		font-family: "M6X11", sans-serif;
 		font-size: 0.9rem;
 		cursor: pointer;
@@ -541,13 +541,13 @@ import { isLinuxPlatform } from "$lib/platform";
 	}
 
 	.pagination-controls button:hover:not(:disabled) {
-		background: #f4eee0;
-		color: #393646;
+		background: var(--ui-mod-chip-active-bg);
+		color: var(--ui-mod-chip-active-text);
 	}
 
 	.pagination-controls button.active {
-		background: #f4eee0;
-		color: #393646;
+		background: var(--ui-mod-chip-active-bg);
+		color: var(--ui-mod-chip-active-text);
 	}
 
 	.pagination-controls button:disabled {
@@ -560,7 +560,7 @@ import { isLinuxPlatform } from "$lib/platform";
 
 	:global([data-platform="linux"]) .content {
 		backdrop-filter: none;
-		background: rgba(193, 65, 57, 0.92);
+		background: var(--ui-danger-overlay-strong);
 	}
 
 	@media (max-width: 1160px) {

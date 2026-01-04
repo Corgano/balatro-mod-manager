@@ -38,9 +38,38 @@ function createPersistentNumber(
   return store;
 }
 
+function createPersistentBoolean(key: string, fallback: boolean) {
+  const isBrowser = typeof window !== "undefined";
+  let initial = fallback;
+  if (isBrowser) {
+    try {
+      const raw = localStorage.getItem(key);
+      if (raw != null) {
+        initial = raw === "true";
+      }
+    } catch (err) {
+      console.warn("Failed to read ui setting:", err);
+    }
+  }
+
+  const store = writable<boolean>(initial);
+  if (isBrowser) {
+    store.subscribe((val) => {
+      try {
+        localStorage.setItem(key, String(val));
+      } catch (err) {
+        console.warn("Failed to persist ui setting:", err);
+      }
+    });
+  }
+  return store;
+}
+
 // Controls how large mod cards render in the grid/search views
 // Range: 0.75x – 1.4x
 export const cardScale = createPersistentNumber("ui.cardScale", 1, {
   min: 0.75,
   max: 1.4,
 });
+
+export const darkMode = createPersistentBoolean("ui.darkMode", false);

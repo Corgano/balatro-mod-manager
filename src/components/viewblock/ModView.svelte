@@ -1246,22 +1246,22 @@ let modView: HTMLDivElement;
 	}
 
 	.toggle-button.enabled {
-		background: #27ae60; /* Bright green when enabled */
-		color: #f4eee0;
+		background: var(--ui-success-strong); /* Bright green when enabled */
+		color: var(--ui-text);
 	}
 
 	.toggle-button.disabled {
-		background: #7f8c8d; /* Gray when disabled */
-		color: #f4eee0;
+		background: var(--ui-neutral); /* Gray when disabled */
+		color: var(--ui-text);
 	}
 
 	.toggle-button:hover.enabled {
-		background: #2ecc71; /* Lighter green on hover */
+		background: var(--ui-success-strong-hover); /* Lighter green on hover */
 		transform: translateY(-2px);
 	}
 
 	.toggle-button:hover.disabled {
-		background: #95a5a6; /* Lighter gray on hover */
+		background: var(--ui-neutral-hover); /* Lighter gray on hover */
 		transform: translateY(-2px);
 	}
 
@@ -1282,12 +1282,12 @@ let modView: HTMLDivElement;
 		transition: all 0.2s ease;
 		font-family: "M6X11", sans-serif;
 		min-height: 48px;
-		background: #3b5d99;
-		color: #f4eee0;
+		background: var(--ui-info-strong);
+		color: var(--ui-text);
 	}
 
 	.collection-button:hover {
-		background: #4669a9;
+		background: var(--ui-info-strong-hover);
 		transform: translateY(-2px);
 	}
 
@@ -1298,14 +1298,14 @@ let modView: HTMLDivElement;
 	.categories-section {
 		margin-top: 1.5rem;
 		padding: 0.75rem;
-		background: rgba(244, 238, 224, 0.05);
+		background: var(--ui-glass-weak);
 		border-radius: 6px;
 	}
 
 	.categories-section h3 {
 		margin: 0 0 0.7rem 0;
 		font-size: 1.2rem;
-		color: #f4eee0;
+		color: var(--ui-text);
 		text-align: center;
 	}
 
@@ -1318,9 +1318,9 @@ let modView: HTMLDivElement;
 	}
 
 	.category-tag {
-		background: rgba(255, 255, 255, 0.1); /* Transparent background */
-		color: #f4eee0;
-		border: 1px solid rgba(244, 238, 224, 0.3); /* Subtle border */
+		background: var(--ui-glass); /* Transparent background */
+		color: var(--ui-text);
+		border: 1px solid var(--ui-glass-border); /* Subtle border */
 		border-radius: 6px;
 		padding: 0.5rem 1rem; /* Larger padding for bigger tags */
 		font-size: 1.1rem; /* Larger font size */
@@ -1332,12 +1332,7 @@ let modView: HTMLDivElement;
 	}
 
 	.category-tag:hover {
-		background: rgba(
-			255,
-			255,
-			255,
-			0.2
-		); /* Slightly more visible on hover */
+		background: var(--ui-glass-strong); /* Slightly more visible on hover */
 		transform: translateY(-2px);
 		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
 	}
@@ -1354,7 +1349,7 @@ let modView: HTMLDivElement;
 		width: 100%;
 		height: 100%;
 		/* background: linear-gradient(to bottom, #393646, #4a4458); */
-		background: rgba(133, 35, 27, 0.8);
+		background: var(--ui-danger-overlay);
 		backdrop-filter: blur(20px);
 		z-index: 1000;
 		overflow-y: auto;
@@ -1366,7 +1361,7 @@ let modView: HTMLDivElement;
 
 		/* max-width: 1000px; */
 		padding: 3rem;
-		color: #f4eee0;
+		color: var(--ui-text);
 		font-family: "M6X11", sans-serif;
 	}
 
@@ -1438,17 +1433,17 @@ let modView: HTMLDivElement;
 	}
 
 	.download-button {
-		background: #56a786;
-		color: #f4eee0;
+		background: var(--ui-success);
+		color: var(--ui-text);
 	}
 
 	.update-button {
-		background: #3498db; /* Bright blue color */
-		color: #f4eee0;
+		background: var(--ui-info); /* Bright blue color */
+		color: var(--ui-text);
 	}
 
 	.update-button:hover:not(:disabled) {
-		background: #5dade2; /* Lighter blue on hover */
+		background: var(--ui-info-hover); /* Lighter blue on hover */
 		transform: translateY(-2px);
 	}
 
@@ -1457,8 +1452,8 @@ let modView: HTMLDivElement;
 	}
 
 	.spinner {
-		border: 2px solid rgba(255, 255, 255, 0.3);
-		border-top: 2px solid #ffffff;
+		border: 2px solid var(--ui-glass-border);
+		border-top: 2px solid var(--ui-text);
 		border-radius: 50%;
 		width: 16px;
 		height: 16px;
@@ -1475,12 +1470,12 @@ let modView: HTMLDivElement;
 	}
 
 	.download-button:hover:not(.installed) {
-		background: #63b897;
+		background: var(--ui-success-hover);
 		transform: translateY(-2px);
 	}
 
 	.download-button.installed {
-		background: #808080;
+		background: var(--ui-neutral);
 		cursor: not-allowed;
 	}
 
@@ -1490,8 +1485,8 @@ let modView: HTMLDivElement;
 
 	.delete-button {
 		padding: 0.75rem;
-		background: #c14139;
-		color: #f4eee0;
+		background: var(--ui-danger);
+		color: var(--ui-text);
 		border: none;
 		border-radius: 6px;
 		cursor: pointer;
@@ -1499,7 +1494,7 @@ let modView: HTMLDivElement;
 	}
 
 	.delete-button:hover {
-		background: #d4524a;
+		background: var(--ui-danger-hover);
 		transform: translateY(-2px);
 	}
 
@@ -1509,7 +1504,7 @@ let modView: HTMLDivElement;
 		gap: 1rem;
 		font-size: 1.1rem;
 		padding: 1rem;
-		background: rgba(244, 238, 224, 0.1);
+		background: var(--ui-glass);
 		border-radius: 6px;
 		justify-content: center;
 		align-items: center;
@@ -1523,7 +1518,7 @@ let modView: HTMLDivElement;
 		display: flex;
 		align-items: center;
 		gap: 0.5rem;
-		color: #f4eee0;
+		color: var(--ui-text);
 	}
 
 	:global(.description > p > img) {
@@ -1533,8 +1528,8 @@ let modView: HTMLDivElement;
 	.description {
 		font-size: 1.2rem;
 		line-height: 1;
-		color: #f4eee0;
-		background: rgba(244, 238, 224, 0.05);
+		color: var(--ui-text);
+		background: var(--ui-glass-weak);
 		padding: 1.25rem;
 		border-radius: 6px;
 		width: 50rem;
@@ -1543,8 +1538,8 @@ let modView: HTMLDivElement;
 
 	/* Improved inline code styling */
 	.description :global(code) {
-		background: rgba(50, 50, 50, 0.7);
-		color: #e6e1cf;
+		background: var(--ui-panel-muted);
+		color: var(--ui-text);
 		padding: 0.2em 0.4em;
 		border-radius: 3px;
 		font-family: "Consolas", "Monaco", "Menlo", monospace;
@@ -1553,19 +1548,19 @@ let modView: HTMLDivElement;
 
 	/* Improved code block styling */
 	.description :global(pre) {
-		background: rgba(40, 40, 40, 0.8);
+		background: var(--ui-panel-muted-strong);
 		padding: 1em;
 		border-radius: 6px;
 		overflow-x: auto;
 		margin: 1em 0;
-		border: 1px solid rgba(100, 100, 100, 0.3);
+		border: 1px solid var(--ui-panel-muted-border);
 	}
 
 	/* Style code within pre blocks differently than inline code */
 	.description :global(pre code) {
 		background: transparent;
 		padding: 0;
-		color: #f4eee0;
+		color: var(--ui-text);
 		display: block;
 		line-height: 1.5;
 		white-space: pre;
@@ -1620,9 +1615,9 @@ let modView: HTMLDivElement;
 		display: flex;
 		align-items: center;
 		gap: 0.5rem;
-		background: rgba(244, 238, 224, 0.1);
+		background: var(--ui-glass);
 		border: none;
-		color: #f4eee0;
+		color: var(--ui-text);
 		padding: 0.5rem 1rem;
 		border-radius: 6px;
 		cursor: pointer;
@@ -1647,9 +1642,9 @@ let modView: HTMLDivElement;
 		padding: 0.5rem 0.5rem;
 		border-radius: 6px;
 
-		background: rgba(244, 238, 224, 0.1);
+		background: var(--ui-glass);
 		border: none;
-		color: #f4eee0;
+		color: var(--ui-text);
 
 		cursor: pointer;
 		transition: all 0.2s ease;
@@ -1665,16 +1660,16 @@ let modView: HTMLDivElement;
 
 	.close-button:hover {
 		scale: 1.1;
-		background: rgba(244, 238, 224, 0.2);
+		background: var(--ui-glass-strong);
 	}
 
 	.close-button:active {
 		scale: 0.95;
-		background: rgba(218, 212, 201, 0.1);
+		background: var(--ui-glass);
 	}
 
 	.back-button:hover {
-		background: rgba(244, 238, 224, 0.2);
+		background: var(--ui-glass-strong);
 		transform: translateX(-5px);
 	}
 
@@ -1698,7 +1693,7 @@ let modView: HTMLDivElement;
 	.description :global(h3),
 	.description :global(h4) {
 		margin-bottom: 0.5em;
-		color: #f4eee0;
+		color: var(--ui-text);
 	}
 
 	.description :global(p) {
@@ -1716,12 +1711,12 @@ let modView: HTMLDivElement;
 	}
 
 	.description :global(a) {
-		color: #56a786;
+		color: var(--ui-success);
 		text-decoration: none;
 	}
 	.description :global(a.internal-mod-link) {
 		/* Use Balatro's gold color for internal mod links */
-		color: #fdcf51 !important;
+		color: var(--ui-accent) !important;
 		position: relative;
 	}
 
@@ -1742,7 +1737,7 @@ let modView: HTMLDivElement;
 		position: absolute;
 		bottom: -35px;
 		left: 0;
-		background: rgba(0, 0, 0, 0.8);
+		background: var(--ui-backdrop-strong);
 		color: white;
 		padding: 4px 8px;
 		border-radius: 4px;
@@ -1757,10 +1752,10 @@ let modView: HTMLDivElement;
 	}
 
 	.description :global(blockquote) {
-		border-left: 3px solid #56a786;
+		border-left: 3px solid var(--ui-success);
 		margin: 1em 0;
 		padding-left: 1em;
-		color: rgba(244, 238, 224, 0.8);
+		color: var(--ui-text-soft);
 	}
 
 	.description :global(a) {
@@ -1829,9 +1824,9 @@ let modView: HTMLDivElement;
 	.loading-text {
 		/* width: 100%; */
 		padding: 0.75rem;
-		background: rgba(133, 35, 27, 0.8);
-		color: #f4eee0;
-		border: 1px solid rgba(193, 65, 57, 0.6);
+		background: var(--ui-danger-overlay);
+		color: var(--ui-text);
+		border: 1px solid var(--ui-danger-overlay-border);
 		border-radius: 6px;
 		font-family: "M6X11", sans-serif;
 		font-size: 1rem;
@@ -1841,9 +1836,9 @@ let modView: HTMLDivElement;
 	.version-selector select {
 		width: 100%;
 		padding: 0.75rem;
-		background: rgba(133, 35, 27, 0.8);
-		color: #f4eee0;
-		border: 1px solid rgba(193, 65, 57, 0.6);
+		background: var(--ui-danger-overlay);
+		color: var(--ui-text);
+		border: 1px solid var(--ui-danger-overlay-border);
 		border-radius: 6px;
 		font-family: "M6X11", sans-serif;
 		cursor: pointer;
@@ -1860,8 +1855,8 @@ let modView: HTMLDivElement;
 	}
 
 	.version-selector select:hover:not(:disabled) {
-		background-color: rgba(133, 35, 27, 0.9);
-		border-color: rgba(193, 65, 57, 0.8);
+		background-color: var(--ui-danger-overlay-stronger);
+		border-color: var(--ui-danger-overlay-border-strong);
 		transform: translateY(-2px);
 	}
 
@@ -1877,10 +1872,10 @@ let modView: HTMLDivElement;
 		width: 100%;
 		height: 3rem;
 		padding: 0.75rem 1.5rem;
-		background: #2b3137;
-		color: #f4eee0;
+		background: var(--ui-code-bg);
+		color: var(--ui-text);
 		border: none;
-		outline: #1b2127 solid 2px;
+		outline: var(--ui-code-outline) solid 2px;
 		border-radius: 4px;
 		font-family: "M6X11", sans-serif;
 		font-size: 1rem;
@@ -1892,17 +1887,17 @@ let modView: HTMLDivElement;
 	}
 
 	.repo-button:hover {
-		background: #3b4147;
+		background: var(--ui-code-bg-hover);
 		transform: translateY(-2px);
 	}
 	.version-selector select option {
-		background: rgba(133, 35, 27, 0.9);
-		color: #f4eee0;
+		background: var(--ui-danger-overlay-stronger);
+		color: var(--ui-text);
 		padding: 0.75rem;
 	}
 
 	.description :global(a) {
-		color: #56a786;
+		color: var(--ui-success);
 		text-decoration: none;
 		cursor: pointer;
 		transition: all 0.2s ease;
@@ -1915,12 +1910,12 @@ let modView: HTMLDivElement;
 
 	:global([data-platform="linux"]) .category-tag {
 		backdrop-filter: none;
-		background: rgba(244, 238, 224, 0.14);
+		background: var(--ui-glass);
 	}
 
 	:global([data-platform="linux"]) .mod-view {
 		backdrop-filter: none;
-		background: rgba(133, 35, 27, 0.92);
+		background: var(--ui-danger-overlay-strong);
 		position: absolute;
 		inset: 0;
 		border-radius: 6px;
@@ -1931,6 +1926,6 @@ let modView: HTMLDivElement;
 	:global([data-platform="linux"]) .back-button,
 	:global([data-platform="linux"]) .close-button {
 		backdrop-filter: none;
-		background: rgba(244, 238, 224, 0.14);
+		background: var(--ui-glass);
 	}
 </style>

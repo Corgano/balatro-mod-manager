@@ -2,6 +2,7 @@
 	import { blur } from "svelte/transition";
 	import MessageStack from "../components/MessageStack.svelte";
 	import { backgroundEnabled } from "../stores/modStore";
+	import { darkMode } from "../stores/ui";
 	import { onMount } from "svelte";
 	import DragDropOverlay from "../components/DragDropOverlay.svelte";
 	import { Window } from "@tauri-apps/api/window";
@@ -113,19 +114,26 @@
 	}
 
     onMount(() => {
+        const unsubscribeTheme = darkMode.subscribe((enabled) => {
+            document.documentElement.dataset.theme = enabled ? "dark" : "light";
+            document.documentElement.style.colorScheme = enabled ? "dark" : "light";
+        });
         detectPlatform();
         setupAppWindow();
         checkForUpdate();
+        return () => {
+            unsubscribeTheme();
+        };
     });
 </script>
 
 <MessageStack />
 <DragDropOverlay />
 <div
-	class="layout-container"
+	class="layout-container app-body"
 	style:--gradient-opacity={$backgroundEnabled ? 0 : 1}
 	style:--dot-size={isWindows ? "1.5px" : "0.45px"}
-	style:--dot-color={isWindows ? "#ff9999" : "#d66060"}
+	style:--dot-color={isWindows ? "var(--ui-bg-dot-win)" : "var(--ui-bg-dot)"}
 >
 	{#key data.url}
 		<div
@@ -154,7 +162,7 @@
 		top: 0;
 		left: 0;
 		overflow: hidden;
-		background-color: #a53535; /* Fallback background color */
+		background-color: var(--ui-bg); /* Fallback background color */
 	}
 
 	.layout-container::before {
@@ -166,14 +174,14 @@
 		height: 100%;
 		opacity: var(--gradient-opacity, 1);
 		transition: opacity 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-		background-color: #a53535;
+		background-color: var(--ui-bg);
 		background-image: radial-gradient(
 				var(--dot-color, #d66060) var(--dot-size, 0.45px),
 				transparent var(--dot-size, 0.45px)
 			),
 			radial-gradient(
 				var(--dot-color, #d66060) var(--dot-size, 0.45px),
-				#a53535 var(--dot-size, 0.45px)
+				var(--ui-bg) var(--dot-size, 0.45px)
 			);
 		background-size: 18px 18px;
 		background-position:

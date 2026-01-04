@@ -14,7 +14,8 @@ import { openCollectionPicker } from "../../stores/collections";
 	import { lovelyPopupStore } from "../../stores/modStore";
 	import { forceRefreshCache } from "../../stores/modCache";
 import LazyImage from "../common/LazyImage.svelte";
-	import { cardScale } from "../../stores/ui";
+import { cardScale, darkMode } from "../../stores/ui";
+import { normalizeColorPair, pickDarkPalette } from "../../utils/cardPalette";
 import { onMount, onDestroy } from "svelte";
 import { isLinuxPlatform } from "$lib/platform";
 
@@ -53,6 +54,9 @@ import { isLinuxPlatform } from "$lib/platform";
 	let titleEl: HTMLHeadingElement | null = $state(null);
 	let titleScale = $state(1);
 	let titleResizeObserver: ResizeObserver | null = null;
+	let cardColors = $derived(
+		$darkMode ? pickDarkPalette(mod.title) : normalizeColorPair(mod.colors),
+	);
 
 	$effect(() => {
 		const key = `${mod.title}|${mod.image}`;
@@ -361,8 +365,7 @@ import { isLinuxPlatform } from "$lib/platform";
 	onkeydown={(e) => e.key === "Enter" && openModView()}
 	role="button"
 	tabindex="0"
-	style="--orig-color1: {mod.colors.color1}; --orig-color2: {mod.colors
-		.color2};"
+	style="--orig-color1: {cardColors.color1}; --orig-color2: {cardColors.color2};"
 >
 	<div class="mod-image">
 		<LazyImage
@@ -480,7 +483,7 @@ import { isLinuxPlatform } from "$lib/platform";
 		position: relative;
 		border-radius: 8px;
 	overflow: hidden;
-	border: 2px solid #f4eee0;
+	border: 2px solid var(--ui-mod-panel-border);
 	width: calc(300px * var(--card-scale, 1));
 	max-width: calc(300px * var(--card-scale, 1));
 	height: calc(330px * var(--card-scale, 1));
@@ -564,7 +567,7 @@ import { isLinuxPlatform } from "$lib/platform";
 	}
 
 	.mod-info h3 {
-		color: #fdcf51;
+		color: var(--ui-heading);
 		font-size: calc(1.5rem * var(--card-scale, 1));
 		margin-bottom: 0.2rem;
 	}
@@ -579,7 +582,7 @@ import { isLinuxPlatform } from "$lib/platform";
 	}
 
 	.mod-info p {
-		color: #f4eee0;
+		color: var(--ui-text);
 		font-size: calc(1rem * var(--card-scale, 1));
 		line-height: 1.2;
 	}
@@ -622,9 +625,9 @@ import { isLinuxPlatform } from "$lib/platform";
 		border-radius: 6px;
 		background: linear-gradient(
 			90deg,
-			rgba(255, 255, 255, 0.08) 25%,
-			rgba(255, 255, 255, 0.18) 37%,
-			rgba(255, 255, 255, 0.08) 63%
+			var(--ui-glass-weak) 25%,
+			var(--ui-glass-strong) 37%,
+			var(--ui-glass-weak) 63%
 		);
 		background-size: 400% 100%;
 		animation: shimmer 1.2s ease-in-out infinite;
@@ -668,19 +671,19 @@ import { isLinuxPlatform } from "$lib/platform";
 	}
 
 	.download-button {
-		background: #56a786;
-		color: #f4eee0;
-		outline: #459373 solid 2px;
+		background: var(--ui-success);
+		color: var(--ui-text);
+		outline: var(--ui-button-green-border) solid 2px;
 	}
 
 	.update-button {
-		background: #3498db;
-		color: #f4eee0;
-		outline: #2980b9 solid 2px;
+		background: var(--ui-info);
+		color: var(--ui-text);
+		outline: var(--ui-info-strong) solid 2px;
 	}
 
 	.update-button:hover {
-		background: #5dade2; /* Lighter blue on hover */
+		background: var(--ui-info-hover); /* Lighter blue on hover */
 		transform: translateY(-2px);
 	}
 
@@ -689,13 +692,13 @@ import { isLinuxPlatform } from "$lib/platform";
 	}
 
 	.download-button:hover:not(.installed) {
-		background: #63b897;
+		background: var(--ui-success-hover);
 		transform: translateY(-2px);
 	}
 
 	.download-button.installed {
-		background: #808080;
-		outline-color: #666666;
+		background: var(--ui-neutral);
+		outline-color: var(--ui-neutral-outline);
 		cursor: not-allowed;
 	}
 
@@ -726,10 +729,10 @@ import { isLinuxPlatform } from "$lib/platform";
 		min-width: calc(42px * var(--card-scale, 1));
 		height: calc(42px * var(--card-scale, 1));
 		padding: calc(8px * var(--card-scale, 1));
-		background: #c14139;
-		color: #f4eee0;
+		background: var(--ui-danger);
+		color: var(--ui-text);
 		border: none;
-		outline: #a13029 solid 2px;
+		outline: var(--ui-danger-outline) solid 2px;
 		border-radius: 4px;
 		cursor: pointer;
 		transition: all 0.2s ease;
@@ -738,7 +741,7 @@ import { isLinuxPlatform } from "$lib/platform";
 	}
 
 	.delete-button:hover {
-		background: #d4524a;
+		background: var(--ui-danger-hover);
 		transform: translateY(-2px);
 	}
 
@@ -753,17 +756,17 @@ import { isLinuxPlatform } from "$lib/platform";
 		min-width: calc(42px * var(--card-scale, 1));
 		height: calc(42px * var(--card-scale, 1));
 		padding: calc(8px * var(--card-scale, 1));
-		background: #3b5d99;
-		color: #f4eee0;
+		background: var(--ui-info-strong);
+		color: var(--ui-text);
 		border: none;
-		outline: #2f4c80 solid 2px;
+		outline: var(--ui-info-outline) solid 2px;
 		border-radius: 4px;
 		cursor: pointer;
 		transition: all 0.2s ease;
 	}
 
 	.collection-button:hover {
-		background: #4669a9;
+		background: var(--ui-info-strong-hover);
 		transform: translateY(-2px);
 	}
 
@@ -790,23 +793,23 @@ import { isLinuxPlatform } from "$lib/platform";
 	}
 
 	.toggle-button.enabled {
-		background: #27ae60; /* Bright green when enabled */
-		outline: #219653 solid 2px;
+		background: var(--ui-success-strong); /* Bright green when enabled */
+		outline: var(--ui-success-strong) solid 2px;
 	}
 
 	.toggle-button.disabled {
-		background: #7f8c8d; /* Gray when disabled, instead of red */
-		outline: #636e72 solid 2px;
+		background: var(--ui-neutral); /* Gray when disabled, instead of red */
+		outline: var(--ui-neutral-outline) solid 2px;
 	}
 
 	.toggle-button:hover.enabled {
-		background: #2ecc71; /* Lighter green on hover */
+		background: var(--ui-success-strong-hover); /* Lighter green on hover */
 		transform: translateY(-2px);
 		box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
 	}
 
 	.toggle-button:hover.disabled {
-		background: #95a5a6; /* Lighter gray on hover */
+		background: var(--ui-neutral-hover); /* Lighter gray on hover */
 		transform: translateY(-2px);
 		box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
 	}
@@ -829,8 +832,8 @@ import { isLinuxPlatform } from "$lib/platform";
 	}
 
 	.spinner {
-		border: 2px solid rgba(255, 255, 255, 0.3);
-		border-top: 2px solid #ffffff;
+		border: 2px solid var(--ui-glass-border);
+		border-top: 2px solid var(--ui-text);
 		border-radius: 50%;
 		width: calc(16px * var(--card-scale, 1));
 		height: calc(16px * var(--card-scale, 1));

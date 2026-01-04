@@ -6,25 +6,33 @@
 		Folder,
 	} from "lucide-svelte";
 	import { invoke } from "@tauri-apps/api/core";
+	import { onMount } from "svelte";
 	import { addMessage } from "$lib/stores";
 	import { modsStore } from "../../stores/modStore";
 	import { modEnabledStore } from "../../stores/modStore";
+	import { cardScale, darkMode } from "../../stores/ui";
+	import { pickDarkPalette } from "../../utils/cardPalette";
 
 	import type { LocalMod } from "../../stores/modStore";
 
 	type CatalogMatch = { title: string; download_url: string; version?: string };
 	type LocalModWithCatalog = LocalMod & { catalog_match?: CatalogMatch };
 
-	export let mod: LocalModWithCatalog;
-	export let onUninstall: (mod: LocalModWithCatalog) => void;
-	export let onToggleEnabled: (() => Promise<void>) | undefined = undefined;
+	interface Props {
+		mod: LocalModWithCatalog;
+		onUninstall: (mod: LocalModWithCatalog) => void;
+		onToggleEnabled?: () => Promise<void>;
+	}
+
+	const {
+		mod,
+		onUninstall,
+		onToggleEnabled = undefined,
+	}: Props = $props();
 
 	// Local state for loading and enabled status
-	let isInstalling = false;
-	let isEnabled = true; // Default to enabled if not yet checked
-
-	// Check mod enabled status when component mounts
-	import { onMount } from "svelte";
+	let isInstalling = $state(false);
+	let isEnabled = $state(true); // Default to enabled if not yet checked
 
 	onMount(() => {
 		checkModEnabled(mod.name);
@@ -236,55 +244,40 @@
 		}
 	}
 
-	// Generate random colors like the ModCard does
-	const bgColor = getRandomColor();
-	const bgColor2 = darkenColor(bgColor, 20);
+	const lightColorPairs = [
+		{ color1: "#4f6367", color2: "#425556" },
+		{ color1: "#AA778D", color2: "#906577" },
+		{ color1: "#A2615E", color2: "#89534F" },
+		{ color1: "#A48447", color2: "#8B703C" },
+		{ color1: "#4F7869", color2: "#436659" },
+		{ color1: "#728DBF", color2: "#6177A3" },
+		{ color1: "#5D5E8F", color2: "#4F4F78" },
+		{ color1: "#796E9E", color2: "#655D86" },
+		{ color1: "#64825D", color2: "#556E4E" },
+		{ color1: "#86A367", color2: "#728A57" },
+		{ color1: "#748C8A", color2: "#627775" },
+	];
 
-	function getRandomColor() {
-		const colors = [
-			"#4f6367",
-			"#AA778D",
-			"#A2615E",
-			"#A48447",
-			"#4F7869",
-			"#728DBF",
-			"#5D5E8F",
-			"#796E9E",
-			"#64825D",
-			"#86A367",
-			"#748C8A",
-		];
-		return colors[Math.floor(Math.random() * colors.length)];
+	function pickLightRandomPair() {
+		return lightColorPairs[Math.floor(Math.random() * lightColorPairs.length)];
 	}
 
-	function darkenColor(color: string, percent: number) {
-		const num = parseInt(color.replace("#", ""), 16);
-		const amt = Math.round(2.55 * percent);
-		const R = (num >> 16) - amt;
-		const G = ((num >> 8) & 0x00ff) - amt;
-		const B = (num & 0x0000ff) - amt;
-		return (
-			"#" +
-			(
-				0x1000000 +
-				(R < 0 ? 0 : R) * 0x10000 +
-				(G < 0 ? 0 : G) * 0x100 +
-				(B < 0 ? 0 : B)
-			)
-				.toString(16)
-				.slice(1)
-		);
-	}
+	const lightPair = pickLightRandomPair();
+	let cardColors = $derived(
+		$darkMode ? pickDarkPalette(mod.name) : lightPair,
+	);
 
-	// Check for version differences if we have a catalog match
-	let hasNewerVersion = false;
-	if (mod.catalog_match && mod.catalog_match.version && mod.version) {
-		hasNewerVersion = mod.catalog_match.version !== mod.version;
-	}
-    import { cardScale } from "../../stores/ui";
+	const hasNewerVersion = $derived(
+		!!(
+			mod.catalog_match &&
+			mod.catalog_match.version &&
+			mod.version &&
+			mod.catalog_match.version !== mod.version
+		),
+	);
 </script>
 
-<div class="mod-card" class:compact={$cardScale <= 0.85} style="--bg-color: {bgColor}; --bg-color-2: {bgColor2};">
+<div class="mod-card" class:compact={$cardScale <= 0.85} style="--bg-color: {cardColors.color1}; --bg-color-2: {cardColors.color2};">
 	<!-- Dark overlay to improve readability -->
 	<div class="overlay"></div>
 
@@ -304,7 +297,7 @@
 				<span>By: {mod.author.join(", ")}</span>
 			</div>
 			{#if mod.version}
-				<div class="version">
+				<div class="mod-version">
 					<span>Version: {mod.version}</span>
 				</div>
 			{/if}
@@ -322,7 +315,7 @@
 			<button
 				class="folder-button"
 				title="Open mod directory"
-				on:click={openModDirectory}
+				onclick={openModDirectory}
 			>
 				<Folder size={18} />
 			</button>
@@ -334,7 +327,7 @@
 				title={($modEnabledStore[mod.name] ?? isEnabled)
 					? "Disable Mod"
 					: "Enable Mod"}
-				on:click={toggleModEnabled}
+				onclick={toggleModEnabled}
 			>
 				{#if $modEnabledStore[mod.name] ?? isEnabled}
 					ON
@@ -345,7 +338,7 @@
 			<button
 				class="install-button"
 				title="Install official version"
-				on:click={installOfficialVersion}
+				onclick={installOfficialVersion}
 				disabled={isInstalling}
 			>
 				{#if isInstalling}
@@ -358,7 +351,7 @@
 			<button
 				class="trash-button"
 				title="Remove Mod"
-				on:click={uninstallMod}
+				onclick={uninstallMod}
 			>
 				<Trash2 size={18} />
 			</button>
@@ -366,7 +359,7 @@
 			<button
 				class="folder-button"
 				title="Open mod directory"
-				on:click={openModDirectory}
+				onclick={openModDirectory}
 			>
 				<Folder size={18} />
 			</button>
@@ -378,7 +371,7 @@
 				title={($modEnabledStore[mod.name] ?? isEnabled)
 					? "Disable Mod"
 					: "Enable Mod"}
-				on:click={toggleModEnabled}
+				onclick={toggleModEnabled}
 			>
 				{#if $modEnabledStore[mod.name] ?? isEnabled}
 					ON
@@ -389,7 +382,7 @@
 			<button
 				class="delete-button"
 				title="Remove Mod"
-				on:click={uninstallMod}
+				onclick={uninstallMod}
 			>
 				<Trash2 size={18} />
 				Remove
@@ -408,7 +401,7 @@
 		position: relative;
 		border-radius: 8px;
 		overflow: hidden;
-		border: 2px solid #f4eee0;
+		border: 2px solid var(--ui-mod-panel-border);
 		width: calc(300px * var(--card-scale, 1));
 		max-width: calc(300px * var(--card-scale, 1));
 		height: calc(330px * var(--card-scale, 1));
@@ -435,7 +428,7 @@
 		left: 0;
 		right: 0;
 		bottom: 0;
-		background-color: rgba(0, 0, 0, 0.5);
+		background-color: var(--ui-card-overlay);
 		backdrop-filter: blur(1px);
 		-webkit-backdrop-filter: blur(1px);
 		z-index: 1;
@@ -444,15 +437,15 @@
 	:global([data-platform="linux"]) .overlay {
 		backdrop-filter: none;
 		-webkit-backdrop-filter: none;
-		background-color: rgba(0, 0, 0, 0.6);
+		background-color: var(--ui-card-overlay-strong);
 	}
 
 	.catalog-badge {
 		position: absolute;
 		top: 1rem;
 		right: 1rem;
-		background: #56a786;
-		color: #f4eee0;
+		background: var(--ui-success);
+		color: var(--ui-text);
 		padding: 0.3rem 0.5rem;
 		border-radius: 4px;
 		font-size: 0.9rem;
@@ -461,7 +454,7 @@
 		gap: 0.3rem;
 		z-index: 3;
 		box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
-		border: 1px solid rgba(244, 238, 224, 0.3);
+		border: 1px solid var(--ui-glass-border);
 	}
 
 	.mod-card:hover {
@@ -489,8 +482,8 @@
 		z-index: 2;
 	}
 
-	h3 {
-		color: #fdcf51;
+h3 {
+		color: var(--ui-heading);
 		font-size: calc(1.5rem * var(--card-scale, 1));
 		margin-bottom: 0.5rem;
 		text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.5);
@@ -509,7 +502,7 @@
 	}
 
 	.description {
-		color: #f4eee0;
+		color: var(--ui-text);
 		font-size: 1.1rem;
 		line-height: 1.3;
 		margin-bottom: 1rem;
@@ -531,17 +524,17 @@
 
 	.mod-meta {
 		font-size: 1rem;
-		color: #f4eee0;
+		color: var(--ui-text);
 		margin-bottom: 1rem;
 	}
 
-	.version,
+	.mod-version,
 	.catalog-version {
 		margin-top: 0.3rem;
 	}
 
 	.catalog-version {
-		color: #56a786;
+		color: var(--ui-success);
 		font-weight: bold;
 	}
 
@@ -564,7 +557,7 @@
 		justify-content: center;
 		gap: 0.5rem;
 		padding: calc(0.75rem * var(--card-scale, 1));
-		color: #f4eee0;
+		color: var(--ui-text);
 		border: none;
 		border-radius: 4px;
 		cursor: pointer;
@@ -582,7 +575,7 @@
 		justify-content: center;
 		gap: calc(0.4rem * var(--card-scale, 1));
 		padding: calc(0.75rem * var(--card-scale, 1)) calc(0.5rem * var(--card-scale, 1));
-		color: #f4eee0;
+		color: var(--ui-text);
 		border: none;
 		border-radius: 4px;
 		cursor: pointer;
@@ -590,17 +583,17 @@
 		font-family: "M6X11", sans-serif;
 		min-height: calc(42px * var(--card-scale, 1));
 		position: relative;
-		background: #56a786;
-		outline: #459373 solid 2px;
+		background: var(--ui-success);
+		outline: var(--ui-button-green-border) solid 2px;
 	}
 
 	.delete-button {
-		background: #c14139;
-		outline: #a13029 solid 2px;
+		background: var(--ui-danger);
+		outline: var(--ui-danger-outline) solid 2px;
 	}
 
 	.delete-button:hover {
-		background: #d4524a;
+		background: var(--ui-danger-hover);
 		transform: translateY(-2px);
 	}
 
@@ -611,7 +604,7 @@
 
 	.install-button:not(:disabled):active {
 		transform: translateY(1px);
-		background: #63b897;
+		background: var(--ui-success-hover);
 		box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
 	}
 
@@ -630,15 +623,15 @@
 		border-radius: 4px;
 		cursor: pointer;
 		transition: all 0.2s ease;
-		background-color: #4caf50;
-		color: white;
+		background-color: var(--ui-success-alt);
+		color: var(--ui-text);
 		border: none;
-		outline: #3d8b40 solid 2px;
+		outline: var(--ui-button-forest-border) solid 2px;
 		flex-shrink: 0;
 	}
 
 	.folder-button:hover {
-		background-color: #45a049;
+		background-color: var(--ui-success-alt-hover);
 		transform: translateY(-2px);
 		box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
 	}
@@ -659,7 +652,7 @@
 		border-radius: 4px;
 		cursor: pointer;
 		transition: all 0.2s ease;
-		color: white;
+		color: var(--ui-text);
 		border: none;
 		flex-shrink: 0;
 		font-family: "M6X11", sans-serif;
@@ -667,23 +660,23 @@
 	}
 
 	.toggle-button.enabled {
-		background: #27ae60; /* Bright green when enabled */
-		outline: #219653 solid 2px;
+		background: var(--ui-success-strong); /* Bright green when enabled */
+		outline: var(--ui-success-strong) solid 2px;
 	}
 
 	.toggle-button.disabled {
-		background: #7f8c8d; /* Gray when disabled, instead of red */
-		outline: #636e72 solid 2px;
+		background: var(--ui-neutral); /* Gray when disabled, instead of red */
+		outline: var(--ui-neutral-outline) solid 2px;
 	}
 
 	.toggle-button:hover.enabled {
-		background: #2ecc71; /* Lighter green on hover */
+		background: var(--ui-success-strong-hover); /* Lighter green on hover */
 		transform: translateY(-2px);
 		box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
 	}
 
 	.toggle-button:hover.disabled {
-		background: #95a5a6; /* Lighter gray on hover */
+		background: var(--ui-neutral-hover); /* Lighter gray on hover */
 		transform: translateY(-2px);
 		box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
 	}
@@ -703,15 +696,15 @@
 		border-radius: 4px;
 		cursor: pointer;
 		transition: all 0.2s ease;
-		background-color: #c14139;
-		color: white;
+		background-color: var(--ui-danger);
+		color: var(--ui-text);
 		border: none;
-		outline: #a13029 solid 2px;
+		outline: var(--ui-danger-outline) solid 2px;
 		flex-shrink: 0;
 	}
 
 	.trash-button:hover {
-		background-color: #d4524a;
+		background-color: var(--ui-danger-hover);
 		transform: translateY(-2px);
 		box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
 	}
@@ -722,7 +715,7 @@
 	}
 
 	.install-button:hover:not(:disabled) {
-		background: #63b897;
+		background: var(--ui-success-hover);
 		transform: translateY(-2px);
 		box-shadow: 0 4px 6px rgba(0, 0, 0, 0.15);
 	}
@@ -734,8 +727,8 @@
 
 	/* Spinner for loading state */
 	.spinner {
-		border: 2px solid rgba(255, 255, 255, 0.3);
-		border-top: 2px solid #ffffff;
+		border: 2px solid var(--ui-glass-border);
+		border-top: 2px solid var(--ui-text);
 		border-radius: 50%;
 		width: calc(16px * var(--card-scale, 1));
 		height: calc(16px * var(--card-scale, 1));

@@ -192,7 +192,7 @@ onMount(() => {
 </script>
 
 <div class="launch-container">
-	<button class="launch-button" on:click={handleLaunch} disabled={isLaunching}>
+	<button class="launch-button" onclick={handleLaunch} disabled={isLaunching}>
 		Launch
 	</button>
 </div>
@@ -207,8 +207,8 @@ onMount(() => {
 	}
 
 	.launch-button {
-		background: #00a2ff;
-		color: #f4eee0;
+		background: var(--ui-launch-bg);
+		color: var(--ui-launch-text);
 		font-family: "M6X11", sans-serif;
 		font-size: 3.2rem;
 		padding: 0.5rem 2.2rem;
@@ -221,12 +221,12 @@ onMount(() => {
 			-2px 2px 0 #000,
 			2px 2px 0 #000;
 		border-radius: 8px;
-		outline: 3px solid #334461;
+		outline: 3px solid var(--ui-launch-outline);
 		box-shadow: inset 0 0 10px rgba(0, 0, 0, 0.3);
 	}
 
 	.launch-button:hover {
-		background: #0088ff;
+		background: var(--ui-launch-hover);
 		transform: translateY(-2px);
 	}
 

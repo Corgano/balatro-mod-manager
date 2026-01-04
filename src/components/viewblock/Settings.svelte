@@ -1,38 +1,39 @@
 <script lang="ts">
-import PathSelector from "../PathSelector.svelte";
+	import PathSelector from "../PathSelector.svelte";
 	import { Settings2, RefreshCw, Folder, Save, Info, Copy } from "lucide-svelte";
-import { addMessage } from "$lib/stores";
-import { onMount } from "svelte";
-import { fade, fly } from "svelte/transition";
-import { invoke } from "@tauri-apps/api/core";
-import {
-	backgroundEnabled,
-	cachedVersions,
-	catalogLastRefreshed,
-	catalogResetNonce,
-	currentJokerView,
-	currentModView,
-	modsStore,
-	searchResults,
-} from "../../stores/modStore";
-import { descriptionsStore } from "../../stores/descriptions";
-    import { cardScale } from "../../stores/ui";
-import { browser } from "$app/environment";
+	import { addMessage } from "$lib/stores";
+	import { onMount } from "svelte";
+	import { fade, fly } from "svelte/transition";
+	import { invoke } from "@tauri-apps/api/core";
+	import {
+		backgroundEnabled,
+		cachedVersions,
+		catalogLastRefreshed,
+		catalogResetNonce,
+		currentJokerView,
+		currentModView,
+		modsStore,
+		searchResults,
+	} from "../../stores/modStore";
+	import { descriptionsStore } from "../../stores/descriptions";
+	import { cardScale, darkMode } from "../../stores/ui";
+	import { browser } from "$app/environment";
 
-	let isReindexing = false;
-	let isClearingCache = false;
-	let isConsoleEnabled = false;
-	let isBackgroundAnimationEnabled = false;
-	let lastReindexStats = {
+	let isReindexing = $state(false);
+	let isClearingCache = $state(false);
+	let isConsoleEnabled = $state(false);
+	let isBackgroundAnimationEnabled = $state(false);
+	let isDarkMode = $state(false);
+	let lastReindexStats = $state({
 		removedFiles: 0,
 		cleanedEntries: 0,
-	};
-	let isDiscordRpcEnabled = false;
-	let isLinux = false;
-	let linuxPrefix = "";
-	let isCompatHelperEnabled = true;
-	let showLinuxHelp = false;
-	let activeHelpImage: { src: string; alt: string } | null = null;
+	});
+	let isDiscordRpcEnabled = $state(false);
+	let isLinux = $state(false);
+	let linuxPrefix = $state("");
+	let isCompatHelperEnabled = $state(true);
+	let showLinuxHelp = $state(false);
+	let activeHelpImage = $state<{ src: string; alt: string } | null>(null);
 
 	export async function performReindexMods() {
 		isReindexing = true;
@@ -157,6 +158,24 @@ import { browser } from "$app/environment";
 		}
 	}
 
+	async function handleDarkModeChange() {
+		const newValue = !isDarkMode;
+		darkMode.set(newValue);
+		if (newValue && isBackgroundAnimationEnabled) {
+			try {
+				await invoke("set_background_state", { enabled: false });
+				backgroundEnabled.set(false);
+				isBackgroundAnimationEnabled = false;
+			} catch (error) {
+				console.error("Failed to disable background animation:", error);
+				addMessage(
+					"Failed to disable background animation for dark mode",
+					"error",
+				);
+			}
+		}
+	}
+
 	async function handleLinuxPrefixChange() {
 		const newValue = linuxPrefix.replace(/\s+/g, " ").trim();
 		if (!newValue) {
@@ -210,7 +229,12 @@ import { browser } from "$app/environment";
 		}
 	}
 
-	onMount(async () => {
+	onMount(() => {
+		const unsubscribeDarkMode = darkMode.subscribe((value) => {
+			isDarkMode = value;
+		});
+
+		(async () => {
 		// Detect platform for Linux-specific UI gating
 		try {
 			const { platform } = await import("@tauri-apps/plugin-os");
@@ -261,6 +285,11 @@ import { browser } from "$app/environment";
 				addMessage("Error fetching Linux prefix", "error");
 			}
 		}
+		})();
+
+		return () => {
+			unsubscribeDarkMode();
+		};
 	});
 </script>
 
@@ -273,7 +302,7 @@ import { browser } from "$app/environment";
 			<h3>Cache</h3>
 			<button
 				class="clear-cache-button"
-				on:click={clearCache}
+				onclick={clearCache}
 				disabled={isClearingCache}
 			>
 				{#if isClearingCache}
@@ -294,7 +323,7 @@ import { browser } from "$app/environment";
 			<div class="mods-settings">
 				<button
 					class="open-folder-button"
-					on:click={openModsFolder}
+					onclick={openModsFolder}
 					title="Open mods folder"
 				>
 					<Folder size={20} />
@@ -311,7 +340,7 @@ import { browser } from "$app/environment";
 							<input
 								type="checkbox"
 								checked={isCompatHelperEnabled}
-								on:change={handleCompatHelperChange}
+								onchange={handleCompatHelperChange}
 							/> <span class="slider"></span>
 						</label>
 					</div>
@@ -322,7 +351,7 @@ import { browser } from "$app/environment";
 
 				<button
 					class="reindex-button"
-					on:click={performReindexMods}
+					onclick={performReindexMods}
 					disabled={isReindexing}
 					title="Synchronize database with filesystem state"
 				>
@@ -362,11 +391,11 @@ import { browser } from "$app/environment";
 							<code>WINEDLLOVERRIDES="version=n,b" %command%</code> so Lovely and mods load
 							when using <code>steam -applaunch 2379780</code>.
 							<div class="linux-note-actions">
-								<button class="linux-copy-button" on:click={copyLinuxLaunchOptions}>
+								<button class="linux-copy-button" onclick={copyLinuxLaunchOptions}>
 									<Copy size={16} />
 									Copy launch options
 								</button>
-								<button class="linux-what-button" on:click={toggleLinuxHelp}>
+								<button class="linux-what-button" onclick={toggleLinuxHelp}>
 									{showLinuxHelp ? "Hide" : "What?"}
 								</button>
 							</div>
@@ -376,7 +405,7 @@ import { browser } from "$app/environment";
 										<button
 											type="button"
 											class="linux-help-button"
-											on:click={() =>
+											onclick={() =>
 												openHelpImage(
 													"/images/steam-help-first.png",
 													"Open Balatro properties from Steam library",
@@ -395,7 +424,7 @@ import { browser } from "$app/environment";
 										<button
 											type="button"
 											class="linux-help-button"
-											on:click={() =>
+											onclick={() =>
 												openHelpImage(
 													"/images/steam-help-1.png",
 													"Steam launch options menu",
@@ -414,7 +443,7 @@ import { browser } from "$app/environment";
 										<button
 											type="button"
 											class="linux-help-button"
-											on:click={() =>
+											onclick={() =>
 												openHelpImage(
 													"/images/steam-help-2.png",
 													"Set WINEDLLOVERRIDES launch options",
@@ -439,17 +468,17 @@ import { browser } from "$app/environment";
 							role="button"
 							aria-label="Close image preview"
 							tabindex="0"
-							on:click={closeHelpImage}
-							on:keydown={handleModalKeydown}
+							onclick={closeHelpImage}
+							onkeydown={handleModalKeydown}
 							transition:fade={{ duration: 120 }}
 						>
 							<div
 								class="image-modal-content"
 								role="presentation"
-								on:click|stopPropagation
+								onclick={(event) => event.stopPropagation()}
 								transition:fly={{ y: 12, duration: 180 }}
 							>
-								<button class="image-modal-close" on:click={closeHelpImage}>
+								<button class="image-modal-close" onclick={closeHelpImage}>
 									×
 								</button>
 								<img
@@ -469,7 +498,7 @@ import { browser } from "$app/environment";
 					/>
 					<button
 						class="prefix-button"
-						on:click={handleLinuxPrefixChange}
+						onclick={handleLinuxPrefixChange}
 						title="Update Linux prefix"
 					>
 						<Save size={20} />
@@ -484,7 +513,22 @@ import { browser } from "$app/environment";
 				{/if}
 			</div>
 			<h3>Appearance</h3>
-			{#if !isLinux}
+			<div class="console-settings">
+				<span class="label-text">Enable Dark Mode</span>
+				<div class="switch-container">
+					<label class="switch">
+						<input
+							type="checkbox"
+							checked={isDarkMode}
+							onchange={handleDarkModeChange}
+						/> <span class="slider"></span>
+					</label>
+				</div>
+			</div>
+			<p class="description-small">
+				Use a darker palette across the UI for low-light environments.
+			</p>
+			{#if !isLinux && !isDarkMode}
 				<div class="console-settings">
 					<span class="label-text">Enable Background Animation</span>
 					<div class="switch-container">
@@ -492,7 +536,7 @@ import { browser } from "$app/environment";
 							<input
 								type="checkbox"
 								checked={isBackgroundAnimationEnabled}
-								on:change={handleBackgroundAnimationChange}
+								onchange={handleBackgroundAnimationChange}
 							/> <span class="slider"></span>
 						</label>
 					</div>
@@ -530,7 +574,7 @@ import { browser } from "$app/environment";
 						<input
 							type="checkbox"
 							checked={isDiscordRpcEnabled}
-							on:change={handleDiscordRpcChange}
+							onchange={handleDiscordRpcChange}
 						/> <span class="slider"></span>
 					</label>
 				</div>
@@ -548,7 +592,7 @@ import { browser } from "$app/environment";
 						<input
 							type="checkbox"
 							checked={isConsoleEnabled}
-							on:change={handleConsoleChange}
+							onchange={handleConsoleChange}
 						/> <span class="slider"></span>
 					</label>
 				</div>
@@ -566,22 +610,22 @@ import { browser } from "$app/environment";
 	h2 {
 		font-size: 2.5rem;
 		margin-bottom: 2rem;
-		color: #fdcf51;
+		color: var(--ui-heading);
 	}
 	h3 {
 		font-size: 1.8rem;
 		margin-bottom: 1rem;
 		align-self: flex-start;
-		color: #fdcf51;
+		color: var(--ui-heading);
 	}
 	.content {
 		flex: 1;
 	}
 	.reindex-button {
-		background: #56a786;
-		color: #f4eee0;
+		background: var(--ui-button-green);
+		color: var(--ui-text);
 		border: none;
-		outline: #459373 solid 2px;
+		outline: var(--ui-button-green-border) solid 2px;
 		border-radius: 4px;
 		padding: 0.75rem 1.5rem;
 		font-family: "M6X11", sans-serif;
@@ -594,21 +638,21 @@ import { browser } from "$app/environment";
 		gap: 0.5rem;
 	}
 	.reindex-button:hover {
-		background: #74cca8;
+		background: var(--ui-button-green-hover);
 		transform: translateY(-2px);
 	}
 	.throbber {
 		width: 20px;
 		height: 20px;
-		border: 3px solid #f4eee0;
+		border: 3px solid var(--ui-spinner);
 		border-radius: 50%;
 		border-top-color: transparent;
 		animation: spin 1s linear infinite;
 	}
 	.warning {
-		color: #ffd700;
+		color: var(--ui-warning);
 		font-size: 1.1rem;
-		border-left: 3px solid #ffd700;
+		border-left: 3px solid var(--ui-warning-border);
 		padding-left: 0.8rem;
 		margin-top: 0.8rem;
 		max-width: 600px !important;
@@ -624,10 +668,10 @@ import { browser } from "$app/environment";
 		transform: none;
 	}
 	.clear-cache-button {
-		background: #6d28d9;
-		color: #f4eee0;
+		background: var(--ui-button-purple);
+		color: var(--ui-text);
 		border: none;
-		outline: #5b21b6 solid 2px;
+		outline: var(--ui-button-purple-border) solid 2px;
 		border-radius: 4px;
 		padding: 0.75rem 1.5rem;
 		font-family: "M6X11", sans-serif;
@@ -639,7 +683,7 @@ import { browser } from "$app/environment";
 		gap: 0.5rem;
 	}
 	.clear-cache-button:hover:not(:disabled) {
-		background: #7c3aed;
+		background: var(--ui-button-purple-hover);
 		transform: translateY(-2px);
 	}
 	.clear-cache-button:disabled {
@@ -649,10 +693,10 @@ import { browser } from "$app/environment";
 	}
 
 	.open-folder-button {
-		background: #4caf50;
-		color: #f4eee0;
+		background: var(--ui-button-forest);
+		color: var(--ui-text);
 		border: none;
-		outline: #3d8b40 solid 2px;
+		outline: var(--ui-button-forest-border) solid 2px;
 		border-radius: 4px;
 		padding: 0.75rem 1.5rem;
 		font-family: "M6X11", sans-serif;
@@ -667,7 +711,7 @@ import { browser } from "$app/environment";
 	}
 
 	.open-folder-button:hover {
-		background: #45a049;
+		background: var(--ui-button-forest-hover);
 		transform: translateY(-2px);
 	}
 
@@ -676,9 +720,9 @@ import { browser } from "$app/environment";
 	}
 	.prefix-input {
 		margin-top: 1rem;
-		background: #1f1f1f;
-		color: #f4eee0;
-		border: 2px solid #5b21b6;
+		background: var(--ui-input-bg);
+		color: var(--ui-text);
+		border: 2px solid var(--ui-input-border);
 		border-radius: 4px;
 		padding: 0.6rem 0.8rem;
 		font-family: "M6X11", sans-serif;
@@ -686,14 +730,14 @@ import { browser } from "$app/environment";
 		min-width: 320px;
 	}
 	.prefix-input::placeholder {
-		color: #bfb8a8;
+		color: var(--ui-input-placeholder);
 	}
 	.prefix-button {
 		margin-top: 0.6rem;
-		background: #7c3aed;
-		color: #f4eee0;
+		background: var(--ui-button-lilac);
+		color: var(--ui-text);
 		border: none;
-		outline: #5b21b6 solid 2px;
+		outline: var(--ui-button-lilac-border) solid 2px;
 		border-radius: 4px;
 		padding: 0.6rem 1.2rem;
 		font-family: "M6X11", sans-serif;
@@ -705,16 +749,16 @@ import { browser } from "$app/environment";
 		gap: 0.5rem;
 	}
 	.prefix-button:hover {
-		background: #8b5cf6;
+		background: var(--ui-button-lilac-hover);
 		transform: translateY(-2px);
 	}
 	.linux-note {
 		margin-top: 0.8rem;
 		padding: 1rem 1.1rem;
-		background: #8a5b1a;
-		border: 1px solid #d89b3f;
+		background: var(--ui-note-bg);
+		border: 1px solid var(--ui-note-border);
 		border-radius: 4px;
-		color: #f4eee0;
+		color: var(--ui-text);
 		font-size: 1.1rem;
 		max-width: 100%;
 		line-height: 1.4;
@@ -723,7 +767,7 @@ import { browser } from "$app/environment";
 		gap: 0.6rem;
 	}
 	.linux-note-icon {
-		color: #fdcf51;
+		color: var(--ui-note-icon);
 		margin-top: 2px;
 		display: inline-flex;
 	}
@@ -735,7 +779,7 @@ import { browser } from "$app/environment";
 	}
 	.linux-note code {
 		font-family: "M6X11", sans-serif;
-		background: #6b4413;
+		background: var(--ui-note-code);
 		padding: 0.1rem 0.3rem;
 		border-radius: 3px;
 	}
@@ -746,9 +790,9 @@ import { browser } from "$app/environment";
 		gap: 0.5rem;
 	}
 	.linux-copy-button {
-		background: #c9971e;
-		color: #f4eee0;
-		border: 2px solid #e3a93a;
+		background: var(--ui-copy-bg);
+		color: var(--ui-text);
+		border: 2px solid var(--ui-copy-border);
 		border-radius: 4px;
 		padding: 0.4rem 0.6rem;
 		font-family: "M6X11", sans-serif;
@@ -760,23 +804,23 @@ import { browser } from "$app/environment";
 		transition: transform 0.15s ease, background 0.15s ease, border-color 0.15s ease;
 	}
 	.linux-copy-button:hover {
-		background: #d3a428;
-		border-color: #d28a22;
+		background: var(--ui-copy-hover);
+		border-color: var(--ui-copy-hover-border);
 		transform: translateY(-1px);
 	}
 	.linux-copy-button:focus-visible {
-		outline: 2px solid #fdcf51;
+		outline: 2px solid var(--ui-note-icon);
 		outline-offset: 2px;
 	}
 	.linux-copy-button:active {
 		transform: translateY(0);
-		background: #b48518;
-		border-color: #c07a16;
+		background: var(--ui-copy-active);
+		border-color: var(--ui-copy-active-border);
 	}
 	.linux-what-button {
-		background: #2878c8;
-		color: #f4eee0;
-		border: 2px solid #2b9ce9;
+		background: var(--ui-button-blue);
+		color: var(--ui-text);
+		border: 2px solid var(--ui-button-blue-border);
 		border-radius: 4px;
 		padding: 0.4rem 0.6rem;
 		font-family: "M6X11", sans-serif;
@@ -785,18 +829,18 @@ import { browser } from "$app/environment";
 		transition: transform 0.15s ease, background 0.15s ease, border-color 0.15s ease;
 	}
 	.linux-what-button:hover {
-		background: #2f88da;
-		border-color: #33a6f2;
+		background: var(--ui-button-blue-hover);
+		border-color: var(--ui-button-blue-border-hover);
 		transform: translateY(-1px);
 	}
 	.linux-what-button:focus-visible {
-		outline: 2px solid #8ad7ff;
+		outline: 2px solid var(--ui-help-focus);
 		outline-offset: 2px;
 	}
 	.linux-what-button:active {
 		transform: translateY(0);
-		background: #1f6bb3;
-		border-color: #1f8ed6;
+		background: var(--ui-button-blue-active);
+		border-color: var(--ui-button-blue-active-border);
 	}
 	.linux-help {
 		margin-top: 0.7rem;
@@ -818,7 +862,7 @@ import { browser } from "$app/environment";
 		cursor: zoom-in;
 	}
 	.linux-help-button:focus-visible {
-		outline: 2px solid #8ad7ff;
+		outline: 2px solid var(--ui-help-focus);
 		outline-offset: 3px;
 		border-radius: 6px;
 	}
@@ -826,19 +870,19 @@ import { browser } from "$app/environment";
 		width: 100%;
 		height: auto;
 		display: block;
-		border: 2px solid #2b9ce9;
+		border: 2px solid var(--ui-help-border);
 		border-radius: 6px;
-		background: #0f1a2e;
+		background: var(--ui-help-bg);
 	}
 	.linux-help figcaption {
-		color: #f4eee0;
+		color: var(--ui-text);
 		font-size: 1.2rem;
 		opacity: 0.9;
 	}
 	.image-modal {
 		position: fixed;
 		inset: 0;
-		background: rgba(10, 10, 12, 0.7);
+		background: var(--ui-modal-overlay);
 		display: flex;
 		align-items: center;
 		justify-content: center;
@@ -852,8 +896,8 @@ import { browser } from "$app/environment";
 		position: relative;
 		max-width: min(1100px, 92vw);
 		max-height: 90vh;
-		background: #0f1a2e;
-		border: 2px solid #2b9ce9;
+		background: var(--ui-help-bg);
+		border: 2px solid var(--ui-help-border);
 		border-radius: 10px;
 		padding: 1rem 1.2rem 1.2rem;
 		display: flex;
@@ -869,16 +913,16 @@ import { browser } from "$app/environment";
 	}
 	.image-modal-content p {
 		margin: 0;
-		color: #f4eee0;
+		color: var(--ui-text);
 		font-size: 1.1rem;
 	}
 	.image-modal-close {
 		position: absolute;
 		top: 8px;
 		right: 10px;
-		background: #2878c8;
-		color: #f4eee0;
-		border: 2px solid #2b9ce9;
+		background: var(--ui-button-blue);
+		color: var(--ui-text);
+		border: 2px solid var(--ui-button-blue-border);
 		border-radius: 6px;
 		width: 32px;
 		height: 32px;
@@ -890,10 +934,10 @@ import { browser } from "$app/environment";
 		justify-content: center;
 	}
 	.image-modal-close:hover {
-		background: #2f88da;
+		background: var(--ui-button-blue-hover);
 	}
 	.description {
-		color: #f4eee0;
+		color: var(--ui-text);
 		font-size: 1.2rem;
 		margin-top: 0.5rem;
 		opacity: 0.9;
@@ -902,7 +946,7 @@ import { browser } from "$app/environment";
 	} /* Custom Toggle Switch Styles */
 	.description-small {
 		/* color a bit grayer but still light */
-		color: #c4c2c2;
+		color: var(--ui-text-muted);
 		font-size: 1.1rem;
 		margin-top: 0.5rem;
 		opacity: 0.9;
@@ -915,7 +959,7 @@ import { browser } from "$app/environment";
 		gap: 0.75rem;
 		margin-top: 1rem;
 		font-size: 1.2rem;
-		color: #f4eee0;
+		color: var(--ui-text);
 	}
 	.label-text {
 		white-space: nowrap;
@@ -939,8 +983,8 @@ import { browser } from "$app/environment";
 		left: 0;
 		right: 0;
 		bottom: 0; /* Disabled state: red fill and border */
-		background-color: #f87171;
-		border: 2px solid #fc4747;
+		background-color: var(--ui-switch-off);
+		border: 2px solid var(--ui-switch-off-border);
 		transition: 0.3s;
 		border-radius: 10px;
 	}
@@ -951,15 +995,15 @@ import { browser } from "$app/environment";
 		width: 24px;
 		left: 2px;
 		bottom: 2px;
-		background-color: #f4eee0;
+		background-color: var(--ui-switch-thumb);
 		/* do a gray outline */
-		outline: 2px solid #9e9a90;
+		outline: 2px solid var(--ui-switch-thumb-outline);
 		transition: 0.3s;
 		border-radius: 5px;
 	} /* Enabled state: green fill and border */
 	.switch input:checked + .slider {
-		background-color: #4ade80;
-		border: 2px solid #2fba66;
+		background-color: var(--ui-switch-on);
+		border: 2px solid var(--ui-switch-on-border);
 	}
 	.switch input:checked + .slider:before {
 		transform: translateX(28px);
@@ -977,11 +1021,11 @@ import { browser } from "$app/environment";
 		display: flex;
 		justify-content: space-between;
 		align-items: center;
-		color: #f4eee0;
+		color: var(--ui-text);
 		font-size: 1.1rem;
 	}
     .slider-label .value {
-        color: #fdcf51;
+        color: var(--ui-accent);
     }
     .range {
         -webkit-appearance: none;
@@ -997,15 +1041,15 @@ import { browser } from "$app/environment";
     .range::-webkit-slider-runnable-track {
         height: 12px; /* thicker bar */
         border-radius: 6px;
-        background: linear-gradient(90deg, #ea9600, #fdcf51);
-        border: 2px solid #f4eee0;
+        background: linear-gradient(90deg, var(--ui-slider-start), var(--ui-slider-end));
+        border: 2px solid var(--ui-slider-border);
         box-shadow: 0 2px 6px rgba(0,0,0,0.25);
     }
     .range::-moz-range-track {
         height: 12px; /* thicker bar */
         border-radius: 6px;
-        background: linear-gradient(90deg, #ea9600, #fdcf51);
-        border: 2px solid #f4eee0;
+        background: linear-gradient(90deg, var(--ui-slider-start), var(--ui-slider-end));
+        border: 2px solid var(--ui-slider-border);
         box-shadow: 0 2px 6px rgba(0,0,0,0.25);
     }
     .range::-webkit-slider-thumb {
@@ -1014,8 +1058,8 @@ import { browser } from "$app/environment";
         width: 20px;
         height: 20px;
         border-radius: 4px;
-        background: #f4eee0; /* white thumb */
-        border: 2px solid #9e9a90; /* subtle gray border */
+        background: var(--ui-slider-thumb); /* white thumb */
+        border: 2px solid var(--ui-slider-thumb-border); /* subtle gray border */
         box-shadow: 0 2px 4px rgba(0,0,0,0.25);
         cursor: pointer;
         position: relative; /* allow offset */
@@ -1025,8 +1069,8 @@ import { browser } from "$app/environment";
         width: 20px;
         height: 20px;
         border-radius: 4px;
-        background: #f4eee0; /* white thumb */
-        border: 2px solid #9e9a90; /* subtle gray border */
+        background: var(--ui-slider-thumb); /* white thumb */
+        border: 2px solid var(--ui-slider-thumb-border); /* subtle gray border */
         box-shadow: 0 2px 4px rgba(0,0,0,0.25);
         cursor: pointer;
     }

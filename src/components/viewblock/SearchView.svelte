@@ -369,9 +369,9 @@ import ModCard from "./ModCard.svelte";
 		padding: 0 1rem;
 	}
 
-	::selection {
-		background: #ea9600;
-		color: #f4eee0;
+	:global(::selection) {
+		background: var(--ui-mod-chip-bg);
+		color: var(--ui-text);
 	}
 
 	.search-bar {
@@ -393,7 +393,7 @@ import ModCard from "./ModCard.svelte";
 		z-index: 10;
 		animation: spin infinite 1s linear;
 		border-radius: 9999px;
-		border: 2px solid #f4eee0;
+		border: 2px solid var(--ui-text);
 		border-right: 2px solid transparent;
 	}
 
@@ -407,16 +407,16 @@ import ModCard from "./ModCard.svelte";
 		/* 2rem just for some spacing from the scrollbar */
 		width: calc(100% - 2rem);
 		padding: 0.75rem;
-		border: 2px solid #f4eee0;
+		border: 2px solid var(--ui-mod-input-border);
 		border-radius: 6px;
-		background-color: #393646;
-		color: #f4eee0;
+		background-color: var(--ui-mod-input-bg);
+		color: var(--ui-text);
 		font-family: "M6X11", sans-serif;
 		font-size: 1.1rem;
 	}
 	.search-input:focus {
 		outline: none;
-		border-color: #ea9600;
+		border-color: var(--ui-mod-input-focus);
 		transition: border-color 0.2s ease;
 	}
 	/* legacy search button code */
