@@ -1,9 +1,10 @@
 <script lang="ts">
 	import { invoke } from "@tauri-apps/api/core";
 	import LaunchAlertBox from "./LaunchAlertBox.svelte";
-import { addMessage } from "../lib/stores";
-import { lovelyPopupStore } from "../stores/modStore";
-import { onMount } from "svelte";
+	import { addMessage } from "../lib/stores";
+	import { lovelyPopupStore } from "../stores/modStore";
+	import { isLinuxPlatform } from "../lib/platform";
+	import { onMount } from "svelte";
 	import { get } from "svelte/store";
 
 let showAlert = false;
@@ -15,9 +16,7 @@ let launchTimeoutTimer: ReturnType<typeof setTimeout> | null = null;
 
 onMount(async () => {
 	try {
-		const { platform } = await import("@tauri-apps/plugin-os");
-		const p = await platform();
-		isLinux = p.toLowerCase() === "linux";
+		isLinux = await isLinuxPlatform();
 	} catch (_) {
 		isLinux = false;
 	}
@@ -57,6 +56,11 @@ async function doLaunch() {
 	const handleLaunch = async () => {
 		if (isLaunching) return;
 		isLaunching = true;
+		try {
+			isLinux = await isLinuxPlatform();
+		} catch (_) {
+			isLinux = false;
+		}
 		// Warn if Lovely injector is missing before any launch
   if (!isLinux) {
     try {
@@ -93,16 +97,38 @@ async function doLaunch() {
   if (launchTimeoutTimer) clearTimeout(launchTimeoutTimer);
 
   if (isLinux) {
-    launchTimeoutTimer = setTimeout(async () => {
+    launchCheckTimer = setInterval(async () => {
       try {
         const running: boolean = await invoke("check_balatro_running");
         if (running) {
+          if (launchCheckTimer) clearInterval(launchCheckTimer);
+          launchCheckTimer = null;
+          if (launchTimeoutTimer) clearTimeout(launchTimeoutTimer);
+          launchTimeoutTimer = null;
+          isLaunching = false;
+          return;
+        }
+      } catch (_) {
+        // ignore polling errors
+      }
+    }, 500);
+
+    launchTimeoutTimer = setTimeout(async () => {
+      if (launchCheckTimer) {
+        clearInterval(launchCheckTimer);
+        launchCheckTimer = null;
+      }
+      try {
+        const running: boolean = await invoke("check_balatro_running");
+        if (running) {
+          isLaunching = false;
           return;
         }
       } catch (_) {
         // ignore polling errors
       }
       isLaunching = false;
+      addMessage("Launch timed out. Try again.", "warning");
     }, 12000);
     return;
   }
