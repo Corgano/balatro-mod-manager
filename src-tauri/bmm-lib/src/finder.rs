@@ -38,7 +38,6 @@ fn remove_unexisting_paths(paths: &mut Vec<PathBuf>) {
             i += 1;
         }
     }
-    debug!("Found {} Balatro installations.", paths.len());
 }
 
 #[cfg(target_os = "windows")]
@@ -113,13 +112,15 @@ pub fn get_balatro_paths() -> Vec<PathBuf> {
 
     remove_unexisting_paths(&mut paths);
     dedup_paths_case_insensitive(&mut paths);
+    debug!("Found {} Balatro installations: {:?}", paths.len(), paths);
     paths
 }
 
 fn dedup_paths_case_insensitive(paths: &mut Vec<PathBuf>) {
     let mut seen: HashSet<String> = HashSet::new();
     paths.retain(|p| {
-        let key = p.to_string_lossy().to_string().to_lowercase();
+        let canon = p.canonicalize().unwrap_or_else(|_| p.to_path_buf());
+        let key = canon.to_string_lossy().to_string().to_lowercase();
         seen.insert(key)
     });
 }
@@ -147,6 +148,7 @@ pub fn get_balatro_paths() -> Vec<PathBuf> {
     }
     remove_unexisting_paths(&mut paths);
     dedup_paths_case_insensitive(&mut paths);
+    debug!("Found {} Balatro installations: {:?}", paths.len(), paths);
     paths
 }
 
@@ -334,6 +336,7 @@ pub fn get_balatro_paths() -> Vec<PathBuf> {
 
     remove_unexisting_paths(&mut paths);
     dedup_paths_case_insensitive(&mut paths);
+    debug!("Found {} Balatro installations: {:?}", paths.len(), paths);
     paths
 }
 
