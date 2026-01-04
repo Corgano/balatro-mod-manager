@@ -208,7 +208,11 @@ local function flush_pending()
   pending = {}
   for _, line in ipairs(queued) do
     local stamp = os.date("%Y-%m-%d %H:%M:%S")
-    if love and love.filesystem and love.filesystem.append and path:match("^/") == nil then
+    local is_abs = path:match("^/") ~= nil
+      or path:match("^%a:[/\\]") ~= nil
+      or path:match("^\\\\") ~= nil
+      or path:match("^//") ~= nil
+    if love and love.filesystem and love.filesystem.append and not is_abs then
       pcall(love.filesystem.append, path, ("[%s] %s\n"):format(stamp, line))
     else
       local ok, file = pcall(io.open, path, "a")
@@ -232,7 +236,11 @@ local function log_line(line)
   end
   ensure_log_dir()
   local stamp = os.date("%Y-%m-%d %H:%M:%S")
-  if love.filesystem.append and path:match("^/") == nil then
+  local is_abs = path:match("^/") ~= nil
+    or path:match("^%a:[/\\]") ~= nil
+    or path:match("^\\\\") ~= nil
+    or path:match("^//") ~= nil
+  if love.filesystem.append and not is_abs then
     pcall(love.filesystem.append, path, ("[%s] %s\n"):format(stamp, line))
     return
   end
@@ -295,6 +303,8 @@ local safe_mode_handling = false
 local safe_mode_bypass = false
 local safe_mode_run_original = nil
 local safe_mode_crash_mods = {}
+local list_recent_mods
+local ensure_mod_context_hooks
 local find_mod_from_trace
 local disable_mod
 
@@ -404,6 +414,17 @@ local function handle_safe_mode_crash(msg, trace)
   local guessed = nil
   if not folder then
     guessed = guess_mod_from_crash(msg, trace_text)
+  end
+  if not folder and not guessed then
+    local recent = list_recent_mods()
+    if #recent > 0 then
+      log_line(("safe_mode recent_mods=%s"):format(table.concat(recent, ", ")))
+    else
+      log_line("safe_mode recent_mods_empty")
+    end
+    for _, name in ipairs(recent) do
+      add_crash_mod(name, true)
+    end
   end
   if folder then
     add_crash_mod(folder, false)
@@ -815,6 +836,11 @@ local function normalize_sep(path)
   return path:gsub("\\", "/")
 end
 
+local recent_mods = {}
+local recent_mod_limit = 6
+local recent_mod_window_sec = 120
+local mods_index_cache = nil
+
 local function to_mounted_path(path)
   if not mounted_mods_dir_norm or mounted_mods_dir_norm == "" then
     return nil
@@ -896,6 +922,84 @@ local function escape_pattern(s)
   return (s:gsub("([%%%^%$%(%)%.%[%]%*%+%-%?])", "%%%1"))
 end
 
+local function extract_mod_from_path(path)
+  if type(path) ~= "string" or path == "" then
+    return nil
+  end
+  local trimmed = path
+  if trimmed:sub(1, 1) == "@" then
+    trimmed = trimmed:sub(2)
+  end
+  local norm = normalize_sep(trimmed)
+  local mounted = norm:match("^__bmm_mods/([^/]+)/")
+  if mounted then
+    return mounted
+  end
+  if cfg and cfg.mods_dir and cfg.mods_dir ~= "" then
+    local mods_norm = normalize_sep(cfg.mods_dir)
+    local match = norm:match(escape_pattern(mods_norm) .. "/([^/]+)/")
+    if match then
+      return match
+    end
+  end
+  local generic = norm:match("/Mods/([^/]+)/")
+  if generic then
+    return generic
+  end
+  local rel = norm:match("^([^/]+)/")
+  if rel and cfg and cfg.mods_dir and cfg.mods_dir ~= "" then
+    if not mods_index_cache then
+      mods_index_cache = {}
+      local items = read_mods_index(cfg.mods_dir)
+      for _, name in ipairs(items) do
+        if type(name) == "string" and name ~= "" then
+          mods_index_cache[name:lower()] = name
+        end
+      end
+    end
+    local key = rel:lower()
+    if mods_index_cache[key] then
+      return mods_index_cache[key]
+    end
+  end
+  return nil
+end
+
+local function record_recent_mod(name, source)
+  if type(name) ~= "string" or name == "" then
+    return
+  end
+  local lower = name:lower()
+  if lower == "bmm-compat" or lower:find("lovely") then
+    return
+  end
+  local now = os.time()
+  recent_mods[#recent_mods + 1] = { name = name, t = now, src = source }
+  if #recent_mods > recent_mod_limit then
+    table.remove(recent_mods, 1)
+  end
+end
+
+list_recent_mods = function()
+  local out = {}
+  local seen = {}
+  local now = os.time()
+  for i = #recent_mods, 1, -1 do
+    local item = recent_mods[i]
+    if item and item.name and item.t and (now - item.t) <= recent_mod_window_sec then
+      local key = item.name:lower()
+      if not seen[key] then
+        out[#out + 1] = item.name
+        seen[key] = true
+      end
+      if #out >= recent_mod_limit then
+        break
+      end
+    end
+  end
+  return out
+end
+
 find_mod_from_trace = function(trace)
   if type(trace) ~= "string" or trace == "" then
     return nil
@@ -914,6 +1018,105 @@ find_mod_from_trace = function(trace)
   end
   return nil
 end
+
+local mod_context_hooked = false
+ensure_mod_context_hooks = function()
+  if mod_context_hooked then
+    return
+  end
+  mod_context_hooked = true
+
+  local orig_loadfile = loadfile
+  if type(orig_loadfile) == "function" then
+    loadfile = function(filename, ...)
+      local mod = extract_mod_from_path(filename)
+      if mod then
+        record_recent_mod(mod, "loadfile")
+      end
+      return orig_loadfile(filename, ...)
+    end
+  end
+
+  local orig_dofile = dofile
+  if type(orig_dofile) == "function" then
+    dofile = function(filename, ...)
+      local mod = extract_mod_from_path(filename)
+      if mod then
+        record_recent_mod(mod, "dofile")
+      end
+      return orig_dofile(filename, ...)
+    end
+  end
+
+  local orig_require = require
+  if type(orig_require) == "function" then
+    require = function(name, ...)
+      local resolved = nil
+      if type(name) == "string" and package and type(package.searchpath) == "function" then
+        resolved = package.searchpath(name, package.path)
+      end
+      local mod = extract_mod_from_path(resolved or name)
+      if mod then
+        record_recent_mod(mod, "require")
+      end
+      return orig_require(name, ...)
+    end
+  end
+
+  local orig_load = load
+  if type(orig_load) == "function" then
+    load = function(chunk, chunkname, ...)
+      local mod = extract_mod_from_path(chunkname)
+      if not mod and type(chunk) == "string" then
+        mod = extract_mod_from_path(chunk)
+      end
+      if mod then
+        record_recent_mod(mod, "load")
+      end
+      return orig_load(chunk, chunkname, ...)
+    end
+  end
+
+  local orig_loadstring = loadstring
+  if type(orig_loadstring) == "function" then
+    loadstring = function(chunk, chunkname, ...)
+      local mod = extract_mod_from_path(chunkname)
+      if not mod and type(chunk) == "string" then
+        mod = extract_mod_from_path(chunk)
+      end
+      if mod then
+        record_recent_mod(mod, "loadstring")
+      end
+      return orig_loadstring(chunk, chunkname, ...)
+    end
+  end
+
+  if love and love.filesystem then
+    local orig_fs_load = love.filesystem.load
+    if type(orig_fs_load) == "function" then
+      love.filesystem.load = function(filename, ...)
+        local mod = extract_mod_from_path(filename)
+        if mod then
+          record_recent_mod(mod, "fs_load")
+        end
+        return orig_fs_load(filename, ...)
+      end
+    end
+
+    local orig_fs_read = love.filesystem.read
+    if type(orig_fs_read) == "function" then
+      love.filesystem.read = function(filename, ...)
+        local mod = extract_mod_from_path(filename)
+        if mod then
+          record_recent_mod(mod, "fs_read")
+        end
+        return orig_fs_read(filename, ...)
+      end
+    end
+  end
+end
+
+ensure_mod_context_hooks()
 
 local function list_lua_candidates(path)
   if love and love.filesystem then
@@ -1588,6 +1791,7 @@ local function setup_safe_mode()
   if safe_mode_done or safe_mode_bypass or not cfg.safe_mode then
     return
   end
+  ensure_mod_context_hooks()
   local function setup_safe_mode_fallback()
     if safe_mode_fallbackhook or not (love and type(love.run) == "function") then
       return false
@@ -1935,19 +2139,40 @@ fn write_mods_index(mods_dir: &Path, base_dir: &Path) -> Result<(), String> {
 }
 
 fn write_config(enabled: bool, mods_dir: &Path) -> Result<(), String> {
-    let config_dir =
-        dirs::config_dir().ok_or_else(|| "Failed to resolve config directory".to_string())?;
-    let balatro_dir = config_dir.join("Balatro");
-    fs::create_dir_all(&balatro_dir).map_err(|e| e.to_string())?;
-    let config_path = balatro_dir.join(CONFIG_FILE_NAME);
-    let mods_dir = mods_dir.to_string_lossy();
+    let mods_dir_str = mods_dir.to_string_lossy();
     let contents = if enabled {
-        format!("enabled=true\nsafe_mode=true\nmods_dir={}\n", mods_dir)
+        format!("enabled=true\nsafe_mode=true\nmods_dir={}\n", mods_dir_str)
     } else {
-        format!("enabled=false\nsafe_mode=true\nmods_dir={}\n", mods_dir)
+        format!("enabled=false\nsafe_mode=true\nmods_dir={}\n", mods_dir_str)
     };
-    write_if_changed(config_path, &contents)?;
-    Ok(())
+    let mut targets: Vec<PathBuf> = Vec::new();
+    if let Some(config_dir) = dirs::config_dir() {
+        targets.push(config_dir.join("Balatro"));
+    }
+    if let Some(parent) = mods_dir.parent() {
+        targets.push(parent.to_path_buf());
+    }
+    targets.sort();
+    targets.dedup();
+
+    let mut wrote_any = false;
+    let mut last_err: Option<String> = None;
+    for dir in targets {
+        if let Err(e) = fs::create_dir_all(&dir).map_err(|e| e.to_string()) {
+            last_err = Some(e);
+            continue;
+        }
+        let config_path = dir.join(CONFIG_FILE_NAME);
+        match write_if_changed(config_path, &contents) {
+            Ok(_) => wrote_any = true,
+            Err(e) => last_err = Some(e),
+        }
+    }
+    if wrote_any {
+        Ok(())
+    } else {
+        Err(last_err.unwrap_or_else(|| "Failed to write config".to_string()))
+    }
 }
 
 fn write_if_changed(path: PathBuf, contents: &str) -> Result<(), String> {
