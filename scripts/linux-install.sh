@@ -101,6 +101,13 @@ fi
 
 echo -e "${GREEN}Flatpak ✓${NC}"
 
+ensure_flathub_remote() {
+    if ! flatpak remote-list --columns=name --no-header 2>/dev/null | grep -qx "flathub"; then
+        echo -e "${YELLOW}Adding Flathub remote...${NC}"
+        flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+    fi
+}
+
 ############################################
 # SELECT SOURCE (LOCAL OR GITHUB CLONE)
 ############################################
@@ -138,6 +145,20 @@ fi
 if [[ -n "$RELEASE_URL" ]]; then
     echo -e "${YELLOW}Downloading latest release Flatpak...${NC}"
     if curl -fsSL "$RELEASE_URL" -o "$FLATPAK_BUNDLE"; then
+        ensure_flathub_remote
+        REQUIRED_RELEASE_RUNTIMES=(
+            "org.gnome.Platform//47"
+        )
+        MISSING_RELEASE_RUNTIMES=()
+        for runtime in "${REQUIRED_RELEASE_RUNTIMES[@]}"; do
+            if ! flatpak info "$runtime" >/dev/null 2>&1; then
+                MISSING_RELEASE_RUNTIMES+=("$runtime")
+            fi
+        done
+        if [[ "${#MISSING_RELEASE_RUNTIMES[@]}" -gt 0 ]]; then
+            echo -e "${YELLOW}Installing Flatpak runtimes required by release...${NC}"
+            flatpak install --user -y "${MISSING_RELEASE_RUNTIMES[@]}"
+        fi
         echo -e "${YELLOW}Installing Flatpak bundle...${NC}"
         flatpak install --user -y --reinstall "$FLATPAK_BUNDLE"
         cleanup 0
@@ -182,6 +203,7 @@ done
 
 if [[ "${#MISSING_RUNTIMES[@]}" -gt 0 ]]; then
     echo -e "${YELLOW}Installing Flatpak runtimes (first-time setup)...${NC}"
+    ensure_flathub_remote
     flatpak install --user -y "${MISSING_RUNTIMES[@]}"
 fi
 
