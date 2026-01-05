@@ -102,9 +102,11 @@ fi
 echo -e "${GREEN}Flatpak ✓${NC}"
 
 ensure_flathub_remote() {
-    if ! flatpak remote-list --columns=name --no-header 2>/dev/null | grep -qx "flathub"; then
+    if ! flatpak remote-list --user --columns=name --no-header 2>/dev/null | grep -qx "flathub"; then
         echo -e "${YELLOW}Adding Flathub remote...${NC}"
-        flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+        flatpak remote-add --user --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+    else
+        flatpak remote-modify --user --enable flathub >/dev/null 2>&1 || true
     fi
 }
 
@@ -157,7 +159,14 @@ if [[ -n "$RELEASE_URL" ]]; then
         done
         if [[ "${#MISSING_RELEASE_RUNTIMES[@]}" -gt 0 ]]; then
             echo -e "${YELLOW}Installing Flatpak runtimes required by release...${NC}"
-            flatpak install --user -y "${MISSING_RELEASE_RUNTIMES[@]}"
+            for runtime in "${MISSING_RELEASE_RUNTIMES[@]}"; do
+                if ! flatpak remote-info flathub "$runtime" >/dev/null 2>&1; then
+                    echo -e "${RED}Required runtime not found on Flathub: ${runtime}${NC}"
+                    echo -e "${YELLOW}Try updating Flatpak remotes or upgrade Flatpak, then retry.${NC}"
+                    exit 1
+                fi
+            done
+            flatpak install --user -y flathub "${MISSING_RELEASE_RUNTIMES[@]}"
         fi
         echo -e "${YELLOW}Installing Flatpak bundle...${NC}"
         flatpak install --user -y --reinstall "$FLATPAK_BUNDLE"
@@ -204,7 +213,7 @@ done
 if [[ "${#MISSING_RUNTIMES[@]}" -gt 0 ]]; then
     echo -e "${YELLOW}Installing Flatpak runtimes (first-time setup)...${NC}"
     ensure_flathub_remote
-    flatpak install --user -y "${MISSING_RUNTIMES[@]}"
+    flatpak install --user -y flathub "${MISSING_RUNTIMES[@]}"
 fi
 
 flatpak-builder --force-clean --repo=repo build-dir packaging/flatpak/io.balatro.ModManager.json
