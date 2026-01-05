@@ -53,11 +53,12 @@
 								!filePath.endsWith(".zip") &&
 								!filePath.endsWith(".tar") &&
 								!filePath.endsWith(".tar.gz") &&
-								!filePath.endsWith(".tgz")
+								!filePath.endsWith(".tgz") &&
+								!filePath.endsWith(".rar")
 							) {
 								// console.log("Unsupported file type:", filePath);
 								addMessage(
-									`Skipped ${filePath}: Only ZIP and TAR archives are supported`,
+									`Skipped ${filePath}: Only ZIP, TAR, TAR.GZ, and RAR archives are supported`,
 									"warning",
 								);
 								continue;
@@ -130,7 +131,7 @@
 		<div class="drop-zone">
 			<Archive size={64} color="#fdcf51" />
 			<h2>Drop Mod Files Here</h2>
-			<p>Drop ZIP or TAR files to install mods</p>
+			<p>Drop ZIP, TAR, TAR.GZ, or RAR files to install mods</p>
 		</div>
 	</div>
 {/if}

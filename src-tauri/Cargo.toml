@@ -41,6 +41,7 @@ tar = "0.4.44"
 flate2 = { version = "1", default-features = false, features = [
 	"rust_backend",
 ] }
+unrar = "0.5"
 walkdir = "2.5.0"
 rayon = "1.11.0"
 urlencoding = "2.1.3"

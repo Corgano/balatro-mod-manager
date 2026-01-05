@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 
 use flate2::read::GzDecoder;
 use tar::Archive;
+use unrar::Archive as UnrarArchive;
 use zip::ZipArchive;
 
 use bmm_lib::errors::AppError;
@@ -25,7 +26,7 @@ pub async fn process_dropped_file(path: String) -> Result<String, String> {
 
     let file = File::open(file_path).map_err(|e| format!("Failed to open file: {e}"))?;
 
-    let mod_dir = extract_archive_from_reader(file_name, file, &mods_dir)
+    let mod_dir = extract_archive_from_reader(file_name, file, Some(file_path), &mods_dir)
         .map_err(|e| format!("Failed to extract archive: {e}"))?;
 
     Ok(mod_dir.to_string_lossy().to_string())
@@ -40,7 +41,7 @@ pub async fn process_mod_archive(filename: String, data: Vec<u8>) -> Result<Stri
         .map_err(|e| format!("Failed to create mods directory: {e}"))?;
 
     let cursor = Cursor::new(data);
-    let mod_dir = extract_archive_from_reader(&filename, cursor, &mods_dir)?;
+    let mod_dir = extract_archive_from_reader(&filename, cursor, None, &mods_dir)?;
 
     if let Ok(entries) = std::fs::read_dir(&mod_dir) {
         let dirs: Vec<_> = entries
@@ -77,6 +78,7 @@ pub async fn process_mod_archive(filename: String, data: Vec<u8>) -> Result<Stri
 fn extract_archive_from_reader<R: Read + Seek>(
     filename: &str,
     reader: R,
+    source_path: Option<&Path>,
     mods_dir: &std::path::Path,
 ) -> Result<PathBuf, String> {
     let mod_dir_name = filename
@@ -84,6 +86,7 @@ fn extract_archive_from_reader<R: Read + Seek>(
         .trim_end_matches(".tar.gz")
         .trim_end_matches(".tgz")
         .trim_end_matches(".tar")
+        .trim_end_matches(".rar")
         .to_string();
     let mod_dir = mods_dir.join(&mod_dir_name);
 
@@ -94,13 +97,17 @@ fn extract_archive_from_reader<R: Read + Seek>(
 
     if filename.ends_with(".zip") {
         extract_zip(reader, &mod_dir)?;
+    } else if filename.ends_with(".rar") {
+        let source_path =
+            source_path.ok_or_else(|| "RAR archives require a file path".to_string())?;
+        extract_rar(source_path, &mod_dir)?;
     } else if filename.ends_with(".tar") {
         extract_tar(reader, &mod_dir)?;
     } else if filename.ends_with(".tar.gz") || filename.ends_with(".tgz") {
         extract_tar_gz(reader, &mod_dir)?;
     } else {
         return Err(
-            "Unsupported file format. Only ZIP, TAR, and TAR.GZ are supported.".to_string(),
+            "Unsupported file format. Only ZIP, TAR, TAR.GZ, and RAR are supported.".to_string(),
         );
     }
 
@@ -186,6 +193,30 @@ fn extract_tar_gz<R: Read>(reader: R, target_dir: &Path) -> Result<(), String> {
         entry
             .unpack(&output_path)
             .map_err(|e| format!("Failed to unpack file {}: {e}", output_path.display()))?;
+    }
+    Ok(())
+}
+
+fn extract_rar(path: &Path, target_dir: &Path) -> Result<(), String> {
+    std::fs::create_dir_all(target_dir)
+        .map_err(|e| format!("Failed to create target directory: {e}"))?;
+    let mut archive = UnrarArchive::new(path)
+        .as_first_part()
+        .open_for_processing()
+        .map_err(|e| format!("Failed to open RAR archive: {e}"))?;
+    while let Some(header) = archive
+        .read_header()
+        .map_err(|e| format!("Failed to read RAR entry: {e}"))?
+    {
+        archive = if header.entry().is_file() {
+            header
+                .extract_with_base(target_dir)
+                .map_err(|e| format!("Failed to extract RAR entry: {e}"))?
+        } else {
+            header
+                .skip()
+                .map_err(|e| format!("Failed to skip RAR entry: {e}"))?
+        };
     }
     Ok(())
 }
