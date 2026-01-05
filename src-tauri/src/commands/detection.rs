@@ -60,9 +60,9 @@ pub async fn refresh_mods_folder(state: tauri::State<'_, AppState>) -> Result<()
 
 #[tauri::command]
 pub async fn get_detected_local_mods(
-    state: tauri::State<'_, AppState>,
+    _state: tauri::State<'_, AppState>,
 ) -> Result<Vec<local_mod_detection::DetectedMod>, String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let db = Database::new().map_err(|e| e.to_string())?;
     let cached_mods = match cache::load_cache() {
         Ok(Some((mods, _))) => mods,
         _ => Vec::new(),

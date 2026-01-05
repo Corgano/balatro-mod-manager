@@ -1,7 +1,14 @@
 <script lang="ts">
     import { fade, scale } from "svelte/transition";
     import { invoke } from "@tauri-apps/api/core";
-    import { uninstallDialogStore, installationStatus } from "../stores/modStore";
+    import { get } from "svelte/store";
+    import {
+        uninstallDialogStore,
+        installationStatus,
+        modsStore,
+        updateAvailableStore,
+    } from "../stores/modStore";
+    import { forceRefreshCache } from "../stores/modCache";
 
 	// Component props for callbacks
 	export let onUninstalled:
@@ -24,19 +31,17 @@
 
 	onMount(() => {
 		const unsubscribe = uninstallDialogStore.subscribe((state) => {
-			// If the store says to show, update our local props
-			if (state.show) {
-				show = state.show;
-				modName = state.modName;
-				modPath = state.modPath;
-				dependents = state.dependents;
-			}
+			show = state.show;
+			modName = state.modName;
+			modPath = state.modPath;
+			dependents = state.dependents;
 		});
 
 		return unsubscribe;
 	});
 
     let action: "cancel" | "force" | "cascade" | null = null;
+    let isUninstalling = false;
 
     // Resolve path from DB when not provided
     async function resolvePathIfNeeded(name: string, path: string): Promise<string> {
@@ -51,20 +56,39 @@
     }
 
     async function handleUninstall() {
+        if (isUninstalling) return;
+        const actionToRun = action;
+        isUninstalling = true;
+        let success = false;
+        // Close immediately to avoid UI lock if backend hangs.
+        show = false;
+        uninstallDialogStore.update((s) => ({ ...s, show: false }));
+        // Optimistically update UI state; we'll reconcile with cache refresh after.
+        if (actionToRun === "cascade") {
+            const toClear = Array.isArray(dependents) ? dependents : [];
+            installationStatus.update((s) => {
+                const next = { ...s } as Record<string, boolean>;
+                next[modName] = false;
+                for (const d of toClear) next[d] = false;
+                return next;
+            });
+        } else {
+            installationStatus.update((s) => ({ ...s, [modName]: false }));
+        }
+        updateAvailableStore.update((s) => ({ ...s, [modName]: false }));
         try {
-            let success = false;
 
-            if (action === "cascade") {
+            if (actionToRun === "cascade") {
                 await invoke("cascade_uninstall", { rootMod: modName });
                 success = true;
-            } else if (action === "force") {
+            } else if (actionToRun === "force") {
                 const pathToUse = await resolvePathIfNeeded(modName, modPath);
                 await invoke("force_remove_mod", {
                     name: modName,
                     path: pathToUse,
                 });
                 success = true;
-            } else if (action === null) {
+            } else if (actionToRun === null) {
                 const pathToUse = await resolvePathIfNeeded(modName, modPath);
                 await invoke("remove_installed_mod", {
                     name: modName,
@@ -78,14 +102,14 @@
                     detail: {
                         modName,
                         success: true,
-                        action: action || "single",
+                        action: actionToRun || "single",
                     },
                 });
             }
 
             // Immediately update UI state to reflect removal
             if (success) {
-                if (action === "cascade") {
+                if (actionToRun === "cascade") {
                     const toClear = Array.isArray(dependents) ? dependents : [];
                     installationStatus.update((s) => {
                         const next = { ...s } as Record<string, boolean>;
@@ -96,19 +120,41 @@
                 } else {
                     installationStatus.update((s) => ({ ...s, [modName]: false }));
                 }
+				updateAvailableStore.update((s) => ({ ...s, [modName]: false }));
             }
+			// Refresh cache in the background; do not block UI.
+			void (async () => {
+				try {
+					const installed = await forceRefreshCache();
+					const installedSet = new Set(
+						installed.map((mod) => mod.name.toLowerCase()),
+					);
+					const mods = get(modsStore);
+					installationStatus.set(
+						Object.fromEntries(
+							mods.map((mod) => [
+								mod.title,
+								installedSet.has(mod.title.toLowerCase()),
+							]),
+						),
+					);
+				} catch (_) {
+					// ignore refresh errors
+				}
+			})();
 
-            // Close the dialog
-            show = false;
-            // Also update the store
-            uninstallDialogStore.update((s) => ({ ...s, show: false }));
         } catch (e) {
             console.error("Uninstall error:", e);
             onError?.({ detail: e });
+        } finally {
+            isUninstalling = false;
+            action = null;
         }
     }
 
 	function closeDialog() {
+		action = null;
+		isUninstalling = false;
 		show = false;
 		uninstallDialogStore.update((s) => ({ ...s, show: false }));
 	}
@@ -134,6 +180,7 @@
 				<div class="actions">
 					<button
 						class="confirm-button"
+						disabled={isUninstalling}
 						onclick={() => {
 							action = "cascade";
 							handleUninstall();
@@ -143,6 +190,7 @@
 					</button>
 					<button
 						class="force-button"
+						disabled={isUninstalling}
 						onclick={() => {
 							action = "force";
 							handleUninstall();
@@ -158,6 +206,7 @@
 				<div class="actions">
 					<button
 						class="confirm-button"
+						disabled={isUninstalling}
 						onclick={() => {
 							action = null;
 							handleUninstall();

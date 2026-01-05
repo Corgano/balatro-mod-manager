@@ -24,7 +24,6 @@ use crate::bmi::BmiClient;
 use crate::compat_helper;
 use crate::state::AppState;
 use crate::util::map_error;
-use bmm_lib::errors::AppError;
 #[cfg(target_os = "macos")]
 use bmm_lib::lovely;
 #[cfg(target_os = "linux")]
@@ -33,8 +32,10 @@ use bmm_lib::lovely::ensure_version_dll_exists;
 use bmm_lib::lovely::{ensure_love_binary, ensure_lovely_so_exists, get_latest_lovely_version};
 use bmm_lib::smods_installer::{ModInstaller, ModType};
 use bmm_lib::{cache, database::InstalledMod};
+use bmm_lib::{errors::AppError, local_mod_detection};
 #[cfg(target_os = "linux")]
 use shell_words::split as split_shell_words;
+use tauri::Emitter;
 
 fn sync_compat_helper_after_mod_change(state: &tauri::State<'_, AppState>) {
     let enabled = match state.db.lock() {
@@ -44,6 +45,14 @@ fn sync_compat_helper_after_mod_change(state: &tauri::State<'_, AppState>) {
     if let Err(err) = compat_helper::sync_compat_helper(enabled) {
         log::warn!("Failed to sync compatibility helper after mod change: {err}");
     }
+}
+
+fn emit_installed_mods_changed(app_handle: &tauri::AppHandle) {
+    let _ = app_handle.emit("installed-mods-changed", ());
+}
+
+fn refresh_mod_detection_cache() {
+    local_mod_detection::clear_detection_cache();
 }
 
 #[cfg(any(target_os = "macos", target_os = "windows"))]
@@ -890,69 +899,97 @@ pub async fn get_dependents(mod_name: String) -> Result<Vec<String>, String> {
 #[tauri::command]
 pub async fn cascade_uninstall(
     state: tauri::State<'_, AppState>,
+    app_handle: tauri::AppHandle,
     root_mod: String,
 ) -> Result<(), String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
-    let mut to_uninstall = vec![root_mod.clone()];
-    let mut processed = std::collections::HashSet::new();
+    {
+        let db = state.db.lock().map_err(|e| e.to_string())?;
+        let mut to_uninstall = vec![root_mod.clone()];
+        let mut processed = std::collections::HashSet::new();
 
-    while let Some(current) = to_uninstall.pop() {
-        if processed.contains(&current) {
-            continue;
+        while let Some(current) = to_uninstall.pop() {
+            if processed.contains(&current) {
+                continue;
+            }
+            processed.insert(current.clone());
+
+            let mod_details = map_error(db.get_mod_details(&current))?;
+            let dependents = map_error(db.get_dependents(&current))?;
+            to_uninstall.extend(dependents);
+
+            let mod_path_str = mod_details.path.clone();
+            let mod_path = PathBuf::from(&mod_path_str);
+            if mod_path.exists() {
+                map_error(bmm_lib::installer::uninstall_mod(mod_path))?;
+            }
+            map_error(db.remove_installed_mod_by_name_or_path(&current, &mod_path_str))?;
         }
-        processed.insert(current.clone());
-
-        let mod_details = map_error(db.get_mod_details(&current))?;
-        let dependents = map_error(db.get_dependents(&current))?;
-        to_uninstall.extend(dependents);
-
-        map_error(bmm_lib::installer::uninstall_mod(PathBuf::from(
-            mod_details.path,
-        )))?;
-        map_error(db.remove_installed_mod(&current))?;
     }
 
     sync_compat_helper_after_mod_change(&state);
+    refresh_mod_detection_cache();
+    emit_installed_mods_changed(&app_handle);
     Ok(())
 }
 
 #[tauri::command]
 pub async fn force_remove_mod(
     state: tauri::State<'_, AppState>,
+    app_handle: tauri::AppHandle,
     name: String,
     path: String,
 ) -> Result<(), String> {
-    map_error(bmm_lib::installer::uninstall_mod(PathBuf::from(path)))?;
-    let db = state.db.lock().map_err(|e| e.to_string())?;
-    map_error(db.remove_installed_mod(&name))?;
+    if !path.trim().is_empty() {
+        let path_buf = PathBuf::from(&path);
+        if path_buf.exists() {
+            map_error(bmm_lib::installer::uninstall_mod(path_buf))?;
+        }
+    }
+    {
+        let db = state.db.lock().map_err(|e| e.to_string())?;
+        map_error(db.remove_installed_mod_by_name_or_path(&name, &path))?;
+    }
     sync_compat_helper_after_mod_change(&state);
+    refresh_mod_detection_cache();
+    emit_installed_mods_changed(&app_handle);
     Ok(())
 }
 
 #[tauri::command]
 pub async fn remove_installed_mod(
     state: tauri::State<'_, AppState>,
+    app_handle: tauri::AppHandle,
     name: String,
     path: String,
 ) -> Result<(), String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
+    {
+        let db = state.db.lock().map_err(|e| e.to_string())?;
 
-    let is_framework = name.to_lowercase() == "steamodded" || name.to_lowercase() == "talisman";
-    if is_framework {
-        let all_dependents = map_error(db.get_dependents(&name))?;
-        let real_deps: Vec<String> = all_dependents.into_iter().filter(|d| d != &name).collect();
-        if !real_deps.is_empty() {
-            return Err(format!(
-                "Use cascade_uninstall to remove {} with {} dependents",
-                name,
-                real_deps.len()
-            ));
+        let is_framework = name.to_lowercase() == "steamodded" || name.to_lowercase() == "talisman";
+        if is_framework {
+            let all_dependents = map_error(db.get_dependents(&name))?;
+            let real_deps: Vec<String> =
+                all_dependents.into_iter().filter(|d| d != &name).collect();
+            if !real_deps.is_empty() {
+                return Err(format!(
+                    "Use cascade_uninstall to remove {} with {} dependents",
+                    name,
+                    real_deps.len()
+                ));
+            }
         }
-    }
 
-    map_error(bmm_lib::installer::uninstall_mod(PathBuf::from(path)))?;
-    map_error(db.remove_installed_mod(&name))?;
+        if !path.trim().is_empty() {
+            let path_buf = PathBuf::from(&path);
+            if path_buf.exists() {
+                map_error(bmm_lib::installer::uninstall_mod(path_buf))?;
+            }
+        }
+        map_error(db.remove_installed_mod_by_name_or_path(&name, &path))?;
+    }
     sync_compat_helper_after_mod_change(&state);
+    refresh_mod_detection_cache();
+    emit_installed_mods_changed(&app_handle);
     Ok(())
 }
 
@@ -995,16 +1032,22 @@ pub async fn get_installed_mods_from_db(
 #[tauri::command]
 pub async fn add_installed_mod(
     state: tauri::State<'_, AppState>,
+    app_handle: tauri::AppHandle,
     name: String,
     path: String,
     dependencies: Vec<String>,
     current_version: String,
 ) -> Result<(), String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
-    let current_version = if current_version.is_empty() {
-        None
-    } else {
-        Some(current_version)
-    };
-    map_error(db.add_installed_mod(&name, &path, &dependencies, current_version))
+    {
+        let db = state.db.lock().map_err(|e| e.to_string())?;
+        let current_version = if current_version.is_empty() {
+            None
+        } else {
+            Some(current_version)
+        };
+        map_error(db.add_installed_mod(&name, &path, &dependencies, current_version))?;
+    }
+    refresh_mod_detection_cache();
+    emit_installed_mods_changed(&app_handle);
+    Ok(())
 }

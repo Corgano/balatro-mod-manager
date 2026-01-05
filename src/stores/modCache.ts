@@ -3,6 +3,7 @@ import { writable, get } from "svelte/store";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type { InstalledMod } from "./modStore";
+import { installationStatus, modsStore } from "./modStore";
 
 declare global {
   // eslint-disable-next-line no-unused-vars
@@ -54,6 +55,7 @@ const createModCache = () => {
         return result;
       } catch (error) {
         console.error("Failed to get installed mods:", error);
+        inFlight = null;
         return [];
       }
     }
@@ -98,7 +100,19 @@ try {
       window.__bmmInstalledModsListenerAttached = true;
       listen("installed-mods-changed", async () => {
         try {
-          await modCache.forceRefreshCache();
+          const installed = await modCache.forceRefreshCache();
+          const installedSet = new Set(
+            installed.map((mod) => mod.name.toLowerCase()),
+          );
+          const mods = get(modsStore);
+          installationStatus.set(
+            Object.fromEntries(
+              mods.map((mod) => [
+                mod.title,
+                installedSet.has(mod.title.toLowerCase()),
+              ]),
+            ),
+          );
         } catch {
           // ignore
         }

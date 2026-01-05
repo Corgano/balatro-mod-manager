@@ -463,6 +463,22 @@ impl Database {
         Ok(())
     }
 
+    pub fn remove_installed_mod_by_name_or_path(
+        &self,
+        name: &str,
+        path: &str,
+    ) -> Result<(), AppError> {
+        let removed = self.conn.execute(
+            "DELETE FROM installed_mods WHERE lower(name) = lower(?1)",
+            [name],
+        )?;
+        if removed == 0 && !path.trim().is_empty() {
+            self.conn
+                .execute("DELETE FROM installed_mods WHERE path = ?1", [path])?;
+        }
+        Ok(())
+    }
+
     pub fn get_installation_path(&self) -> Result<Option<String>, AppError> {
         let mut stmt = self
             .conn

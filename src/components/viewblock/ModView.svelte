@@ -25,6 +25,7 @@ import {
 	import type { InstalledMod, Mod } from "../../stores/modStore";
 	import { marked } from "marked";
 	import { invoke } from "@tauri-apps/api/core";
+	import { listen } from "@tauri-apps/api/event";
 import { cachedVersions } from "../../stores/modStore";
 import { addMessage } from "$lib/stores";
 	import { lovelyPopupStore } from "../../stores/modStore";
@@ -97,6 +98,7 @@ let renderedDescription = $state("");
 let descLoading = $state(false);
 const attemptedDescriptions = new Set<string>();
 	let isLinux = false;
+	let unlistenInstalledMods: (() => void) | null = null;
 
 	function normalizeText(text: string): string {
 		return text
@@ -585,7 +587,7 @@ let modView: HTMLDivElement;
 				addMessage(onlyUrlMsg, "error");
 			} finally {
 				loadingStates.update((s) => ({ ...s, [modToInstall.title]: false }));
-				await forceRefreshCache();
+				void forceRefreshCache();
 			}
 		};
 
@@ -830,6 +832,25 @@ let modView: HTMLDivElement;
 				isModInstalled(mod);
 			}, 0);
 		}
+
+		// Keep Mod View install state in sync with backend changes.
+		try {
+			unlistenInstalledMods = await listen(
+				"installed-mods-changed",
+				async () => {
+					try {
+						await forceRefreshCache();
+						if (mod) {
+							await isModInstalled(mod);
+						}
+					} catch (_) {
+						// ignore refresh errors
+					}
+				},
+			);
+		} catch (_) {
+			// ignore listen errors
+		}
 	});
 
 	// Handle mod changes from currentModView
@@ -888,6 +909,13 @@ let modView: HTMLDivElement;
 
 	onDestroy(async () => {
 		window.removeEventListener("auxclick", handleAuxClick);
+		try {
+			if (typeof unlistenInstalledMods === "function") {
+				unlistenInstalledMods();
+			}
+		} catch (_) {
+			// ignore
+		}
 		cachedVersions.set({ steamodded: [], talisman: [] });
 
 		// Ensure installation status is updated before component unmounts
