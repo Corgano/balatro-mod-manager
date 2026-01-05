@@ -21,6 +21,7 @@ use std::process::Command;
 use std::process::Stdio;
 
 use crate::bmi::BmiClient;
+use crate::compat_helper;
 use crate::state::AppState;
 use crate::util::map_error;
 use bmm_lib::errors::AppError;
@@ -34,6 +35,16 @@ use bmm_lib::smods_installer::{ModInstaller, ModType};
 use bmm_lib::{cache, database::InstalledMod};
 #[cfg(target_os = "linux")]
 use shell_words::split as split_shell_words;
+
+fn sync_compat_helper_after_mod_change(state: &tauri::State<'_, AppState>) {
+    let enabled = match state.db.lock() {
+        Ok(db) => db.is_compat_helper_enabled().unwrap_or(true),
+        Err(_) => true,
+    };
+    if let Err(err) = compat_helper::sync_compat_helper(enabled) {
+        log::warn!("Failed to sync compatibility helper after mod change: {err}");
+    }
+}
 
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 fn get_installation_and_console(
@@ -804,12 +815,17 @@ pub async fn get_steamodded_versions() -> Result<Vec<String>, String> {
 }
 
 #[tauri::command]
-pub async fn install_steamodded_version(version: String) -> Result<String, String> {
+pub async fn install_steamodded_version(
+    state: tauri::State<'_, AppState>,
+    version: String,
+) -> Result<String, String> {
     let installer = ModInstaller::new(ModType::Steamodded);
-    installer
+    let path = installer
         .install_version(&version)
         .await
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+    sync_compat_helper_after_mod_change(&state);
+    Ok(path)
 }
 
 #[tauri::command]
@@ -847,12 +863,17 @@ pub async fn get_latest_steamodded_release() -> Result<String, String> {
 }
 
 #[tauri::command]
-pub async fn install_talisman_version(version: String) -> Result<String, String> {
+pub async fn install_talisman_version(
+    state: tauri::State<'_, AppState>,
+    version: String,
+) -> Result<String, String> {
     let installer = ModInstaller::new(ModType::Talisman);
-    installer
+    let path = installer
         .install_version(&version)
         .await
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+    sync_compat_helper_after_mod_change(&state);
+    Ok(path)
 }
 
 #[tauri::command]
@@ -891,6 +912,7 @@ pub async fn cascade_uninstall(
         map_error(db.remove_installed_mod(&current))?;
     }
 
+    sync_compat_helper_after_mod_change(&state);
     Ok(())
 }
 
@@ -902,7 +924,9 @@ pub async fn force_remove_mod(
 ) -> Result<(), String> {
     map_error(bmm_lib::installer::uninstall_mod(PathBuf::from(path)))?;
     let db = state.db.lock().map_err(|e| e.to_string())?;
-    map_error(db.remove_installed_mod(&name))
+    map_error(db.remove_installed_mod(&name))?;
+    sync_compat_helper_after_mod_change(&state);
+    Ok(())
 }
 
 #[tauri::command]
@@ -927,11 +951,17 @@ pub async fn remove_installed_mod(
     }
 
     map_error(bmm_lib::installer::uninstall_mod(PathBuf::from(path)))?;
-    map_error(db.remove_installed_mod(&name))
+    map_error(db.remove_installed_mod(&name))?;
+    sync_compat_helper_after_mod_change(&state);
+    Ok(())
 }
 
 #[tauri::command]
-pub async fn install_mod(url: String, folder_name: String) -> Result<PathBuf, String> {
+pub async fn install_mod(
+    state: tauri::State<'_, AppState>,
+    url: String,
+    folder_name: String,
+) -> Result<PathBuf, String> {
     let folder_name = if folder_name.is_empty() {
         None
     } else {
@@ -946,7 +976,9 @@ pub async fn install_mod(url: String, folder_name: String) -> Result<PathBuf, St
     } else {
         url
     };
-    map_error(bmm_lib::installer::install_mod(resolved_url, folder_name).await)
+    let path = map_error(bmm_lib::installer::install_mod(resolved_url, folder_name).await)?;
+    sync_compat_helper_after_mod_change(&state);
+    Ok(path)
 }
 
 #[tauri::command]

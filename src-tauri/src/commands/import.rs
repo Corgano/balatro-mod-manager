@@ -7,10 +7,25 @@ use tar::Archive;
 use unrar::Archive as UnrarArchive;
 use zip::ZipArchive;
 
+use crate::compat_helper;
+use crate::state::AppState;
 use bmm_lib::errors::AppError;
 
+fn sync_compat_helper_after_mod_change(state: &tauri::State<'_, AppState>) {
+    let enabled = match state.db.lock() {
+        Ok(db) => db.is_compat_helper_enabled().unwrap_or(true),
+        Err(_) => true,
+    };
+    if let Err(err) = compat_helper::sync_compat_helper(enabled) {
+        log::warn!("Failed to sync compatibility helper after mod change: {err}");
+    }
+}
+
 #[tauri::command]
-pub async fn process_dropped_file(path: String) -> Result<String, String> {
+pub async fn process_dropped_file(
+    state: tauri::State<'_, AppState>,
+    path: String,
+) -> Result<String, String> {
     let config_dir =
         dirs::config_dir().ok_or_else(|| "Could not find config directory".to_string())?;
     let mods_dir = config_dir.join("Balatro").join("Mods");
@@ -29,11 +44,16 @@ pub async fn process_dropped_file(path: String) -> Result<String, String> {
     let mod_dir = extract_archive_from_reader(file_name, file, Some(file_path), &mods_dir)
         .map_err(|e| format!("Failed to extract archive: {e}"))?;
 
+    sync_compat_helper_after_mod_change(&state);
     Ok(mod_dir.to_string_lossy().to_string())
 }
 
 #[tauri::command]
-pub async fn process_mod_archive(filename: String, data: Vec<u8>) -> Result<String, String> {
+pub async fn process_mod_archive(
+    state: tauri::State<'_, AppState>,
+    filename: String,
+    data: Vec<u8>,
+) -> Result<String, String> {
     let config_dir = dirs::config_dir()
         .ok_or_else(|| AppError::DirNotFound(PathBuf::from("config directory")).to_string())?;
     let mods_dir = config_dir.join("Balatro").join("Mods");
@@ -72,6 +92,7 @@ pub async fn process_mod_archive(filename: String, data: Vec<u8>) -> Result<Stri
         }
     }
 
+    sync_compat_helper_after_mod_change(&state);
     Ok(mod_dir.to_string_lossy().to_string())
 }
 
