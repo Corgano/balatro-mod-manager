@@ -55,12 +55,16 @@ impl ThumbnailManager {
                     continue;
                 }
 
-                let permit = semaphore.clone().acquire_owned().await;
+                let semaphore = semaphore.clone();
                 let client = client.clone();
                 let enq_set = enq_for_task.clone();
                 let tx_inner = tx_for_dispatch.clone();
                 tauri::async_runtime::spawn(async move {
-                    let _permit = permit.ok();
+                    // Acquire permit inside the spawned task to avoid blocking the dispatcher
+                    let _permit = match semaphore.acquire_owned().await {
+                        Ok(p) => p,
+                        Err(_) => return, // Semaphore closed
+                    };
                     match fetch_and_store(&client, &req.title, &req.url).await {
                         Ok(true) => {
                             if let Ok(mut set) = enq_set.lock() {
