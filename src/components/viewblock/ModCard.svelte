@@ -574,6 +574,9 @@
         padding: 0.5rem;
         position: relative;
         bottom: 1rem;
+        /* Reserve space for buttons at bottom to prevent content overflow */
+        padding-bottom: calc(50px * var(--card-scale, 1));
+        overflow: hidden;
     }
 
     .mod-info > p {

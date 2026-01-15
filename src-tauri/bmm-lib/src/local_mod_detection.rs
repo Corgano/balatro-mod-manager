@@ -402,6 +402,7 @@ fn scan_for_json_files(dir_path: &Path) -> Result<Vec<PathBuf>, String> {
     // Prefer likely config filenames first; reduces noise and speeds scanning
     let preferred = [
         "mod.json",
+        "main.json",
         "info.json",
         "config.json",
         // manifest.json is handled separately but keep as fallback

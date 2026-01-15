@@ -480,6 +480,9 @@
 		padding: 0.5rem;
 		position: relative;
 		z-index: 2;
+		/* Reserve space for buttons at bottom */
+		padding-bottom: calc(50px * var(--card-scale, 1));
+		overflow: hidden;
 	}
 
 h3 {
@@ -525,10 +528,28 @@ h3 {
 		line-clamp: 2;
 	}
 
+	.mod-card.compact .mod-meta {
+		margin-bottom: 0.5rem;
+	}
+
+	.mod-card.compact .mod-version,
+	.mod-card.compact .catalog-version {
+		margin-top: 0.2rem;
+	}
+
 	.mod-meta {
 		font-size: 1rem;
 		color: var(--ui-text);
 		margin-bottom: 1rem;
+	}
+
+	.author {
+		display: -webkit-box;
+		-webkit-box-orient: vertical;
+		-webkit-line-clamp: 1;
+		line-clamp: 1;
+		overflow: hidden;
+		text-overflow: ellipsis;
 	}
 
 	.mod-version,
