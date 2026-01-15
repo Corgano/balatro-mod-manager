@@ -111,6 +111,8 @@
     let modsScrollContainer: HTMLDivElement | null = $state(null);
     let scrollIdleTimer: number | null = null;
     let isUserScrolling = $state(false);
+    let sortDropdownOpen = $state(false);
+    let sortDropdownRef: HTMLDivElement | null = $state(null);
     let renderLimitLocal = $state(60);
     const renderChunkLocal = 24;
     let localSentinel: HTMLDivElement | null = $state(null);
@@ -2085,6 +2087,55 @@
     }
 
     // Add sort handler
+    const sortOptions = [
+        { value: SortOption.NameAsc, label: "Name (A-Z)" },
+        { value: SortOption.NameDesc, label: "Name (Z-A)" },
+        { value: SortOption.LastUpdatedDesc, label: "Last Updated" },
+        { value: SortOption.LastUpdatedAsc, label: "Oldest Updated" },
+        { value: SortOption.DownloadsDesc, label: "Downloads (Most)" },
+        { value: SortOption.DownloadsAsc, label: "Downloads (Least)" },
+    ];
+
+    function getCurrentSortLabel(): string {
+        const option = sortOptions.find((o) => o.value === $currentSort);
+        return option?.label ?? "Sort";
+    }
+
+    function toggleSortDropdown() {
+        sortDropdownOpen = !sortDropdownOpen;
+    }
+
+    function selectSortOption(value: SortOption) {
+        currentSort.set(value);
+        sortDropdownOpen = false;
+        if ($currentPage > 1) {
+            currentPage.set(1);
+            startPage = 1;
+        }
+        refreshCatalogInBackground(false).catch(() => {});
+    }
+
+    function handleClickOutsideSort(event: MouseEvent) {
+        if (
+            sortDropdownRef &&
+            !sortDropdownRef.contains(event.target as Node)
+        ) {
+            sortDropdownOpen = false;
+        }
+    }
+
+    $effect(() => {
+        if (sortDropdownOpen) {
+            document.addEventListener("click", handleClickOutsideSort);
+        } else {
+            document.removeEventListener("click", handleClickOutsideSort);
+        }
+        return () => {
+            document.removeEventListener("click", handleClickOutsideSort);
+        };
+    });
+
+    // Keep for backwards compat if used elsewhere
     function handleSortChange(event: Event) {
         const select = event.target as HTMLSelectElement;
         currentSort.set(select.value as SortOption);
@@ -2972,31 +3023,83 @@
                             class="sort-controls"
                             in:fly={{ duration: 400, y: 10, opacity: 0.2 }}
                         >
-                            <div class="sort-wrapper">
-                                <ArrowUpDown size={16} />
-                                <select
-                                    value={$currentSort}
-                                    onchange={handleSortChange}
+                            <div
+                                class="sort-dropdown"
+                                bind:this={sortDropdownRef}
+                            >
+                                <button
+                                    class="sort-dropdown-trigger"
+                                    class:loading={$catalogLoading}
+                                    onclick={toggleSortDropdown}
+                                    type="button"
+                                    disabled={$catalogLoading}
                                 >
-                                    <option value={SortOption.NameAsc}
-                                        >Name (A-Z)</option
+                                    {#if $catalogLoading}
+                                        <span
+                                            >Loading{".".repeat(
+                                                $loadingDots,
+                                            )}</span
+                                        >
+                                    {:else}
+                                        <ArrowUpDown size={16} />
+                                        <span>{getCurrentSortLabel()}</span>
+                                        <svg
+                                            class="sort-chevron"
+                                            class:open={sortDropdownOpen}
+                                            width="12"
+                                            height="12"
+                                            viewBox="0 0 24 24"
+                                            fill="none"
+                                            stroke="currentColor"
+                                            stroke-width="2"
+                                        >
+                                            <path d="M6 9l6 6 6-6" />
+                                        </svg>
+                                    {/if}
+                                </button>
+                                {#if sortDropdownOpen}
+                                    <div
+                                        class="sort-dropdown-menu"
+                                        transition:fly={{
+                                            duration: 150,
+                                            y: -5,
+                                        }}
                                     >
-                                    <option value={SortOption.NameDesc}
-                                        >Name (Z-A)</option
-                                    >
-                                    <option value={SortOption.LastUpdatedDesc}
-                                        >Last Updated</option
-                                    >
-                                    <option value={SortOption.LastUpdatedAsc}
-                                        >Oldest Updated</option
-                                    >
-                                    <option value={SortOption.DownloadsDesc}
-                                        >Downloads (Most)</option
-                                    >
-                                    <option value={SortOption.DownloadsAsc}
-                                        >Downloads (Least)</option
-                                    >
-                                </select>
+                                        {#each sortOptions as option}
+                                            <button
+                                                class="sort-dropdown-item"
+                                                class:selected={$currentSort ===
+                                                    option.value}
+                                                onclick={() =>
+                                                    selectSortOption(
+                                                        option.value,
+                                                    )}
+                                                type="button"
+                                            >
+                                                {#if $currentSort === option.value}
+                                                    <svg
+                                                        class="check-icon"
+                                                        width="14"
+                                                        height="14"
+                                                        viewBox="0 0 24 24"
+                                                        fill="none"
+                                                        stroke="currentColor"
+                                                        stroke-width="3"
+                                                    >
+                                                        <path
+                                                            d="M20 6L9 17l-5-5"
+                                                        />
+                                                    </svg>
+                                                {:else}
+                                                    <span
+                                                        class="check-placeholder"
+                                                    ></span>
+                                                {/if}
+                                                {option.label}
+                                            </button>
+                                        {/each}
+                                    </div>
+                                {/if}
                             </div>
                         </div>
                     </div>
@@ -4020,16 +4123,113 @@
     /*background: transparent;*/
     /*}*/
 
-    .sort-wrapper {
+    .sort-dropdown {
+        position: relative;
+    }
+
+    .sort-dropdown-trigger {
         background: var(--ui-mod-chip-bg);
         border: 2px solid var(--ui-mod-chip-border);
-        padding: 0.5rem;
+        padding: 0.5rem 0.75rem;
         border-radius: 6px;
         display: flex;
         align-items: center;
         gap: 0.5rem;
-        transition: all 0.2s ease;
+        cursor: pointer;
+        transition:
+            background 0.2s ease,
+            box-shadow 0.2s ease,
+            transform 0.2s ease;
         box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+        color: var(--ui-mod-chip-text);
+        font-family: "M6X11", sans-serif;
+        font-size: 1rem;
+    }
+
+    .sort-dropdown-trigger:hover {
+        background: var(--ui-mod-chip-hover);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+        transform: translateY(-1px);
+    }
+
+    .sort-dropdown-trigger:active {
+        transform: translateY(0);
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+    }
+
+    .sort-dropdown-trigger:disabled {
+        cursor: default;
+        opacity: 0.9;
+    }
+
+    .sort-dropdown-trigger:disabled:hover {
+        transform: none;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+    }
+
+    .sort-dropdown-trigger.loading {
+        min-width: 140px;
+        justify-content: center;
+    }
+
+    .sort-chevron {
+        transition: transform 0.2s ease;
+    }
+
+    .sort-chevron.open {
+        transform: rotate(180deg);
+    }
+
+    .sort-dropdown-menu {
+        position: absolute;
+        top: calc(100% + 6px);
+        right: 0;
+        background: var(--ui-mod-chip-bg);
+        border: 2px solid var(--ui-mod-chip-border);
+        border-radius: 8px;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+        z-index: 5000;
+        min-width: 180px;
+        overflow: hidden;
+    }
+
+    .sort-dropdown-item {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        width: 100%;
+        padding: 0.65rem 0.9rem;
+        background: transparent;
+        border: none;
+        color: var(--ui-mod-chip-text);
+        font-family: "M6X11", sans-serif;
+        font-size: 1rem;
+        cursor: pointer;
+        text-align: left;
+        transition: background 0.15s ease;
+    }
+
+    .sort-dropdown-item:hover {
+        background: var(--ui-mod-chip-hover);
+    }
+
+    .sort-dropdown-item.selected {
+        background: var(--ui-mod-chip-active-bg);
+        color: var(--ui-mod-chip-active-text);
+    }
+
+    .sort-dropdown-item:not(:last-child) {
+        border-bottom: 1px solid var(--ui-mod-chip-border);
+    }
+
+    .check-icon {
+        flex-shrink: 0;
+    }
+
+    .check-placeholder {
+        width: 14px;
+        height: 14px;
+        flex-shrink: 0;
     }
 
     .mods-wrapper {
@@ -4042,46 +4242,8 @@
         contain: layout paint;
     }
 
-    .sort-wrapper :global(svg) {
+    .sort-dropdown-trigger :global(svg) {
         color: var(--ui-mod-chip-text);
-    }
-
-    select {
-        background: var(--ui-mod-chip-bg);
-        color: var(--ui-mod-chip-text);
-        border: none;
-        font-family: "M6X11", sans-serif;
-        font-size: 1rem;
-        padding: 0.25rem 1.5rem 0.25rem 0.5rem;
-        border-radius: 4px;
-        cursor: pointer;
-        -webkit-appearance: none;
-        -moz-appearance: none;
-        appearance: none;
-        background-image: var(--ui-select-arrow);
-        background-repeat: no-repeat;
-        background-position: right 0.5em top 50%;
-        background-size: 0.65em auto;
-    }
-
-    select:hover {
-        background-color: var(--ui-mod-chip-hover);
-    }
-
-    select:focus {
-        outline: none;
-        box-shadow: 0 0 0 2px var(--ui-mod-chip-border);
-    }
-
-    select option {
-        background: var(--ui-mod-chip-bg);
-        color: var(--ui-mod-chip-text);
-        padding: 0.5rem;
-    }
-
-    .sort-wrapper:hover {
-        transform: translateY(-1px);
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
     }
 
     .loading-container {
