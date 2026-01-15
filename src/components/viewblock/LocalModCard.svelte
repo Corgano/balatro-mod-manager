@@ -487,6 +487,9 @@ h3 {
 		font-size: calc(1.5rem * var(--card-scale, 1));
 		margin-bottom: 0.5rem;
 		text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.5);
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
 	}
 
 	/* Compact cards: clamp title to 1 line only when compact */

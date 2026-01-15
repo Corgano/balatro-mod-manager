@@ -579,6 +579,9 @@
         color: var(--ui-heading);
         font-size: calc(1.5rem * var(--card-scale, 1));
         margin-bottom: 0.2rem;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
     }
 
     .mod-card.desc-hidden .mod-info h3 {
