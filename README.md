@@ -77,6 +77,11 @@ Alternatively, if you would prefer to build Balatro Mod Manager yourself instead
 - [Bun](https://bun.sh/) (for the frontend)
 - [Tauri CLI](https://tauri.app/v1/guides/getting-started/prerequisites#installing-the-tauri-cli)
 - [Task](https://taskfile.dev/) (for running task commands)
+  - **Arch Linux**: `sudo pacman -S go-task` (package is named `go-task` to avoid conflicts)
+  - **Fedora**: `sudo dnf install go-task`
+  - **Ubuntu/Debian**: Install via the [official script](https://taskfile.dev/installation/#install-script) or Snap: `sudo snap install task --classic`
+  - **macOS**: `brew install go-task`
+  - **Windows**: `choco install go-task` or `winget install Task.Task`
 
 ## Automatic Installation
 
