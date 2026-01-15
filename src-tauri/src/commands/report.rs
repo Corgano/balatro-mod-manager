@@ -1,9 +1,12 @@
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use serde::Serialize;
 use std::fs;
+use std::time::Duration;
 use sysinfo::System;
 
 const REPORT_URL: &str = "https://balatro-mod-manager-reports.dasguney.com/report";
+const REPORT_TIMEOUT: Duration = Duration::from_secs(30);
+const REPORT_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 
 #[derive(Serialize)]
 struct ReportPayload<'a> {
@@ -56,19 +59,39 @@ pub async fn submit_report(
         log_filename,
     };
 
-    // Send
-    let client = reqwest::Client::new();
+    // Send with timeout to avoid hanging indefinitely
+    let client = reqwest::Client::builder()
+        .timeout(REPORT_TIMEOUT)
+        .connect_timeout(REPORT_CONNECT_TIMEOUT)
+        .build()
+        .map_err(|e| {
+            log::error!("Failed to build HTTP client for report: {}", e);
+            format!("Failed to initialize report client: {e}")
+        })?;
+
+    log::info!("Submitting issue report: {}", title);
     let resp = client
         .post(REPORT_URL)
         .json(&payload)
         .send()
         .await
-        .map_err(|e| format!("Report request failed: {e}"))?;
+        .map_err(|e| {
+            log::error!("Report request failed: {}", e);
+            if e.is_timeout() {
+                "Report request timed out. Please check your internet connection and try again."
+                    .to_string()
+            } else if e.is_connect() {
+                "Could not connect to report server. Please check your internet connection."
+                    .to_string()
+            } else {
+                format!("Report request failed: {e}")
+            }
+        })?;
 
     if !resp.status().is_success() {
         let status = resp.status();
         let text = resp.text().await.unwrap_or_default();
-        return Err(format!(
+        let err_msg = format!(
             "Report server error: HTTP {}{}",
             status,
             if text.is_empty() {
@@ -76,8 +99,11 @@ pub async fn submit_report(
             } else {
                 format!(" - {}", text)
             }
-        ));
+        );
+        log::error!("{}", err_msg);
+        return Err(err_msg);
     }
+    log::info!("Issue report submitted successfully");
     Ok(())
 }
 

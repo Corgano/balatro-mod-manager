@@ -144,6 +144,7 @@ impl BmiClient {
         let base_url = bmi_server_url()?;
         let client = reqwest::Client::builder()
             .timeout(REQUEST_TIMEOUT)
+            .connect_timeout(Duration::from_secs(10))
             .user_agent("balatro-mod-manager/1.0")
             .build()
             .map_err(|e| e.to_string())?;
@@ -396,18 +397,50 @@ impl BmiClient {
         F: FnMut() -> reqwest::RequestBuilder,
     {
         let mut delay = Duration::from_millis(250);
+        let mut last_error: Option<String> = None;
         for attempt in 0..=MAX_RETRIES {
-            let resp = make_req().send().await.map_err(|e| e.to_string())?;
-            if resp.status().as_u16() != 429 {
-                return resp.error_for_status().map_err(|e| e.to_string());
-            }
-            if attempt == MAX_RETRIES {
-                return Err("BMI rate limited after retries".to_string());
+            match make_req().send().await {
+                Ok(resp) => {
+                    if resp.status().as_u16() != 429 {
+                        return resp.error_for_status().map_err(|e| {
+                            log::error!("BMI request failed with HTTP error: {}", e);
+                            e.to_string()
+                        });
+                    }
+                    log::warn!(
+                        "BMI rate limited (429), attempt {}/{}, retrying in {:?}",
+                        attempt + 1,
+                        MAX_RETRIES + 1,
+                        delay
+                    );
+                    if attempt == MAX_RETRIES {
+                        return Err("BMI rate limited after retries".to_string());
+                    }
+                }
+                Err(e) => {
+                    let err_msg = e.to_string();
+                    log::warn!(
+                        "BMI request failed (attempt {}/{}): {}",
+                        attempt + 1,
+                        MAX_RETRIES + 1,
+                        err_msg
+                    );
+                    last_error = Some(err_msg);
+                    if attempt == MAX_RETRIES {
+                        let msg = format!(
+                            "BMI request failed after {} attempts: {}",
+                            MAX_RETRIES + 1,
+                            last_error.unwrap_or_else(|| "unknown error".to_string())
+                        );
+                        log::error!("{}", msg);
+                        return Err(msg);
+                    }
+                }
             }
             tokio::time::sleep(delay).await;
             delay = delay.saturating_mul(2);
         }
-        Err("BMI request failed".to_string())
+        Err(last_error.unwrap_or_else(|| "BMI request failed".to_string()))
     }
 }
 
