@@ -8,6 +8,8 @@ use std::io::Read;
 use std::io::{self, Cursor};
 use std::path::Path;
 use std::path::PathBuf;
+use std::thread;
+use std::time::Duration;
 use tar::Archive;
 use zip::ZipArchive;
 
@@ -104,6 +106,10 @@ pub async fn install_mod(url: String, folder_name: Option<String>) -> Result<Pat
     if target_dir.exists() {
         log::info!("Uninstalling existing mod at: {target_dir:?}");
         uninstall_mod(target_dir.clone())?;
+
+        // Give the filesystem a moment to fully release file handles
+        // This is especially important on Windows where file locks can persist briefly
+        thread::sleep(Duration::from_millis(100));
     }
 
     log::info!("Installing mod: {url}");
@@ -265,12 +271,9 @@ fn handle_zip(file: bytes::Bytes, mod_dir: &Path, mod_name: &str) -> Result<Path
     // The target directory where the mod will be installed
     let target_dir = mod_dir.join(mod_name);
 
-    // Remove target directory if it exists
+    // Remove target directory if it exists (with retry logic)
     if target_dir.exists() {
-        fs::remove_dir_all(&target_dir).map_err(|e| AppError::FileWrite {
-            path: target_dir.clone(),
-            source: e.to_string(),
-        })?;
+        remove_dir_with_retry(&target_dir, 5)?;
     }
 
     if has_root_files {
@@ -286,10 +289,7 @@ fn handle_zip(file: bytes::Bytes, mod_dir: &Path, mod_name: &str) -> Result<Path
         // Create temp directory
         let temp_dir = mod_dir.join("temp_extract");
         if temp_dir.exists() {
-            fs::remove_dir_all(&temp_dir).map_err(|e| AppError::DirCreate {
-                path: temp_dir.clone(),
-                source: e.to_string(),
-            })?;
+            remove_dir_with_retry(&temp_dir, 5)?;
         }
 
         fs::create_dir_all(&temp_dir).map_err(|e| AppError::DirCreate {
@@ -311,10 +311,7 @@ fn handle_zip(file: bytes::Bytes, mod_dir: &Path, mod_name: &str) -> Result<Path
         })?;
 
         // Clean up
-        fs::remove_dir_all(&temp_dir).map_err(|e| AppError::DirCreate {
-            path: temp_dir.clone(),
-            source: e.to_string(),
-        })?;
+        remove_dir_with_retry(&temp_dir, 5)?;
     }
 
     Ok(target_dir)
@@ -520,6 +517,51 @@ fn apply_disabled_marker(mod_path: &Path) -> Result<(), AppError> {
     })
 }
 
+/// Retry removing a directory with exponential backoff to handle file locks on Windows
+fn remove_dir_with_retry(path: &PathBuf, max_retries: u32) -> Result<(), AppError> {
+    let mut last_error = None;
+
+    for attempt in 0..max_retries {
+        match fs::remove_dir_all(path) {
+            Ok(_) => {
+                if attempt > 0 {
+                    log::info!(
+                        "Successfully removed directory after {} retries: {path:?}",
+                        attempt
+                    );
+                }
+                return Ok(());
+            }
+            Err(e) => {
+                last_error = Some(e);
+
+                if attempt < max_retries - 1 {
+                    // Calculate exponential backoff: 50ms, 100ms, 200ms, 400ms, 800ms
+                    let delay_ms = 50 * (1 << attempt);
+                    log::warn!(
+                        "Failed to remove directory {path:?} (attempt {}/{}): {}. Retrying in {}ms...",
+                        attempt + 1,
+                        max_retries,
+                        last_error.as_ref().unwrap(),
+                        delay_ms
+                    );
+                    thread::sleep(Duration::from_millis(delay_ms));
+                }
+            }
+        }
+    }
+
+    // All retries exhausted
+    Err(AppError::FileWrite {
+        path: path.clone(),
+        source: format!(
+            "Failed to remove directory after {} attempts: {}",
+            max_retries,
+            last_error.unwrap()
+        ),
+    })
+}
+
 pub fn uninstall_mod(path: PathBuf) -> Result<(), AppError> {
     log::info!("Uninstalling mod: {path:?}");
 
@@ -534,10 +576,8 @@ pub fn uninstall_mod(path: PathBuf) -> Result<(), AppError> {
         log::info!("Uninstalling Steamodded variant: {dir_name}");
     }
 
-    fs::remove_dir_all(&path).map_err(|e| AppError::FileWrite {
-        path,
-        source: e.to_string(),
-    })
+    // Use retry logic to handle file locks, especially on Windows
+    remove_dir_with_retry(&path, 5)
 }
 
 fn validate_uninstall_path(path: &PathBuf, mods_dirs: &[PathBuf]) -> Result<(), AppError> {
