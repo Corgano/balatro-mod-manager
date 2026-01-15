@@ -219,19 +219,35 @@ async fn download_love_appimage_and_extract(target_dir: &Path) -> Result<(), App
     let appimage_url =
         "https://github.com/love2d/love/releases/download/11.5/love-11.5-x86_64.AppImage";
 
+    log::info!("Downloading LOVE AppImage from: {}", appimage_url);
+
     let client = reqwest::Client::builder()
         .user_agent("balatro-mod-manager")
         .build()
         .map_err(|e| AppError::Network(e.to_string()))?;
 
-    let bytes = client
-        .get(appimage_url)
-        .send()
-        .await
-        .map_err(|e| AppError::Network(format!("Failed to download LOVE AppImage: {e}")))?
-        .bytes()
-        .await
-        .map_err(|e| AppError::Network(format!("Failed to read LOVE AppImage bytes: {e}")))?;
+    let response = client.get(appimage_url).send().await.map_err(|e| {
+        log::error!("Failed to connect to LOVE AppImage download: {}", e);
+        AppError::Network(format!("Failed to download LOVE AppImage: {e}"))
+    })?;
+
+    if !response.status().is_success() {
+        log::error!(
+            "LOVE AppImage download failed with HTTP {}",
+            response.status()
+        );
+        return Err(AppError::Network(format!(
+            "LOVE AppImage download failed: HTTP {}",
+            response.status()
+        )));
+    }
+
+    let bytes = response.bytes().await.map_err(|e| {
+        log::error!("Failed to read LOVE AppImage response body: {}", e);
+        AppError::Network(format!("Failed to read LOVE AppImage bytes: {e}"))
+    })?;
+
+    log::debug!("Downloaded LOVE AppImage: {} bytes", bytes.len());
 
     let temp_dir = tempfile::tempdir().map_err(|e| AppError::FileWrite {
         path: PathBuf::from("temp directory"),
@@ -301,6 +317,8 @@ async fn download_love_appimage_and_extract(target_dir: &Path) -> Result<(), App
 /// Query GitHub for the latest Lovely release tag (e.g., "0.8.0").
 pub async fn get_latest_lovely_version() -> Result<String, AppError> {
     // We intentionally avoid downloading the artifact; just resolve the tag.
+    log::debug!("Querying GitHub for latest Lovely release version");
+
     let client = reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::none())
         .build()
@@ -310,7 +328,10 @@ pub async fn get_latest_lovely_version() -> Result<String, AppError> {
         .get("https://github.com/ethangreen-dev/lovely-injector/releases/latest")
         .send()
         .await
-        .map_err(|e| AppError::Network(e.to_string()))?;
+        .map_err(|e| {
+            log::error!("Failed to query Lovely releases: {}", e);
+            AppError::Network(e.to_string())
+        })?;
 
     // GitHub returns a 3xx with a Location header to /tag/vX.Y.Z
     let location = resp
@@ -336,11 +357,13 @@ pub async fn get_latest_lovely_version() -> Result<String, AppError> {
         .to_string();
 
     if version.is_empty() {
+        log::error!("Failed to parse Lovely version from URL: {}", url_str);
         return Err(AppError::InvalidState(
             "Failed to resolve latest Lovely version tag".to_string(),
         ));
     }
 
+    log::debug!("Latest Lovely version: {}", version);
     Ok(version)
 }
 
@@ -399,13 +422,22 @@ async fn download_and_install_lovely(target_path: &Path) -> Result<(), AppError>
     lovely-{arch}-apple-darwin.tar.gz"
     );
 
+    log::info!("Downloading Lovely injector for macOS from: {}", url);
+
     // Download latest release
     let client = reqwest::Client::new();
-    let response = client
-        .get(url)
-        .send()
-        .await
-        .map_err(|e| AppError::Network(e.to_string()))?;
+    let response = client.get(&url).send().await.map_err(|e| {
+        log::error!("Failed to download Lovely injector: {}", e);
+        AppError::Network(e.to_string())
+    })?;
+
+    if !response.status().is_success() {
+        log::error!("Lovely download failed with HTTP {}", response.status());
+        return Err(AppError::Network(format!(
+            "Lovely download failed: HTTP {}",
+            response.status()
+        )));
+    }
 
     // Save to temp file
     let temp_tar_gz = temp_dir.path().join("lovely.tar.gz");
@@ -414,10 +446,12 @@ async fn download_and_install_lovely(target_path: &Path) -> Result<(), AppError>
         source: e.to_string(),
     })?;
 
-    let bytes = response
-        .bytes()
-        .await
-        .map_err(|e| AppError::Network(e.to_string()))?;
+    let bytes = response.bytes().await.map_err(|e| {
+        log::error!("Failed to read Lovely download response: {}", e);
+        AppError::Network(e.to_string())
+    })?;
+
+    log::debug!("Downloaded Lovely injector: {} bytes", bytes.len());
     std::io::copy(&mut bytes.as_ref(), &mut file).map_err(|e| AppError::FileWrite {
         path: temp_tar_gz.clone(),
         source: e.to_string(),
@@ -461,13 +495,25 @@ async fn download_lovely_linux(target_path: &Path) -> Result<(), AppError> {
     let url = "https://github.com/ethangreen-dev/lovely-injector/releases/latest/download/lovely-x86_64-unknown-linux-gnu.tar.gz";
     log::info!("Downloading lovely injector for Linux from {}", url);
 
-    let resp = reqwest::get(url)
-        .await
-        .map_err(|e| AppError::Network(format!("Failed to download lovely injector: {e}")))?;
-    let bytes = resp
-        .bytes()
-        .await
-        .map_err(|e| AppError::Network(format!("Failed to read download response: {e}")))?;
+    let response = reqwest::get(url).await.map_err(|e| {
+        log::error!("Failed to download Lovely injector for Linux: {}", e);
+        AppError::Network(format!("Failed to download lovely injector: {e}"))
+    })?;
+
+    if !response.status().is_success() {
+        log::error!("Lovely download failed with HTTP {}", response.status());
+        return Err(AppError::Network(format!(
+            "Lovely download failed: HTTP {}",
+            response.status()
+        )));
+    }
+
+    let bytes = response.bytes().await.map_err(|e| {
+        log::error!("Failed to read Lovely download response: {}", e);
+        AppError::Network(format!("Failed to read download response: {e}"))
+    })?;
+
+    log::debug!("Downloaded Lovely injector: {} bytes", bytes.len());
 
     fs::write(&temp_tar_gz, &bytes).map_err(|e| AppError::FileWrite {
         path: temp_tar_gz.clone(),
@@ -516,11 +562,18 @@ async fn download_version_dll(target_path: &PathBuf) -> Result<(), AppError> {
 
     // Download the ZIP file
     let client = reqwest::Client::new();
-    let response = client
-        .get(url)
-        .send()
-        .await
-        .map_err(|e| AppError::Network(format!("Failed to download lovely injector: {e}")))?;
+    let response = client.get(url).send().await.map_err(|e| {
+        log::error!("Failed to download Lovely injector for Windows: {}", e);
+        AppError::Network(format!("Failed to download lovely injector: {e}"))
+    })?;
+
+    if !response.status().is_success() {
+        log::error!("Lovely download failed with HTTP {}", response.status());
+        return Err(AppError::Network(format!(
+            "Lovely download failed: HTTP {}",
+            response.status()
+        )));
+    }
 
     // Save to temp zip file
     let temp_zip = temp_dir.path().join("lovely.zip");
@@ -529,10 +582,12 @@ async fn download_version_dll(target_path: &PathBuf) -> Result<(), AppError> {
         source: e.to_string(),
     })?;
 
-    let bytes = response
-        .bytes()
-        .await
-        .map_err(|e| AppError::Network(format!("Failed to read download response: {e}")))?;
+    let bytes = response.bytes().await.map_err(|e| {
+        log::error!("Failed to read Lovely download response: {}", e);
+        AppError::Network(format!("Failed to read download response: {e}"))
+    })?;
+
+    log::debug!("Downloaded Lovely injector: {} bytes", bytes.len());
 
     std::io::copy(&mut bytes.as_ref(), &mut file).map_err(|e| AppError::FileWrite {
         path: temp_zip.clone(),

@@ -153,14 +153,21 @@ impl BmiClient {
 
     pub async fn check_health(&self) -> Result<(), String> {
         let url = self.base_url.join("healthz").map_err(|e| e.to_string())?;
+        log::debug!("Checking BMI health at: {}", url);
         let resp = self
             .send_with_backoff(|| self.client.get(url.clone()))
             .await?;
         if resp.status().is_success() {
+            log::debug!("BMI health check passed");
             return Ok(());
         }
         let status = resp.status();
         let body = resp.bytes().await.map_err(|e| e.to_string())?;
+        log::error!(
+            "BMI health check failed: status={}, body={}",
+            status,
+            preview_bytes(&body)
+        );
         Err(format!(
             "BMI healthz failed with status {}: {}",
             status,
@@ -361,6 +368,7 @@ impl BmiClient {
                 pairs.append_pair("cursor", cursor);
             }
         }
+        log::debug!("Fetching mods page: {}", url);
         let resp = self
             .send_with_backoff(|| self.client.get(url.clone()))
             .await?;

@@ -14,15 +14,23 @@ use tar::Archive;
 use zip::ZipArchive;
 
 pub async fn install_mod(url: String, folder_name: Option<String>) -> Result<PathBuf, AppError> {
+    log::info!("Starting mod download from: {}", url);
     let client = Client::new();
-    let response = client
-        .get(&url)
-        .send()
-        .await
-        .map_err(|e| AppError::NetworkRequest {
+    let response = client.get(&url).send().await.map_err(|e| {
+        if e.is_timeout() {
+            log::error!("Request timed out for URL: {}", url);
+        } else if e.is_connect() {
+            log::error!("Connection failed for URL: {} - {}", url, e);
+        } else if e.is_request() {
+            log::error!("Request error for URL: {} - {}", url, e);
+        } else {
+            log::error!("Network error for URL: {} - {}", url, e);
+        }
+        AppError::NetworkRequest {
             url: url.clone(),
             source: e.to_string(),
-        })?;
+        }
+    })?;
 
     // Capture headers for fallback detection
     let content_type_header = response
@@ -38,19 +46,29 @@ pub async fn install_mod(url: String, folder_name: Option<String>) -> Result<Pat
 
     // Check status before reading body
     if !response.status().is_success() {
+        log::error!("HTTP error {} for URL: {}", response.status(), url);
         return Err(AppError::NetworkRequest {
             url: url.clone(),
             source: format!("Download URL not reachable (HTTP {})", response.status()),
         });
     }
 
-    let file = response
-        .bytes()
-        .await
-        .map_err(|e| AppError::NetworkRequest {
+    log::debug!(
+        "Response received: status={}, content-type={:?}, content-length={:?}",
+        response.status(),
+        content_type_header,
+        response.content_length()
+    );
+
+    let file = response.bytes().await.map_err(|e| {
+        log::error!("Failed to read response body from {}: {}", url, e);
+        AppError::NetworkRequest {
             url: url.clone(),
             source: e.to_string(),
-        })?;
+        }
+    })?;
+
+    log::debug!("Downloaded {} bytes from {}", file.len(), url);
 
     let archive_kind = guess_archive_kind(
         &file,
@@ -253,11 +271,17 @@ fn guess_archive_kind(
 }
 
 fn handle_zip(file: bytes::Bytes, mod_dir: &Path, mod_name: &str) -> Result<PathBuf, AppError> {
+    log::debug!("Parsing ZIP archive, size: {} bytes", file.len());
     let cursor = Cursor::new(file);
-    let mut zip = ZipArchive::new(cursor).map_err(|e| AppError::FileWrite {
-        path: mod_dir.to_path_buf(),
-        source: format!("Invalid zip archive: {e}"),
+    let mut zip = ZipArchive::new(cursor).map_err(|e| {
+        log::error!("Failed to parse ZIP archive: {}", e);
+        AppError::FileWrite {
+            path: mod_dir.to_path_buf(),
+            source: format!("Invalid zip archive: {e}"),
+        }
     })?;
+
+    log::debug!("ZIP archive contains {} entries", zip.len());
 
     // Determine if ZIP has root files
     let has_root_files = (0..zip.len()).try_fold(false, |acc, i| -> Result<bool, AppError> {
@@ -569,6 +593,7 @@ pub fn uninstall_mod(path: PathBuf) -> Result<(), AppError> {
     let candidates = mod_dir_candidates().unwrap_or_else(|_| vec![mods_dir.clone()]);
 
     validate_uninstall_path(&path, &candidates)?;
+    log::debug!("Uninstall path validation passed for: {:?}", path);
 
     if let Some(dir_name) = path.file_name().and_then(|n| n.to_str())
         && dir_name.starts_with("Steamodded-smods-")
@@ -577,7 +602,11 @@ pub fn uninstall_mod(path: PathBuf) -> Result<(), AppError> {
     }
 
     // Use retry logic to handle file locks, especially on Windows
-    remove_dir_with_retry(&path, 5)
+    let result = remove_dir_with_retry(&path, 5);
+    if result.is_ok() {
+        log::info!("Successfully uninstalled mod at: {:?}", path);
+    }
+    result
 }
 
 fn validate_uninstall_path(path: &PathBuf, mods_dirs: &[PathBuf]) -> Result<(), AppError> {

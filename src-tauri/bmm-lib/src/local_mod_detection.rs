@@ -304,7 +304,10 @@ pub fn detect_manual_mods(
 ) -> Result<Vec<DetectedMod>, String> {
     let mod_dir = resolve_mods_dir_path()?;
 
+    log::debug!("Scanning for manual mods in: {:?}", mod_dir);
+
     if !mod_dir.exists() {
+        log::debug!("Mods directory does not exist, returning empty list");
         return Ok(Vec::new());
     }
 
@@ -329,6 +332,10 @@ pub fn detect_manual_mods(
 
     // Find bundled dependencies in mod packages
     find_bundled_dependencies(&mod_dir, &mod_dir, 0, &mut bundled_dependencies)?;
+    log::debug!(
+        "Found {} bundled dependencies in mod packages",
+        bundled_dependencies.len()
+    );
 
     // Detect mods from filesystem
     let mut all_detected_mods = Vec::new();
@@ -339,6 +346,7 @@ pub fn detect_manual_mods(
         &mut all_detected_mods,
         &bundled_dependencies,
     )?;
+    log::debug!("Detected {} mods before filtering", all_detected_mods.len());
 
     // Detect Talisman installed at Balatro root (outside Mods)
     for install_path in finder::get_balatro_paths() {
@@ -368,6 +376,7 @@ pub fn detect_manual_mods(
     }
 
     // Process detected mods to find catalog matches and handle duplicates
+    let total_detected = all_detected_mods.len();
     for mut mod_info in all_detected_mods {
         let mod_path = normalize_path(&canonicalize_best_effort(&PathBuf::from(&mod_info.path)));
 
@@ -394,6 +403,12 @@ pub fn detect_manual_mods(
             manual_mods.push(mod_info);
         }
     }
+
+    log::info!(
+        "Found {} manual mods after filtering (excluded {} managed mods)",
+        manual_mods.len(),
+        total_detected - manual_mods.len()
+    );
 
     Ok(manual_mods)
 }

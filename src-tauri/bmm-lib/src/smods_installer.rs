@@ -127,16 +127,32 @@ impl ModInstaller {
             self.mod_type.get_repo_url()
         );
 
+        log::debug!("Fetching {} releases from: {}", self.mod_type, url);
+
         let response = self
             .client
             .get(&url)
             .headers(headers)
             .send()
             .await
+            .map_err(|e| {
+                log::error!("Failed to fetch {} releases: {}", self.mod_type, e);
+                e
+            })
             .context("Failed to fetch Steamodded releases")?;
 
         if !response.status().is_success() {
             let status = response.status();
+            let rate_limit = response
+                .headers()
+                .get("X-RateLimit-Remaining")
+                .and_then(|v| v.to_str().ok());
+            log::error!(
+                "GitHub API error for {}: status={}, rate_limit_remaining={:?}",
+                self.mod_type,
+                status,
+                rate_limit
+            );
             let error_text = response.text().await?;
             return Err(anyhow::anyhow!(
                 "GitHub API error: {} - {}",
@@ -144,6 +160,8 @@ impl ModInstaller {
                 error_text
             ));
         }
+
+        log::debug!("Successfully fetched {} releases", self.mod_type);
 
         let releases: Vec<Release> = response
             .json()
@@ -164,18 +182,32 @@ impl ModInstaller {
     async fn get_default_branch_download_url(&self) -> Result<String> {
         use reqwest::header::{ACCEPT, USER_AGENT};
 
+        let api_url = format!(
+            "https://api.github.com/repos/{}",
+            self.mod_type.get_repo_url()
+        );
+        log::debug!(
+            "Fetching default branch for {}",
+            self.mod_type.get_repo_url()
+        );
+
         let response = self
             .client
-            .get(format!(
-                "https://api.github.com/repos/{}",
-                self.mod_type.get_repo_url()
-            ))
+            .get(&api_url)
             .header(ACCEPT, "application/vnd.github+json")
             .header("X-GitHub-Api-Version", "2022-11-28")
             .header(USER_AGENT, "Balatro-Mod-Manager/1.0")
             .send()
-            .await?
-            .error_for_status()?;
+            .await
+            .map_err(|e| {
+                log::error!("Failed to fetch repo info for {}: {}", self.mod_type, e);
+                e
+            })?
+            .error_for_status()
+            .map_err(|e| {
+                log::error!("GitHub API error for {}: {}", self.mod_type, e);
+                e
+            })?;
 
         let body = response.json::<serde_json::Value>().await?;
         body["default_branch"]
@@ -215,8 +247,29 @@ impl ModInstaller {
         );
 
         // Download the zip file
-        let response = self.client.get(&url).headers(headers).send().await?;
+        log::debug!("Downloading {} from: {}", self.mod_type, url);
+        let response = self
+            .client
+            .get(&url)
+            .headers(headers)
+            .send()
+            .await
+            .map_err(|e| {
+                log::error!("Failed to download {}: {}", self.mod_type, e);
+                e
+            })?;
+
+        if !response.status().is_success() {
+            log::error!(
+                "Download failed for {}: HTTP {}",
+                self.mod_type,
+                response.status()
+            );
+            return Err(anyhow!("Download failed: HTTP {}", response.status()));
+        }
+
         let bytes = response.bytes().await?;
+        log::debug!("Downloaded {} bytes for {}", bytes.len(), self.mod_type);
 
         // Create temp directory
         let temp_dir = installation_path.join(format!(
