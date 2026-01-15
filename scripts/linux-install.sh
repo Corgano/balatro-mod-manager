@@ -108,6 +108,14 @@ ensure_flathub_remote() {
     else
         flatpak remote-modify --user --enable flathub >/dev/null 2>&1 || true
     fi
+
+    # Update flathub remote metadata to ensure we have the latest runtime info
+    echo -e "${YELLOW}Updating Flathub remote metadata...${NC}"
+    if ! flatpak update --user --appstream flathub 2>/dev/null; then
+        # If appstream update fails, try a full remote update
+        echo -e "${YELLOW}Updating Flathub remote...${NC}"
+        flatpak remote-modify --user --url=https://flathub.org/repo/flathub.flatpakrepo flathub 2>/dev/null || true
+    fi
 }
 
 ############################################
@@ -153,20 +161,32 @@ if [[ -n "$RELEASE_URL" ]]; then
         )
         MISSING_RELEASE_RUNTIMES=()
         for runtime in "${REQUIRED_RELEASE_RUNTIMES[@]}"; do
-            if ! flatpak info "$runtime" >/dev/null 2>&1; then
+            if ! flatpak info --user "$runtime" >/dev/null 2>&1; then
                 MISSING_RELEASE_RUNTIMES+=("$runtime")
             fi
         done
         if [[ "${#MISSING_RELEASE_RUNTIMES[@]}" -gt 0 ]]; then
             echo -e "${YELLOW}Installing Flatpak runtimes required by release...${NC}"
             for runtime in "${MISSING_RELEASE_RUNTIMES[@]}"; do
-                if ! flatpak remote-info flathub "$runtime" >/dev/null 2>&1; then
+                if ! flatpak remote-info --user flathub "$runtime" >/dev/null 2>&1; then
                     echo -e "${RED}Required runtime not found on Flathub: ${runtime}${NC}"
-                    echo -e "${YELLOW}Try updating Flatpak remotes or upgrade Flatpak, then retry.${NC}"
+                    echo -e "${YELLOW}Attempting to resolve...${NC}"
+                    echo -e "${YELLOW}Please try one of the following:${NC}"
+                    echo "  1. Update Flatpak: sudo flatpak update"
+                    echo "  2. Update remotes: flatpak update --appstream"
+                    echo "  3. Reinstall flathub remote:"
+                    echo "     flatpak remote-delete flathub"
+                    echo "     flatpak remote-add --user --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo"
+                    echo ""
+                    echo -e "${YELLOW}After updating, please retry this installation script.${NC}"
                     exit 1
                 fi
             done
-            flatpak install --user -y flathub "${MISSING_RELEASE_RUNTIMES[@]}"
+            if ! flatpak install --user -y flathub "${MISSING_RELEASE_RUNTIMES[@]}"; then
+                echo -e "${RED}Failed to install required runtimes.${NC}"
+                echo -e "${YELLOW}Please update your Flatpak installation and try again.${NC}"
+                exit 1
+            fi
         fi
         echo -e "${YELLOW}Installing Flatpak bundle...${NC}"
         flatpak install --user -y --reinstall "$FLATPAK_BUNDLE"
@@ -205,7 +225,7 @@ RUNTIMES=(
 
 MISSING_RUNTIMES=()
 for runtime in "${RUNTIMES[@]}"; do
-    if ! flatpak info "$runtime" >/dev/null 2>&1; then
+    if ! flatpak info --user "$runtime" >/dev/null 2>&1; then
         MISSING_RUNTIMES+=("$runtime")
     fi
 done
@@ -213,7 +233,15 @@ done
 if [[ "${#MISSING_RUNTIMES[@]}" -gt 0 ]]; then
     echo -e "${YELLOW}Installing Flatpak runtimes (first-time setup)...${NC}"
     ensure_flathub_remote
-    flatpak install --user -y flathub "${MISSING_RUNTIMES[@]}"
+    if ! flatpak install --user -y flathub "${MISSING_RUNTIMES[@]}"; then
+        echo -e "${RED}Failed to install required runtimes for local build.${NC}"
+        echo -e "${YELLOW}Please try updating Flatpak and your remotes:${NC}"
+        echo "  flatpak update --appstream"
+        echo "  sudo flatpak update"
+        echo ""
+        echo -e "${YELLOW}Then retry this installation script.${NC}"
+        exit 1
+    fi
 fi
 
 flatpak-builder --force-clean --repo=repo build-dir packaging/flatpak/io.balatro.ModManager.json
