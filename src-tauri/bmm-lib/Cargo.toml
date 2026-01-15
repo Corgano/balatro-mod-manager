@@ -7,7 +7,7 @@ edition = "2024"
 anyhow = "1.0.100"
 bincode = { version = "2.0", features = ["serde"] }
 bytes = "1.11.0"
-chrono = "0.4.42"
+chrono = "0.4.43"
 dirs = "6.0.0"
 discord-rich-presence = "1.0.0"
 env_logger = "0.11.8"
@@ -16,7 +16,7 @@ flate2 = { version = "1", default-features = false, features = [
 ] }
 infer = "0.19.0"
 lazy_static = "1.5.0"
-libc = "0.2.179"
+libc = "0.2.180"
 libflate = "2.2.1"
 log = "0.4.29"
 regex = "1.12.2"
@@ -29,7 +29,7 @@ tar = "0.4.44"
 tauri = "2.9.5"
 tempfile = "3.24.0"
 tokio = { version = "1.49.0", features = ["full"] }
-zip = { version = "7.0.0", default-features = false, features = ["deflate"] }
+zip = { version = "7.1.0", default-features = false, features = ["deflate"] }
 
 [dev-dependencies]
 tempfile = "3.24.0"

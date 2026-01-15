@@ -7,6 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 Balatro Mod Manager is a standalone desktop application for managing mods for the game Balatro. Built with Tauri 2, it combines a Rust backend with a SvelteKit frontend to provide a native cross-platform experience.
 
 **Tech Stack:**
+
 - **Backend**: Rust (Tauri 2.9+)
 - **Frontend**: SvelteKit 2 + Svelte 5 + TypeScript
 - **Build Tool**: Bun (package manager), Task (task runner)
@@ -16,18 +17,21 @@ Balatro Mod Manager is a standalone desktop application for managing mods for th
 ## Development Commands
 
 ### Initial Setup
+
 ```bash
 bun install --allow-scripts    # Install frontend dependencies
 task bootstrap                 # Install all dependencies (frontend + backend)
 ```
 
 ### Development
+
 ```bash
 task debug                     # Start development server (alias: task dev)
 task dev:web                   # Start web-only dev server (Vite, without Tauri)
 ```
 
 ### Building
+
 ```bash
 # Platform-specific builds (automatically selects based on OS)
 task release-windows           # Windows only
@@ -45,6 +49,7 @@ task flatpak:all               # Build, bundle, install, and run
 ```
 
 ### Testing & Linting
+
 ```bash
 task check                     # Full typecheck (frontend) + lint + test (Rust)
 task test                      # Run Rust tests for both crates
@@ -55,6 +60,7 @@ task fmt-rust                  # Format Rust code only
 **Note**: Tests must run with `--test-threads=1` to avoid database lock conflicts (already configured in CI and task commands).
 
 ### Dependency Management
+
 ```bash
 task update-frontend-deps      # Update Bun/npm dependencies
 task update-backend-deps       # Update Cargo dependencies (requires cargo-edit)
@@ -62,6 +68,7 @@ task update-dependencies       # Update both frontend and backend
 ```
 
 ### Cleanup
+
 ```bash
 task clean                     # Clean Rust build artifacts
 task clean-ui                  # Clean frontend build artifacts (.svelte-kit, build, dist)
@@ -88,11 +95,13 @@ The project uses a **workspace structure** with two Rust crates:
 ### Frontend Architecture
 
 **SvelteKit SSG (Static Site Generation)**
+
 - Uses `adapter-static` for prerendering (no server-side runtime)
 - Routes: `/` (setup/picker) and `/main` (main app view)
 - All routes prerendered at build time (configured in `svelte.config.js`)
 
 **State Management**
+
 - Svelte stores in `src/stores/`:
   - `modStore.ts`: Mod catalog, install states, pagination, uninstall dialogs
   - `collections.ts`: Mod collections (curated sets)
@@ -103,6 +112,7 @@ The project uses a **workspace structure** with two Rust crates:
 - LocalStorage for persistence (mod catalog, thumbnails, settings)
 
 **Key Frontend Patterns**
+
 - Components in `src/components/` and `src/components/viewblock/`
 - Tauri invoke wrapper in `src/utils/tauriInvoke.ts` for type-safe backend calls
 - Image caching system in `src/utils/image-cache.ts` and background thumbnail queue
@@ -110,10 +120,12 @@ The project uses a **workspace structure** with two Rust crates:
 ### Backend Architecture
 
 **Tauri Commands** (`src-tauri/src/commands/`)
+
 - Organized by domain: `paths`, `install`, `system`, `detection`, `cache`, `settings`, `lovely`, `repo`, `thumbnails`, `mods`, `import`, `external`, `report`
 - All commands registered in `src-tauri/src/lib.rs` via `invoke_handler!`
 
 **Core Library Modules** (`src-tauri/bmm-lib/src/`)
+
 - `database.rs`: SQLite schema, migrations, CRUD operations
 - `finder.rs`: Detects Balatro installation paths (Steam, custom, Linux prefix)
 - `installer.rs`: Mod installation/uninstallation logic
@@ -127,10 +139,12 @@ The project uses a **workspace structure** with two Rust crates:
 - `logging.rs`: Centralized logging setup
 
 **Background Tasks**
+
 - Auto-reindex loop: Periodically validates installed mods, detects folder changes, emits `installed-mods-changed` events
 - Thumbnail queue: Background downloads and caching of mod images
 
 **Database Schema**
+
 - SQLite database in app data directory
 - Tables: `mods` (installed mods), `settings` (key-value config), `mod_collections`, `lovely_versions`, etc.
 - Migrations handled in `database.rs`
@@ -138,16 +152,19 @@ The project uses a **workspace structure** with two Rust crates:
 ### Platform-Specific Notes
 
 **macOS**
+
 - Universal binaries require both `aarch64-apple-darwin` and `x86_64-apple-darwin` targets
 - `MACOSX_DEPLOYMENT_TARGET=11.0` (minimum macOS Big Sur)
 
 **Linux**
+
 - Flatpak is the recommended distribution method
 - Requires `flatpak-builder` and runtimes: GNOME 47, Node 20, Rust stable
 - Linux builds detect Steam via Flatpak or native paths
 - Wayland compositor issues: app defaults to X11 (XWayland); set `BMM_ALLOW_WAYLAND=1` to override
 
 **Windows**
+
 - Target: `x86_64-pc-windows-msvc`
 - Code signing via SignPath (production releases)
 
