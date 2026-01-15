@@ -339,9 +339,11 @@ fn ensure_native_mod_dir_link() -> Result<(), String> {
     }
 
     // Link both data and config locations that LOVE may use
-    let love_mods_data = home_dir.join(".local/share/love/Mods");
+    // LOVE uses game-specific subdirectories based on the identity in conf.lua
+    // For Balatro, this is "Balatro", so mods should be in ~/.local/share/love/Balatro/Mods
+    let love_mods_data = home_dir.join(".local/share/love/Balatro/Mods");
     let _ = link_mods(love_mods_data);
-    let love_mods_config = host_config.join("love/Mods");
+    let love_mods_config = host_config.join("love/Balatro/Mods");
     let _ = link_mods(love_mods_config);
 
     Ok(())
