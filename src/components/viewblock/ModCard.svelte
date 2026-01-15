@@ -104,6 +104,13 @@
         }
     };
 
+    // Debounced version of updateTitleScale for ResizeObserver
+    let resizeDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+    const debouncedUpdateTitleScale = () => {
+        if (resizeDebounceTimer) clearTimeout(resizeDebounceTimer);
+        resizeDebounceTimer = setTimeout(updateTitleScale, 50);
+    };
+
     $effect(() => {
         if (!hideDescription) {
             titleScale = 1;
@@ -116,15 +123,14 @@
 
     onMount(() => {
         if (typeof ResizeObserver === "undefined") return;
-        titleResizeObserver = new ResizeObserver(() => {
-            updateTitleScale();
-        });
+        titleResizeObserver = new ResizeObserver(debouncedUpdateTitleScale);
         if (titleEl) {
             titleResizeObserver.observe(titleEl);
         }
     });
 
     onDestroy(() => {
+        if (resizeDebounceTimer) clearTimeout(resizeDebounceTimer);
         titleResizeObserver?.disconnect();
         titleResizeObserver = null;
     });
@@ -524,12 +530,19 @@
     }
 
     .mod-card:hover {
-        animation: stripe-slide-up 1.5s linear infinite;
+        animation: stripe-slide-up 2.5s linear infinite;
         scale: 1.05;
     }
 
     :global([data-platform="linux"]) .mod-card:hover {
         animation: none;
+    }
+
+    /* Disable animation for users who prefer reduced motion */
+    @media (prefers-reduced-motion: reduce) {
+        .mod-card:hover {
+            animation: none;
+        }
     }
 
     @keyframes stripe-slide-up {

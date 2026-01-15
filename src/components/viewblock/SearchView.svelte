@@ -8,7 +8,8 @@ import {
 	uninstallDialogStore,
 	} from "../../stores/modStore";
 // lightweight debounce to avoid pulling in lodash for a single helper
-function debounce<T extends (...args: unknown[]) => void>(fn: T, wait: number) {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function debounce<T extends (...args: any[]) => void>(fn: T, wait: number) {
   let t: ReturnType<typeof setTimeout> | null = null;
   return (...args: Parameters<T>) => {
     if (t) clearTimeout(t);
@@ -32,6 +33,7 @@ import ModCard from "./ModCard.svelte";
 	} | null;
 	let searchIndex: SearchIndex = $state(null);
 	let mods = $state<Mod[]>([]);
+	let lastModCount = 0; // Track mod count to avoid unnecessary rebuilds
 	let installedMods = $state<InstalledMod[]>([]);
 	let mod = $state<Mod | null>(null);
 	let searchInput: HTMLInputElement;
@@ -230,6 +232,22 @@ import ModCard from "./ModCard.svelte";
 		}
 	});
 
+	// Debounced index rebuild to avoid blocking main thread
+	const rebuildIndex = debounce((currentMods: Mod[]) => {
+		if (currentMods.length === 0) return;
+		const IndexCtor = (FlexSearch as unknown as { Index: new (opts: { tokenize: string; preset: string; cache: boolean }) => { add: (id: number, text: string) => void; search: (q: string) => number[] } }).Index;
+		searchIndex = new IndexCtor({
+			tokenize: "forward",
+			preset: "match",
+			cache: true,
+		});
+		currentMods.forEach((mod, idx) => {
+			const searchText = `${mod.title} ${mod.publisher}`.toLowerCase();
+			if (searchIndex) searchIndex.add(idx, searchText);
+		});
+		lastModCount = currentMods.length;
+	}, 100);
+
 	onMount(() => {
 		// Initialize the search index
 		const IndexCtor = (FlexSearch as unknown as { Index: new (opts: { tokenize: string; preset: string; cache: boolean }) => { add: (id: number, text: string) => void; search: (q: string) => number[] } }).Index;
@@ -245,23 +263,14 @@ import ModCard from "./ModCard.svelte";
 			}
 		});
 
-		// Subscribe to mods store
+		// Subscribe to mods store - only rebuild index when count changes significantly
 		return modsStore.subscribe((currentMods) => {
 			mods = currentMods;
-			if (mods.length > 0) {
-		// Instead of clear(), recreate the index
-			const IndexCtor = (FlexSearch as unknown as { Index: new (opts: { tokenize: string; preset: string; cache: boolean }) => { add: (id: number, text: string) => void; search: (q: string) => number[] } }).Index;
-			searchIndex = new IndexCtor({
-				tokenize: "forward",
-				preset: "match",
-				cache: true,
-			});
-
-				mods.forEach((mod, idx) => {
-					const searchText =
-						`${mod.title} ${mod.publisher}`.toLowerCase();
-					if (searchIndex) searchIndex.add(idx, searchText);
-				});
+			// Only rebuild if mod count changed by more than 10% or first load
+			const countDiff = Math.abs(currentMods.length - lastModCount);
+			const threshold = Math.max(1, Math.floor(lastModCount * 0.1));
+			if (currentMods.length > 0 && (lastModCount === 0 || countDiff >= threshold)) {
+				rebuildIndex(currentMods);
 			}
 		});
 	});

@@ -33,7 +33,8 @@ impl ThumbnailManager {
         let enqueued: Arc<Mutex<HashSet<String>>> = Arc::new(Mutex::new(HashSet::new()));
 
         // Limit concurrent downloads to avoid rate limits
-        let semaphore = Arc::new(Semaphore::new(3));
+        // Using 6 concurrent downloads for faster thumbnail loading
+        let semaphore = Arc::new(Semaphore::new(6));
         let client = reqwest::Client::builder()
             .user_agent("balatro-mod-manager/1.0")
             .timeout(Duration::from_secs(10))

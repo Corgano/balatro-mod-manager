@@ -240,13 +240,14 @@ if (typeof window !== "undefined") {
       clearTimeout(persistTimer);
     }
     // Debounce cache writes to avoid thrashing localStorage during hydration.
+    // Using 500ms for better performance during rapid updates.
     persistTimer = window.setTimeout(() => {
       if (persistSuspended) {
         persistPending = true;
         return;
       }
       persistModsCache(value);
-    }, 250);
+    }, 500);
   });
 }
 
