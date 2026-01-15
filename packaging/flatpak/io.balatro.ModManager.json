@@ -21,7 +21,10 @@
     "--filesystem=xdg-config/Balatro",
     "--filesystem=xdg-data/Balatro",
     "--filesystem=home/.local/share/Steam",
-    "--filesystem=home/.steam"
+    "--filesystem=home/.steam",
+    "--filesystem=home/.var/app/com.valvesoftware.Steam",
+    "--filesystem=home/snap/steam",
+    "--filesystem=/run/media"
   ],
   "modules": [
     {
