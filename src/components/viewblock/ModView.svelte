@@ -7,7 +7,6 @@ import {
 		User,
 		ArrowLeft,
 		Github,
-		X,
 		RefreshCw,
 		Layers,
 	} from "lucide-svelte";
@@ -175,11 +174,15 @@ const attemptedDescriptions = new Set<string>();
 	async function hydrateRepo(mod: Mod): Promise<void> {
 		if (!mod._dirName) return;
 		if (mod.repo && mod.repo.trim().length > 0) return;
+		const modTitle = mod.title; // Capture title for stale check
 		try {
 			const repo = await invoke<string | null>("get_mod_repo_url", {
 				dirName: mod._dirName,
 			});
 			if (!repo) return;
+			// Only update if this mod is still the active view
+			const current = $currentModView;
+			if (current?.title !== modTitle) return;
 			currentModView.set({ ...mod, repo });
 			modsStore.update((arr) =>
 				arr.map((m) =>
@@ -198,13 +201,18 @@ const attemptedDescriptions = new Set<string>();
 			return;
 		}
 		if (!mod._dirName || repoLoading) return;
+		const modTitle = mod.title; // Capture title for stale check
 		repoLoading = true;
 		try {
 			const repo = await invoke<string | null>("get_mod_repo_url", {
 				dirName: mod._dirName,
 			});
 			if (repo && repo.trim().length > 0) {
-				currentModView.set({ ...mod, repo });
+				// Only update store if this mod is still the active view
+				const current = $currentModView;
+				if (current?.title === modTitle) {
+					currentModView.set({ ...mod, repo });
+				}
 				modsStore.update((arr) =>
 					arr.map((m) =>
 						m.title === mod.title ? { ...m, repo } : m,
@@ -227,10 +235,7 @@ const attemptedDescriptions = new Set<string>();
 	let modsArray: Mod[] = [];
 	modsStore.subscribe((m) => (modsArray = m));
 
-	let skipHistoryUpdate = false;
 	let description: HTMLDivElement;
-	// Links gets pushed down the array as another gets added. The oldest link is the last one in the array.
-let history: internalModLinkData[] = $state([]);
 
 const linkCache = new Map<string, internalModLinkData>();
 
@@ -662,41 +667,6 @@ let modView: HTMLDivElement;
 		}
 	}
 
-	/**
-	 * Sets the current mod view by title
-	 * @param title
-	 * @returns success
-	 */
-	function setModViewByTitle(title: string): boolean {
-		const targetMod = modsArray.find((m) => m.title === title);
-
-		if (targetMod) {
-			currentModView.set(targetMod);
-			skipHistoryUpdate = true;
-
-			modView.scrollTo(0, 0);
-
-			return true;
-		}
-
-		return false;
-	}
-
-	$effect(() => {
-		if (skipHistoryUpdate) {
-			skipHistoryUpdate = false;
-			return;
-		}
-		if (!mod) return;
-		if (history.length === 0) {
-			history = [{ isMod: true, modName: mod.title }];
-			return;
-		}
-		if (history[0].modName !== mod.title) {
-			history = [{ isMod: true, modName: mod.title }, ...history];
-		}
-	});
-
 	// In the processInternalModLinks function
 	async function processInternalModLinks() {
 		if (!description) return;
@@ -756,6 +726,7 @@ let modView: HTMLDivElement;
         if (attemptedDescriptions.has(m.title)) return;
         const dir = m._dirName as string | undefined;
         if (!dir) return;
+        const modTitle = m.title; // Capture title for stale check
         attemptedDescriptions.add(m.title);
         try {
             descLoading = true;
@@ -765,8 +736,11 @@ let modView: HTMLDivElement;
             );
             if (text && text.trim().length > 0) {
                 setDescription(m.title, text);
-                // Update currentModView store with new description for this view
-                currentModView.set({ ...m, description: text });
+                // Only update currentModView if this mod is still the active view
+                const currentView = $currentModView;
+                if (currentView?.title === modTitle) {
+                    currentModView.set({ ...m, description: text });
+                }
             }
         } catch (_) {
             // ignore
@@ -803,18 +777,6 @@ let modView: HTMLDivElement;
 	});
 
 	function handleBack() {
-		if (history.length <= 1) {
-			currentModView.set(null);
-			return;
-		}
-
-		history.shift();
-
-		const modName = history[0].modName;
-		setModViewByTitle(modName);
-	}
-
-	function handleClose() {
 		currentModView.set(null);
 	}
 
@@ -1011,16 +973,6 @@ let modView: HTMLDivElement;
 				<button class="back-button" onclick={handleBack}>
 					<ArrowLeft size={20} /> <span>Back</span>
 				</button>
-
-				{#if history.length > 1}
-					<button
-						transition:fade={{ duration: 300, easing: cubicOut }}
-						onclick={handleClose}
-						class="close-button"
-					>
-						<X size={20} />
-					</button>
-				{/if}
 			</div>
 		</div>
 
@@ -1659,43 +1611,6 @@ let modView: HTMLDivElement;
 		backdrop-filter: blur(20px) brightness(0.7);
 	}
 
-	.close-button {
-		position: relative;
-		/* top: 1rem;
-		right: 1rem; */
-
-		display: flex;
-		align-items: center;
-		gap: 0.5rem;
-		padding: 0.5rem 0.5rem;
-		border-radius: 6px;
-
-		background: var(--ui-glass);
-		border: none;
-		color: var(--ui-text);
-
-		cursor: pointer;
-		transition: all 0.2s ease;
-
-		font-family: "M6X11", sans-serif;
-		font-size: 1rem;
-
-		z-index: 100;
-		pointer-events: auto;
-
-		backdrop-filter: blur(20px) brightness(0.7);
-	}
-
-	.close-button:hover {
-		scale: 1.1;
-		background: var(--ui-glass-strong);
-	}
-
-	.close-button:active {
-		scale: 0.95;
-		background: var(--ui-glass);
-	}
-
 	.back-button:hover {
 		background: var(--ui-glass-strong);
 		transform: translateX(-5px);
@@ -1951,8 +1866,7 @@ let modView: HTMLDivElement;
 		overflow-y: auto;
 	}
 
-	:global([data-platform="linux"]) .back-button,
-	:global([data-platform="linux"]) .close-button {
+	:global([data-platform="linux"]) .back-button {
 		backdrop-filter: none;
 		background: var(--ui-glass);
 	}
