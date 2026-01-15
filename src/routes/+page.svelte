@@ -2,12 +2,22 @@
 	import BalatroPicker from "../components/BalatroPicker.svelte";
 	import ReportIssue from "../components/ReportIssue.svelte";
 	import { Menu, MenuItem } from "@tauri-apps/api/menu";
+	import { invoke } from "@tauri-apps/api/core";
 import { onMount, onDestroy } from "svelte";
 	import { invokeWithTimeout } from "../utils/tauriInvoke";
 	import { goto } from "$app/navigation";
 
+	let appVersion = $state("");
+
 	onMount(() => {
 		const init = async () => {
+			// Fetch app version for display
+			try {
+				appVersion = await invoke<string>("get_app_version");
+			} catch (_) {
+				appVersion = "";
+			}
+
 			try {
 				const existingPath = await invokeWithTimeout("check_existing_installation");
 				if (existingPath) {
@@ -73,7 +83,7 @@ onDestroy(() => {
 	<h1>Welcome to Balatro Mod Manager</h1>
 	<BalatroPicker />
 	<ReportIssue />
-	<div class="version-text">v0.3.6</div>
+	{#if appVersion}<div class="version-text">v{appVersion}</div>{/if}
 </div>
 
 <style>

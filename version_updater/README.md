@@ -4,7 +4,7 @@ A fast Fortran utility for automatically updating version numbers across multipl
 
 ## Overview
 
-Version Updater recursively scans your project directory and updates version strings in configuration files and source code. This tool is particularly useful for maintaining consistent version information across a project with multiple components.
+Version Updater recursively scans your project directory and updates version strings in configuration files. This tool is particularly useful for maintaining consistent version information across a project with multiple components.
 
 ## Features
 
@@ -14,11 +14,12 @@ Version Updater recursively scans your project directory and updates version str
   - `Cargo.lock` (balatro-mod-manager package)
   - `package.json`
   - `packaging/flatpak/io.balatro.ModManager.metainfo.xml`
-  - Svelte files containing version elements
 - Intelligent version handling (removes `v` prefix for certain files)
 - Preserves file formatting and structure
 - Excludes common directories like `.git`, `node_modules`, etc.
 - Fast performance with optional OpenMP multithreading
+
+**Note:** Svelte files no longer need version updates as the frontend now fetches the version dynamically from the backend via `get_app_version`.
 
 ## Requirements
 

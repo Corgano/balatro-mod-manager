@@ -214,12 +214,12 @@ contains
       write (*, '(a)') "  - Cargo.lock (balatro-mod-manager package)"
       write (*, '(a)') "  - package.json"
       write (*, '(a)') "  - Flatpak metainfo (io.balatro.ModManager.metainfo.xml)"
-      write (*, '(a)') "  - All .svelte files containing specific version elements"
       write (*, '(a)') ""
       write (*, '(a)') "Notes:"
       write (*, '(a)') "  - The 'v' prefix is automatically removed for certain files"
       write (*, '(a)') "  - Directories like .git, node_modules, etc. are automatically excluded"
       write (*, '(a)') "  - Use --bun to update package.json to use Bun as the package manager"
+      write (*, '(a)') "  - Svelte files use dynamic versioning via get_app_version (no update needed)"
    end subroutine show_help
 
    subroutine update_versions(version_arg, directory_arg, use_bun)

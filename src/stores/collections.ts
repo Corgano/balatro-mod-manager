@@ -250,9 +250,9 @@ export function importCollectionCode(code: string): {
   if (!code.trim()) {
     return { ok: false, error: "Paste a collection code first." };
   }
-  let payload: any;
+  let payload: { name?: unknown; modTitles?: unknown; modIds?: unknown };
   try {
-    payload = decodeSharePayload(code);
+    payload = decodeSharePayload(code) as typeof payload;
   } catch {
     return { ok: false, error: "Invalid collection code." };
   }

@@ -37,13 +37,7 @@ import { isLinuxPlatform } from "$lib/platform";
 	let showSecurityPopup = $state(false); // Control visibility of the security popup
 	let isLinux = $state(false);
 	let hasMounted = $state(false);
-
-	$effect(() => {
-		// Cleanup
-		return () => {
-			// Cleanup
-		};
-	});
+	let appVersion = $state("");
 
 	// Add these for the RequiresPopup
 	let showRequiresPopup = $state(false);
@@ -214,6 +208,13 @@ import { isLinuxPlatform } from "$lib/platform";
 		isLinux = await isLinuxPlatform();
 		hasMounted = true;
 		handleRefresh();
+
+		// Fetch app version for display
+		try {
+			appVersion = await invoke<string>("get_app_version");
+		} catch (_) {
+			appVersion = "";
+		}
 
 		// Check if we need to show the security popup on first launch
 		const isFirstLaunch = await invoke<boolean>(
@@ -406,7 +407,7 @@ import { isLinuxPlatform } from "$lib/platform";
 		{onError}
 	/>
 
-	<div class="version-text">v0.3.6</div>
+	{#if appVersion}<div class="version-text">v{appVersion}</div>{/if}
 </div>
 
 	<LovelyMissingPopup />

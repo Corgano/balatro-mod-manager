@@ -1,4 +1,4 @@
-import { writable, type Writable } from "svelte/store";
+import { writable, get, type Writable } from "svelte/store";
 
 export interface Mod {
   id?: string;
@@ -162,11 +162,7 @@ export async function withModsCachePersistenceSuspended<T>(
     if (persistPending) {
       persistPending = false;
       try {
-        const current = await new Promise<Mod[]>((resolve) =>
-          modsStore.subscribe((v) => {
-            resolve(v);
-          })(),
-        );
+        const current = get(modsStore);
         persistModsCache(current);
       } catch (_) {
         // ignore

@@ -73,7 +73,6 @@
             }
             if (!tag) return;
             latestVersion = tag.replace(/^v/i, "");
-            console.log("BMM latest version (GitHub):", latestVersion);
             if (cmp(cur, latestVersion) < 0) {
                 showUpdatePopup = true;
             }
