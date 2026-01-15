@@ -407,7 +407,7 @@ import { isLinuxPlatform } from "$lib/platform";
 		{onError}
 	/>
 
-	{#if appVersion}<div class="version-text">v{appVersion}</div>{/if}
+	{#if appVersion}<div class="version-text">v0.3.7</div>{/if}
 </div>
 
 	<LovelyMissingPopup />
