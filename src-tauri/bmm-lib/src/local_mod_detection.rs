@@ -569,14 +569,22 @@ fn is_similar(a: &str, b: &str) -> bool {
 
     let distance = calculate_edit_distance(a, b);
     let max_len = a.len().max(b.len()) as f32;
+    let min_len = a.len().min(b.len());
 
-    // Require very close matches; allow a single typo or a small proportion of differences
+    // Only allow single typo tolerance
     if distance <= 1 {
         return true;
     }
 
+    // For similarity matching, require:
+    // 1. Higher similarity threshold (0.85 instead of 0.82)
+    // 2. Maximum edit distance of 2
+    // 3. Strings must be at least 6 characters to avoid short-string false positives
+    // 4. Length difference shouldn't be more than 2 characters
     let similarity = 1.0 - (distance as f32 / max_len);
-    similarity >= 0.82 && distance <= 2
+    let len_diff = (a.len() as i32 - b.len() as i32).abs();
+
+    similarity >= 0.85 && distance <= 2 && min_len >= 6 && len_diff <= 2
 }
 
 // Calculate Levenshtein distance between two strings

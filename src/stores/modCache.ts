@@ -5,6 +5,10 @@ import { listen } from "@tauri-apps/api/event";
 import type { InstalledMod } from "./modStore";
 import { installationStatus, modsStore } from "./modStore";
 
+// Normalize mod names for matching (removes spaces, dashes, underscores and other special chars)
+const normalizeModName = (name: string) =>
+  name.toLowerCase().replace(/[^a-z0-9]/g, "");
+
 declare global {
   // eslint-disable-next-line no-unused-vars
   interface Window {
@@ -101,7 +105,12 @@ try {
       listen("installed-mods-changed", async () => {
         try {
           const installed = await modCache.forceRefreshCache();
-          const installedSet = new Set(
+          // Create a set of normalized installed mod names for fuzzy matching
+          const installedNormalized = new Set(
+            installed.map((mod) => normalizeModName(mod.name)),
+          );
+          // Also keep exact lowercase names for exact matching
+          const installedExact = new Set(
             installed.map((mod) => mod.name.toLowerCase()),
           );
           const mods = get(modsStore);
@@ -109,7 +118,9 @@ try {
             Object.fromEntries(
               mods.map((mod) => [
                 mod.title,
-                installedSet.has(mod.title.toLowerCase()),
+                // Check exact match first, then normalized match
+                installedExact.has(mod.title.toLowerCase()) ||
+                  installedNormalized.has(normalizeModName(mod.title)),
               ]),
             ),
           );

@@ -8,7 +8,6 @@ import {
 	uninstallDialogStore,
 	} from "../../stores/modStore";
 // lightweight debounce to avoid pulling in lodash for a single helper
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 function debounce<T extends (...args: any[]) => void>(fn: T, wait: number) {
   let t: ReturnType<typeof setTimeout> | null = null;
   return (...args: Parameters<T>) => {

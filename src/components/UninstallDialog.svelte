@@ -126,7 +126,15 @@
 			void (async () => {
 				try {
 					const installed = await forceRefreshCache();
-					const installedSet = new Set(
+					// Normalize mod names for matching (removes spaces, dashes, underscores and other special chars)
+					const normalizeModName = (name: string) =>
+						name.toLowerCase().replace(/[^a-z0-9]/g, "");
+					// Create a set of normalized installed mod names for fuzzy matching
+					const installedNormalized = new Set(
+						installed.map((mod) => normalizeModName(mod.name)),
+					);
+					// Also keep exact lowercase names for exact matching
+					const installedExact = new Set(
 						installed.map((mod) => mod.name.toLowerCase()),
 					);
 					const mods = get(modsStore);
@@ -134,7 +142,9 @@
 						Object.fromEntries(
 							mods.map((mod) => [
 								mod.title,
-								installedSet.has(mod.title.toLowerCase()),
+								// Check exact match first, then normalized match
+								installedExact.has(mod.title.toLowerCase()) ||
+								installedNormalized.has(normalizeModName(mod.title)),
 							]),
 						),
 					);

@@ -130,6 +130,12 @@
             .replace(/[^a-z0-9+]+/g, "")
             .trim();
 
+    // Normalize mod names for matching (removes spaces, dashes, underscores and other special chars)
+    const normalizeModName = (name: string) =>
+        name
+            .toLowerCase()
+            .replace(/[^a-z0-9]/g, "");
+
     async function handleModUninstalled() {
         // Refresh the local mods list
         getLocalMods();
@@ -539,14 +545,21 @@
                 // After mods load, update install status and local mods if needed
                 try {
                     const installed = await fetchCachedMods();
-                    const installedSet = new Set(
+                    // Create a set of normalized installed mod names for fuzzy matching
+                    const installedNormalized = new Set(
+                        installed.map((mod) => normalizeModName(mod.name)),
+                    );
+                    // Also keep exact lowercase names for exact matching
+                    const installedExact = new Set(
                         installed.map((mod) => mod.name.toLowerCase()),
                     );
                     installationStatus.set(
                         Object.fromEntries(
                             $modsStore.map((mod) => [
                                 mod.title,
-                                installedSet.has(mod.title.toLowerCase()),
+                                // Check exact match first, then normalized match
+                                installedExact.has(mod.title.toLowerCase()) ||
+                                installedNormalized.has(normalizeModName(mod.title)),
                             ]),
                         ),
                     );
@@ -2678,14 +2691,21 @@
                 path: m.path,
             }));
 
-            const installedSet = new Set(
+            // Create a set of normalized installed mod names for fuzzy matching
+            const installedNormalized = new Set(
+                summary.installed.map((m) => normalizeModName(m.name)),
+            );
+            // Also keep exact lowercase names for exact matching
+            const installedExact = new Set(
                 summary.installed.map((m) => m.name.toLowerCase()),
             );
             installationStatus.set(
                 Object.fromEntries(
                     $modsStore.map((mod) => [
                         mod.title,
-                        installedSet.has(mod.title.toLowerCase()),
+                        // Check exact match first, then normalized match
+                        installedExact.has(mod.title.toLowerCase()) ||
+                        installedNormalized.has(normalizeModName(mod.title)),
                     ]),
                 ),
             );
