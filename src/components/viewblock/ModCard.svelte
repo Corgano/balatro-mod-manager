@@ -672,7 +672,7 @@
 
     .button-container {
         display: flex;
-        gap: 0.5rem;
+        gap: 0.35rem;
         position: absolute;
         bottom: 1rem;
         left: 1rem;
@@ -682,20 +682,20 @@
     .download-button,
     .update-button {
         flex: 1;
+        min-width: 0; /* Allow shrinking */
         display: flex;
         align-items: center;
         justify-content: center;
-        gap: 0.5rem;
-        padding: calc(0.75rem * var(--card-scale, 1));
+        gap: 0.4rem;
+        padding: calc(0.6rem * var(--card-scale, 1)) calc(0.5rem * var(--card-scale, 1));
         border: none;
         border-radius: 4px;
         font-family: "M6X11", sans-serif;
-        font-size: calc(1rem * var(--card-scale, 1));
+        font-size: calc(0.95rem * var(--card-scale, 1));
         cursor: pointer;
         transition: all 0.2s ease;
-        /* Add these properties to prevent resizing */
-        min-height: calc(42px * var(--card-scale, 1)); /* Set explicit height */
-        position: relative; /* For absolute positioning of spinner */
+        min-height: calc(38px * var(--card-scale, 1));
+        position: relative;
     }
 
     .download-button {
@@ -737,13 +737,22 @@
     /* Compact adjustments: make primary buttons a touch smaller */
     .mod-card.compact .download-button,
     .mod-card.compact .update-button {
-        padding: calc(0.55rem * var(--card-scale, 1));
-        min-height: calc(36px * var(--card-scale, 1));
-        font-size: calc(0.9rem * var(--card-scale, 1));
+        padding: calc(0.5rem * var(--card-scale, 1)) calc(0.4rem * var(--card-scale, 1));
+        min-height: calc(34px * var(--card-scale, 1));
+        font-size: calc(0.85rem * var(--card-scale, 1));
+    }
+
+    .mod-card.compact .toggle-button,
+    .mod-card.compact .delete-button,
+    .mod-card.compact .collection-button {
+        min-width: calc(32px * var(--card-scale, 1));
+        height: calc(34px * var(--card-scale, 1));
+        padding: calc(4px * var(--card-scale, 1));
     }
 
     .mod-card.compact .toggle-button {
-        transform: translateY(1px);
+        min-width: calc(38px * var(--card-scale, 1));
+        font-size: calc(0.9rem * var(--card-scale, 1));
     }
 
     .mod-card.compact .button-container {
@@ -754,9 +763,9 @@
         display: flex;
         align-items: center;
         justify-content: center;
-        min-width: calc(42px * var(--card-scale, 1));
-        height: calc(42px * var(--card-scale, 1));
-        padding: calc(8px * var(--card-scale, 1));
+        min-width: calc(36px * var(--card-scale, 1));
+        height: calc(38px * var(--card-scale, 1));
+        padding: calc(6px * var(--card-scale, 1));
         background: var(--ui-danger);
         color: var(--ui-text);
         border: none;
@@ -766,6 +775,7 @@
         transition: all 0.2s ease;
         font-family: "M6X11", sans-serif;
         font-size: calc(1rem * var(--card-scale, 1));
+        flex-shrink: 0;
     }
 
     .delete-button:hover {
@@ -781,9 +791,9 @@
         display: flex;
         align-items: center;
         justify-content: center;
-        min-width: calc(42px * var(--card-scale, 1));
-        height: calc(42px * var(--card-scale, 1));
-        padding: calc(8px * var(--card-scale, 1));
+        min-width: calc(36px * var(--card-scale, 1));
+        height: calc(38px * var(--card-scale, 1));
+        padding: calc(6px * var(--card-scale, 1));
         background: var(--ui-info-strong);
         color: var(--ui-text);
         border: none;
@@ -791,6 +801,7 @@
         border-radius: 4px;
         cursor: pointer;
         transition: all 0.2s ease;
+        flex-shrink: 0;
     }
 
     .collection-button:hover {
@@ -807,9 +818,10 @@
         display: flex;
         align-items: center;
         justify-content: center;
-        min-width: calc(42px * var(--card-scale, 1));
-        height: calc(42px * var(--card-scale, 1));
-        padding: calc(8px * var(--card-scale, 1));
+        /* Fixed width to ensure ON/OFF buttons are same size */
+        min-width: calc(44px * var(--card-scale, 1));
+        height: calc(38px * var(--card-scale, 1));
+        padding: calc(6px * var(--card-scale, 1)) calc(8px * var(--card-scale, 1));
         border-radius: 4px;
         cursor: pointer;
         transition: all 0.2s ease;
@@ -817,7 +829,7 @@
         border: none;
         flex-shrink: 0;
         font-family: "M6X11", sans-serif;
-        font-size: calc(1.1rem * var(--card-scale, 1));
+        font-size: calc(1rem * var(--card-scale, 1));
     }
 
     .toggle-button.enabled {

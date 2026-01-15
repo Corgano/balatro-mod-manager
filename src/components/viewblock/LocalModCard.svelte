@@ -565,7 +565,7 @@ h3 {
 	/* Button container styling */
 	.button-container {
 		display: flex;
-		gap: 0.5rem;
+		gap: 0.35rem;
 		position: absolute;
 		bottom: 1rem;
 		left: 1rem;
@@ -579,33 +579,34 @@ h3 {
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		gap: 0.5rem;
-		padding: calc(0.75rem * var(--card-scale, 1));
+		gap: 0.4rem;
+		padding: calc(0.6rem * var(--card-scale, 1));
 		color: var(--ui-text);
 		border: none;
 		border-radius: 4px;
 		cursor: pointer;
 		transition: all 0.2s ease;
 		font-family: "M6X11", sans-serif;
-		font-size: calc(1.1rem * var(--card-scale, 1));
-		min-height: calc(42px * var(--card-scale, 1));
+		font-size: calc(0.95rem * var(--card-scale, 1));
+		min-height: calc(38px * var(--card-scale, 1));
 		position: relative;
 	}
 
 	.install-button {
 		flex: 1;
+		min-width: 0;
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		gap: calc(0.4rem * var(--card-scale, 1));
-		padding: calc(0.75rem * var(--card-scale, 1)) calc(0.5rem * var(--card-scale, 1));
+		gap: calc(0.3rem * var(--card-scale, 1));
+		padding: calc(0.6rem * var(--card-scale, 1)) calc(0.4rem * var(--card-scale, 1));
 		color: var(--ui-text);
 		border: none;
 		border-radius: 4px;
 		cursor: pointer;
 		transition: all 0.2s ease;
 		font-family: "M6X11", sans-serif;
-		min-height: calc(42px * var(--card-scale, 1));
+		min-height: calc(38px * var(--card-scale, 1));
 		position: relative;
 		background: var(--ui-success);
 		outline: var(--ui-button-green-border) solid 2px;
@@ -641,9 +642,9 @@ h3 {
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		min-width: calc(42px * var(--card-scale, 1));
-		height: calc(42px * var(--card-scale, 1));
-		padding: calc(8px * var(--card-scale, 1));
+		min-width: calc(36px * var(--card-scale, 1));
+		height: calc(38px * var(--card-scale, 1));
+		padding: calc(6px * var(--card-scale, 1));
 		border-radius: 4px;
 		cursor: pointer;
 		transition: all 0.2s ease;
@@ -670,9 +671,10 @@ h3 {
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		min-width: calc(42px * var(--card-scale, 1));
-		height: calc(42px * var(--card-scale, 1));
-		padding: calc(8px * var(--card-scale, 1));
+		/* Fixed width to ensure ON/OFF buttons are same size */
+		min-width: calc(44px * var(--card-scale, 1));
+		height: calc(38px * var(--card-scale, 1));
+		padding: calc(6px * var(--card-scale, 1)) calc(8px * var(--card-scale, 1));
 		border-radius: 4px;
 		cursor: pointer;
 		transition: all 0.2s ease;
@@ -680,7 +682,7 @@ h3 {
 		border: none;
 		flex-shrink: 0;
 		font-family: "M6X11", sans-serif;
-		font-size: calc(1.1rem * var(--card-scale, 1));
+		font-size: calc(1rem * var(--card-scale, 1));
 	}
 
 	.toggle-button.enabled {
@@ -714,9 +716,9 @@ h3 {
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		min-width: calc(42px * var(--card-scale, 1));
-		height: calc(42px * var(--card-scale, 1));
-		padding: calc(8px * var(--card-scale, 1));
+		min-width: calc(36px * var(--card-scale, 1));
+		height: calc(38px * var(--card-scale, 1));
+		padding: calc(6px * var(--card-scale, 1));
 		border-radius: 4px;
 		cursor: pointer;
 		transition: all 0.2s ease;
