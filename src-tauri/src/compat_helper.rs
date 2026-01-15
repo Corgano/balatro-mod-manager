@@ -1411,8 +1411,15 @@ local function collect_fs_issues()
         local v = name:match("smods%-([%w%.%-%_~]+)") or name:match("steamodded%-([%w%.%-%_~]+)")
         if v then
           smods_version = pick_best_version(smods_version, v)
+          log_line(("info steamodded_detected folder=%s version=%s"):format(name, v))
         else
+          -- Steamodded folder found but no version in folder name
+          -- Still count as detected to avoid false "not detected" errors
+          if not smods_version then
+            smods_version = "unknown"
+          end
           smods_unknown = true
+          log_line(("info steamodded_detected folder=%s version=unknown"):format(name))
         end
       else
         if lower:find("multiplayer") then
@@ -1453,7 +1460,7 @@ local function collect_fs_issues()
           for _, dep in ipairs(meta.deps) do
             if type(dep) == "string" and dep:lower():find("steamodded") then
               local constraints = extract_constraints(dep)
-              if smods_version then
+              if smods_version and smods_version ~= "unknown" then
                 local okv, unk = check_constraints(smods_version, constraints)
                 if okv == false then
                   issues[#issues + 1] = ("Steamodded version mismatch for %s: %s (have %s)"):format(
@@ -1462,17 +1469,20 @@ local function collect_fs_issues()
                     smods_version
                   )
                 elseif unk then
-                  issues[#issues + 1] = ("Steamodded version check skipped for %s: %s (have %s)"):format(
+                  -- Log warning but don't add as blocking issue
+                  log_line(("warn version_check_skipped mod=%s dep=%s have=%s"):format(
                     meta.id or name,
                     dep,
                     smods_version
-                  )
+                  ))
                 end
-              else
+              elseif not smods_version then
                 issues[#issues + 1] = ("Steamodded version unknown for %s: %s"):format(
                   meta.id or name,
                   dep
                 )
+              end
+              -- When smods_version == "unknown", we skip version checks silently
               end
             end
           end
@@ -1482,7 +1492,7 @@ local function collect_fs_issues()
           for _, dep in ipairs(deps) do
             if type(dep) == "string" and dep:lower():find("steamodded") then
               local constraints = extract_constraints(dep)
-              if smods_version then
+              if smods_version and smods_version ~= "unknown" then
                 local okv, unk = check_constraints(smods_version, constraints)
                 if okv == false then
                   issues[#issues + 1] = ("Steamodded version mismatch for %s: %s (have %s)"):format(
@@ -1491,17 +1501,20 @@ local function collect_fs_issues()
                     smods_version
                   )
                 elseif unk then
-                  issues[#issues + 1] = ("Steamodded version check skipped for %s: %s (have %s)"):format(
+                  -- Log warning but don't add as blocking issue
+                  log_line(("warn version_check_skipped mod=%s dep=%s have=%s"):format(
                     mod_id,
                     dep,
                     smods_version
-                  )
+                  ))
                 end
-              else
+              elseif not smods_version then
                 issues[#issues + 1] = ("Steamodded version unknown for %s: %s"):format(
                   mod_id,
                   dep
                 )
+              end
+              -- When smods_version == "unknown", we skip version checks silently
               end
             end
           end
@@ -1510,16 +1523,17 @@ local function collect_fs_issues()
     end
   end
   if has_multiplayer and not multiplayer_require_checked then
-    if smods_version then
+    if smods_version and smods_version ~= "unknown" then
       local cmp = compare_version_numeric(smods_version, "1.0.0")
       if cmp and cmp < 0 then
         issues[#issues + 1] = ("Steamodded %s is too old for Multiplayer (requires >=1.0.0)"):format(
           smods_version
         )
       end
-    else
+    elseif not smods_version then
       log_line("warn multiplayer_version_deferred")
     end
+    -- When smods_version == "unknown", we skip the version check silently
   end
   return issues
 end
