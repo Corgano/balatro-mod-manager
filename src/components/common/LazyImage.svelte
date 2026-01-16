@@ -116,6 +116,23 @@
     return /^[a-z][a-z0-9+.-]*:\/\//i.test(val);
   }
 
+  // Convert absolute file path to asset:// URL using Tauri's native convertFileSrc
+  function toAssetUrl(path: string | undefined | null): string | null {
+    if (!path) return null;
+    const s = path.trim();
+    if (s.length === 0) return null;
+    if (hasScheme(s)) return s; // Already a URL
+
+    const isWindowsPath = s.length > 2 && /[a-z]:[\\/]/i.test(s);
+    const isUnc = s.startsWith("\\\\");
+    const isPosixAbs = s.startsWith("/");
+
+    if (!isWindowsPath && !isUnc && !isPosixAbs) return null;
+
+    // Use Tauri's native convertFileSrc for proper encoding
+    return convertFileSrc(s);
+  }
+
   function fileUrlForAbsolute(path: string | undefined | null): string | null {
     if (!path) return null;
     const s = path.trim();
@@ -147,16 +164,8 @@
       s.startsWith("/") && !isAppAsset && !s.startsWith(`${assets}/`);
     const isUnc = s.startsWith("\\\\");
     if (isWindowsPath || isPosixAbs || isUnc) {
-      try {
-        const converted = convertFileSrc(s);
-        if (converted) return converted;
-      } catch (_) {
-        /* fall through */
-      }
-      // Fallback to file:// to allow loading when convertFileSrc is unavailable
-      const prefixed =
-        isWindowsPath || isUnc ? `file:///${s.replace(/\\\\/g, "/")}` : `file://${s}`;
-      return prefixed;
+      // Use file:// URLs directly - more reliable than asset:// protocol
+      return toAssetUrl(s);
     }
     // Remote or data/asset schemes are left as-is
     if (
@@ -205,7 +214,7 @@
         "thumbnails",
         `${safeSlug(key)}.jpg`
       );
-      const url = convertFileSrc(path, "asset");
+      const url = toAssetUrl(path);
       cacheUrlMemo.set(key, url);
       return { path, url };
     } catch (e) {
@@ -477,9 +486,10 @@
     if (enableCache && cacheTitle && cacheTitle.trim().length > 0) {
       if (thumbMemo.has(cacheTitle)) {
         const cached = thumbMemo.get(cacheTitle)!;
-        const resolved = cached.startsWith("http://") || cached.startsWith("https://")
+        // Data URLs and remote URLs can be used directly
+        const resolved = cached.startsWith("data:") || cached.startsWith("http://") || cached.startsWith("https://")
           ? cached
-          : convertFileSrc(cached, "asset");
+          : toAssetUrl(cached);
         if (resolved) {
           triedFallback = false;
           usingDefault = false;
@@ -503,9 +513,10 @@
         );
         if (cached) {
           thumbMemo.set(cacheTitle, cached);
-          const resolved = cached.startsWith("http://") || cached.startsWith("https://")
+          // Data URLs and remote URLs can be used directly
+          const resolved = cached.startsWith("data:") || cached.startsWith("http://") || cached.startsWith("https://")
             ? cached
-            : convertFileSrc(cached, "asset");
+            : toAssetUrl(cached);
           triedFallback = false;
           usingDefault = false;
           localFileFallback = resolved;

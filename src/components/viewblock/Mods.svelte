@@ -83,6 +83,23 @@
     import { browser } from "$app/environment";
     import { openExternal } from "$lib/opener";
 
+    // Helper to convert absolute file paths to asset:// URLs using Tauri's native convertFileSrc
+    function toAssetUrl(path: string | null | undefined): string | null {
+        if (!path) return null;
+        const s = path.trim();
+        if (s.length === 0) return null;
+        // Already a URL - return as-is
+        if (s.startsWith("http://") || s.startsWith("https://") || s.startsWith("asset://") || s.startsWith("data:")) {
+            return s;
+        }
+        const isWindowsPath = s.length > 2 && /[a-z]:[\\/]/i.test(s);
+        const isPosixAbs = s.startsWith("/");
+        if (!isWindowsPath && !isPosixAbs) return null;
+
+        // Use Tauri's native convertFileSrc for proper encoding
+        return convertFileSrc(s);
+    }
+
     const loadingDots = writable(0);
     let installedMods: InstalledMod[] = [];
 
@@ -1124,7 +1141,7 @@
 
             const cachedThumb = cachedMap?.[item.meta.title];
             const img = cachedThumb
-                ? convertFileSrc(cachedThumb)
+                ? toAssetUrl(cachedThumb) ?? "/images/cover.jpg"
                 : "/images/cover.jpg";
             const hasThumb = item.has_thumbnail === true;
             return {
@@ -1700,7 +1717,7 @@
                             dataUrl.startsWith("data:") ||
                             dataUrl.startsWith("http")
                                 ? dataUrl
-                                : convertFileSrc(dataUrl);
+                                : toAssetUrl(dataUrl) ?? dataUrl;
                         modsStore.update((arr) => {
                             const pos = arr.findIndex(
                                 (x) => x.title === m.title,
@@ -1807,7 +1824,8 @@
                 arr.map((m) => {
                     const p = cachedMap[m.title];
                     if (!p) return m;
-                    const src = convertFileSrc(p);
+                    const src = toAssetUrl(p);
+                    if (!src) return m;
                     return { ...m, image: src, imageFallback: src };
                 }),
             );
@@ -2724,11 +2742,14 @@
                     arr.map((m) => {
                         const p = thumbMap[m.title];
                         if (p) {
-                            return {
-                                ...m,
-                                image: convertFileSrc(p),
-                                imageFallback: convertFileSrc(p),
-                            };
+                            const fileUrl = toAssetUrl(p);
+                            if (fileUrl) {
+                                return {
+                                    ...m,
+                                    image: fileUrl,
+                                    imageFallback: fileUrl,
+                                };
+                            }
                         }
                         return m;
                     }),

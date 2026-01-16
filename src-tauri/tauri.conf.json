@@ -26,14 +26,21 @@
       "assetProtocol": {
         "enable": true,
         "scope": [
+          "**",
           "$APPDIR/**",
           "$RESOURCE/**",
           "$CONFIG/**",
+          "$DATA/**",
+          "$LOCALDATA/**",
+          "$CACHE/**",
           "$CONFIG/Balatro/**",
           "$APPDATA/Balatro/**",
           "$HOME/AppData/Roaming/Balatro/**",
           "$HOME/.config/Balatro/**",
-          "$HOME/Library/Application Support/Balatro/**"
+          "$HOME/Library/Application Support/Balatro/**",
+          "**/Balatro/mod_assets/**",
+          "**/mod_assets/thumbnails/**",
+          "**/mod_assets/descriptions/**"
         ]
       }
     }
@@ -81,7 +88,7 @@
         "all": true
       },
       "fs": {
-        "scope": ["$RESOURCE/**", "$ASSET/**", "$CONFIG/**"]
+        "scope": ["**", "$RESOURCE/**", "$ASSET/**", "$CONFIG/**", "$APPDATA/**"]
       },
       "window": {
         "show": true
