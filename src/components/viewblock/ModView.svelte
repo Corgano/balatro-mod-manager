@@ -1206,8 +1206,19 @@ let modView: HTMLDivElement;
 </div>
 
 <style>
-	:global(.description > p > img) {
-		width: 100%;
+	:global(.description img) {
+		max-width: 100%;
+		max-height: 300px;
+		width: auto;
+		height: auto;
+		object-fit: contain;
+		display: block;
+		margin: 0.5rem 0;
+		user-drag: none;
+		-webkit-user-drag: none;
+		user-select: none;
+		-webkit-user-select: none;
+		pointer-events: none;
 	}
 
 	.toggle-button {
@@ -1501,8 +1512,19 @@ let modView: HTMLDivElement;
 		color: var(--ui-text);
 	}
 
-	:global(.description > p > img) {
-		width: 100%;
+	:global(.description img) {
+		max-width: 100%;
+		max-height: 300px;
+		width: auto;
+		height: auto;
+		object-fit: contain;
+		display: block;
+		margin: 0.5rem 0;
+		user-drag: none;
+		-webkit-user-drag: none;
+		user-select: none;
+		-webkit-user-select: none;
+		pointer-events: none;
 	}
 
 	.description {
