@@ -38,7 +38,17 @@ Scroll down to find **▸Assets** and download the right version of the installe
 
 - Windows: `Balatro.Mod.Manager_…_x64-setup.exe` or `Balatro.Mod.Manager_…_x64_en-US.msi`
 - macOS: `Balatro.Mod.Manager_…_universal.dmg`
-- Linux: Flatpak (recommended) or `Balatro.Mod.Manager_…_amd64.AppImage`
+- Linux: Flatpak (recommended), AUR, or `Balatro.Mod.Manager_…_amd64.AppImage`
+
+### Arch Linux (AUR)
+
+Install using your preferred AUR helper:
+
+```bash
+yay -S balatro-mod-manager-bin
+# or
+paru -S balatro-mod-manager-bin
+```
 
 ## Flatpak (Steam Deck/Linux)
 

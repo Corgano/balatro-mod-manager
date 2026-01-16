@@ -16,3 +16,4 @@ vite.config.ts.timestamp-*
 /target
 
 git-ignore/
+aur-package/
