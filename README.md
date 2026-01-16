@@ -50,6 +50,14 @@ yay -S balatro-mod-manager-bin
 paru -S balatro-mod-manager-bin
 ```
 
+### Debian / Ubuntu
+
+Download the `.deb` from the [latest release](https://github.com/skyline69/balatro-mod-manager/releases/latest) and install:
+
+```bash
+sudo apt install ./Balatro.Mod.Manager_*_amd64.deb
+```
+
 ## Flatpak (Steam Deck/Linux)
 
 > You need [flatpak-builder](https://docs.flatpak.org/de/latest/flatpak-builder.html) for this.
