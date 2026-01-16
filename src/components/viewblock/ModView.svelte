@@ -667,13 +667,12 @@ let modView: HTMLDivElement;
 		}
 	}
 
-	// In the processInternalModLinks function
+	// Process links and images in the description
 	async function processInternalModLinks() {
 		if (!description) return;
 
+		// Process links
 		const links = description.querySelectorAll("a");
-
-		// Process each link
 		for (const link of links) {
 			if (link.href.startsWith("http")) {
 				let result: internalModLinkData;
@@ -690,6 +689,50 @@ let modView: HTMLDivElement;
 					link.classList.add("internal-mod-link");
 					link.setAttribute("data-internal-mod", result.modName);
 				}
+			}
+		}
+
+		// Process images - add loading states and error handling
+		const images = description.querySelectorAll("img");
+		for (const img of images) {
+			// Skip already processed images
+			if (img.dataset.processed) continue;
+			img.dataset.processed = "true";
+
+			// Create wrapper for loading state
+			const wrapper = document.createElement("div");
+			wrapper.className = "desc-img-wrapper";
+
+			// Create loading spinner
+			const spinner = document.createElement("div");
+			spinner.className = "desc-img-spinner";
+
+			// Insert wrapper before image
+			img.parentNode?.insertBefore(wrapper, img);
+			wrapper.appendChild(spinner);
+			wrapper.appendChild(img);
+
+			// Hide image until loaded
+			img.style.opacity = "0";
+
+			// Handle successful load
+			img.addEventListener("load", () => {
+				spinner.remove();
+				img.style.opacity = "1";
+			});
+
+			// Handle error - hide the entire wrapper
+			img.addEventListener("error", () => {
+				wrapper.remove();
+			});
+
+			// If image is already loaded (cached), trigger load handler
+			if (img.complete && img.naturalWidth > 0) {
+				spinner.remove();
+				img.style.opacity = "1";
+			} else if (img.complete && img.naturalWidth === 0) {
+				// Image failed to load
+				wrapper.remove();
 			}
 		}
 	}
@@ -753,6 +796,12 @@ let modView: HTMLDivElement;
 	$effect(() => {
 		const m = mod as Mod & { _dirName?: string };
 		const desc = descriptionText;
+
+		// Clear rendered description immediately when mod changes to show loading state
+		if (!desc) {
+			renderedDescription = "";
+		}
+
 		if (m) {
 			ensureDescriptionLoaded(m);
 			hydrateRepo(m);
@@ -761,8 +810,6 @@ let modView: HTMLDivElement;
             Promise.resolve(marked(desc)).then((result) => {
                 renderedDescription = result;
             });
-        } else {
-            renderedDescription = "";
         }
     });
 
@@ -1189,15 +1236,14 @@ let modView: HTMLDivElement;
 						}
 					}}
 				>
-					<!-- eslint-disable-next-line svelte/no-at-html-tags -->
-					{@html renderedDescription}
-
-					{#if !renderedDescription && descLoading}
-						<div class="desc-skeleton" aria-hidden="true">
-							{#each Array(8) as _, i}
-								<div class="line" style={`width: ${90 - (i % 3) * 12}%`}></div>
-							{/each}
+					{#if descLoading}
+						<div class="desc-loading-full">
+							<div class="loading-spinner"></div>
+							<span>Loading description...</span>
 						</div>
+					{:else}
+						<!-- eslint-disable-next-line svelte/no-at-html-tags -->
+						{@html renderedDescription}
 					{/if}
 				</div>
 			</div>
@@ -1213,7 +1259,6 @@ let modView: HTMLDivElement;
 		height: auto;
 		object-fit: contain;
 		display: block;
-		margin: 0.5rem 0;
 		user-drag: none;
 		-webkit-user-drag: none;
 		user-select: none;
@@ -1519,7 +1564,6 @@ let modView: HTMLDivElement;
 		height: auto;
 		object-fit: contain;
 		display: block;
-		margin: 0.5rem 0;
 		user-drag: none;
 		-webkit-user-drag: none;
 		user-select: none;
@@ -1891,5 +1935,54 @@ let modView: HTMLDivElement;
 	:global([data-platform="linux"]) .back-button {
 		backdrop-filter: none;
 		background: var(--ui-glass);
+	}
+
+	.desc-loading-full {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		gap: 1.5rem;
+		padding: 4rem 1rem;
+		color: var(--ui-text-soft);
+		font-size: 1.5rem;
+	}
+
+	.desc-loading-full .loading-spinner {
+		width: 48px;
+		height: 48px;
+		border: 6px solid var(--ui-text-soft);
+		border-top-color: transparent;
+		border-radius: 50%;
+		animation: spin 0.8s linear infinite;
+	}
+
+	:global(.description .desc-img-wrapper) {
+		position: relative;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		min-height: 60px;
+		margin: 0.5rem 0;
+	}
+
+	:global(.description .desc-img-spinner) {
+		position: absolute;
+		width: 24px;
+		height: 24px;
+		border: 3px solid var(--ui-text-soft);
+		border-top-color: transparent;
+		border-radius: 50%;
+		animation: spin 0.8s linear infinite;
+	}
+
+	:global(.description .desc-img-wrapper img) {
+		transition: opacity 0.2s ease;
+	}
+
+	@keyframes spin {
+		to {
+			transform: rotate(360deg);
+		}
 	}
 </style>
