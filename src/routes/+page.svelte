@@ -3,11 +3,13 @@
 	import ReportIssue from "../components/ReportIssue.svelte";
 	import { Menu, MenuItem } from "@tauri-apps/api/menu";
 	import { invoke } from "@tauri-apps/api/core";
-import { onMount, onDestroy } from "svelte";
+	import { onMount, onDestroy } from "svelte";
 	import { invokeWithTimeout } from "../utils/tauriInvoke";
 	import { goto } from "$app/navigation";
+	import { fade } from "svelte/transition";
 
 	let appVersion = $state("");
+	let isLoading = $state(true);
 
 	onMount(() => {
 		const init = async () => {
@@ -33,10 +35,14 @@ import { onMount, onDestroy } from "svelte";
 						// Fallback: hard navigate if SPA router stalls
 						window.location.replace("/main/");
 					}
+					return; // Don't show picker if navigating away
 				}
 			} catch (error) {
 				console.error("Error checking existing installation:", error);
 			}
+
+			// Only show picker if no existing installation found
+			isLoading = false;
 		};
 
 		init();
@@ -79,12 +85,22 @@ onDestroy(() => {
 	</ul>
 </div>
 
-<div class="app">
-	<h1>Welcome to Balatro Mod Manager</h1>
-	<BalatroPicker />
-	<ReportIssue />
-	{#if appVersion}<div class="version-text">v0.3.7</div>{/if}
-</div>
+{#if isLoading}
+	<div class="loading-screen" transition:fade={{ duration: 400 }}>
+		<div class="spinner-container">
+			<div class="spinner-ring outer"></div>
+			<div class="spinner-ring inner"></div>
+			<div class="spinner-dot"></div>
+		</div>
+	</div>
+{:else}
+	<div class="app" transition:fade={{ duration: 300 }}>
+		<h1>Welcome to Balatro Mod Manager</h1>
+		<BalatroPicker />
+		<ReportIssue />
+		{#if appVersion}<div class="version-text">v0.3.7</div>{/if}
+	</div>
+{/if}
 
 <style>
 	.area {
@@ -277,6 +293,91 @@ onDestroy(() => {
 			1px -1px 0 #000,
 			-1px 1px 0 #000,
 			1px 1px 0 #000;
+	}
+
+	.loading-screen {
+		width: 100vw;
+		height: 100vh;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		position: fixed;
+		top: 0;
+		left: 0;
+		z-index: 10;
+	}
+
+	.spinner-container {
+		position: relative;
+		width: 64px;
+		height: 64px;
+	}
+
+	.spinner-ring {
+		position: absolute;
+		border-radius: 50%;
+		border: 3px solid transparent;
+	}
+
+	.spinner-ring.outer {
+		width: 100%;
+		height: 100%;
+		top: 0;
+		left: 0;
+		border-top-color: #fdcf51;
+		border-right-color: #fdcf51;
+		animation: spin-outer 1s cubic-bezier(0.5, 0, 0.5, 1) infinite;
+	}
+
+	.spinner-ring.inner {
+		width: 70%;
+		height: 70%;
+		top: 15%;
+		left: 15%;
+		border-bottom-color: #ea9600;
+		border-left-color: #ea9600;
+		animation: spin-inner 0.8s cubic-bezier(0.5, 0, 0.5, 1) infinite;
+	}
+
+	.spinner-dot {
+		position: absolute;
+		width: 10px;
+		height: 10px;
+		top: 50%;
+		left: 50%;
+		transform: translate(-50%, -50%);
+		background: #f4eee0;
+		border-radius: 50%;
+		animation: pulse 1s ease-in-out infinite;
+	}
+
+	@keyframes spin-outer {
+		0% {
+			transform: rotate(0deg);
+		}
+		100% {
+			transform: rotate(360deg);
+		}
+	}
+
+	@keyframes spin-inner {
+		0% {
+			transform: rotate(0deg);
+		}
+		100% {
+			transform: rotate(-360deg);
+		}
+	}
+
+	@keyframes pulse {
+		0%, 100% {
+			opacity: 0.4;
+			transform: translate(-50%, -50%) scale(0.8);
+		}
+		50% {
+			opacity: 1;
+			transform: translate(-50%, -50%) scale(1);
+		}
 	}
 
 	:global(body) {
