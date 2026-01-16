@@ -44,6 +44,12 @@ import { isLinuxPlatform } from "$lib/platform";
 import { openExternal } from "$lib/opener";
 import { openCollectionPicker } from "../../stores/collections";
 
+	// Configure marked options
+	marked.use({
+		gfm: true,
+		breaks: true,
+	});
+
 	// Store to track which mods have updates available
 	// const updateAvailable = writable<Record<string, boolean>>({});
 
@@ -670,6 +676,64 @@ let modView: HTMLDivElement;
 	// Process links and images in the description
 	async function processInternalModLinks() {
 		if (!description) return;
+
+		// Auto-link plain URLs in text nodes
+		const urlPattern = /https?:\/\/[^\s<>"']+/g;
+		const walker = document.createTreeWalker(
+			description,
+			NodeFilter.SHOW_TEXT,
+			null
+		);
+		const textNodes: Text[] = [];
+		let node: Text | null;
+		while ((node = walker.nextNode() as Text | null)) {
+			// Skip text nodes inside anchor tags
+			if (node.parentElement?.closest("a")) continue;
+			if (urlPattern.test(node.textContent || "")) {
+				textNodes.push(node);
+			}
+			// Reset regex lastIndex for next test
+			urlPattern.lastIndex = 0;
+		}
+
+		for (const textNode of textNodes) {
+			const text = textNode.textContent || "";
+			const parts: (string | HTMLAnchorElement)[] = [];
+			let lastIndex = 0;
+			let match: RegExpExecArray | null;
+
+			urlPattern.lastIndex = 0;
+			while ((match = urlPattern.exec(text)) !== null) {
+				// Add text before the URL
+				if (match.index > lastIndex) {
+					parts.push(text.slice(lastIndex, match.index));
+				}
+				// Create anchor element for the URL
+				const anchor = document.createElement("a");
+				anchor.href = match[0];
+				anchor.textContent = match[0];
+				parts.push(anchor);
+				lastIndex = match.index + match[0].length;
+			}
+
+			// Add remaining text after last URL
+			if (lastIndex < text.length) {
+				parts.push(text.slice(lastIndex));
+			}
+
+			// Replace text node with new nodes
+			if (parts.length > 1 || (parts.length === 1 && typeof parts[0] !== "string")) {
+				const fragment = document.createDocumentFragment();
+				for (const part of parts) {
+					if (typeof part === "string") {
+						fragment.appendChild(document.createTextNode(part));
+					} else {
+						fragment.appendChild(part);
+					}
+				}
+				textNode.parentNode?.replaceChild(fragment, textNode);
+			}
+		}
 
 		// Process links
 		const links = description.querySelectorAll("a");
@@ -1722,7 +1786,10 @@ let modView: HTMLDivElement;
 	.description :global(a) {
 		color: var(--ui-success);
 		text-decoration: none;
+		cursor: pointer;
+		pointer-events: auto;
 	}
+
 	.description :global(a.internal-mod-link) {
 		/* Use Balatro's gold color for internal mod links */
 		color: var(--ui-accent) !important;
