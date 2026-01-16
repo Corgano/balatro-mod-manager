@@ -601,7 +601,7 @@ impl Database {
         if let Some(row) = rows.next()? {
             Ok(row.get::<_, String>(0)? == "enabled")
         } else {
-            Ok(true)
+            Ok(false)
         }
     }
 

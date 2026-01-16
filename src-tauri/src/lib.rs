@@ -45,7 +45,7 @@ pub fn run() {
         .plugin(tauri_plugin_prevent_default::init())
         .setup(|app| {
             let db = map_error(Database::new())?;
-            let compat_enabled = db.is_compat_helper_enabled().unwrap_or(true);
+            let compat_enabled = db.is_compat_helper_enabled().unwrap_or(false);
             let discord_rpc = DiscordRpcManager::new();
             let discord_rpc_enabled = db.is_discord_rpc_enabled().unwrap_or(true);
             discord_rpc.set_enabled(discord_rpc_enabled);

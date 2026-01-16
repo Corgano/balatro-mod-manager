@@ -39,8 +39,8 @@ use tauri::Emitter;
 
 fn sync_compat_helper_after_mod_change(state: &tauri::State<'_, AppState>) {
     let enabled = match state.db.lock() {
-        Ok(db) => db.is_compat_helper_enabled().unwrap_or(true),
-        Err(_) => true,
+        Ok(db) => db.is_compat_helper_enabled().unwrap_or(false),
+        Err(_) => false,
     };
     if let Err(err) = compat_helper::sync_compat_helper(enabled) {
         log::warn!("Failed to sync compatibility helper after mod change: {err}");
