@@ -12,8 +12,6 @@ use std::os::unix::fs::PermissionsExt;
 use std::os::unix::fs::symlink;
 #[cfg(target_os = "linux")]
 use std::os::unix::process::CommandExt;
-#[cfg(target_os = "linux")]
-use std::path::Path;
 use std::path::PathBuf;
 #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
 use std::process::Command;
@@ -349,140 +347,6 @@ fn ensure_native_mod_dir_link() -> Result<(), String> {
     Ok(())
 }
 
-#[cfg(target_os = "linux")]
-fn find_steamapps_root(game_path: &Path) -> Option<PathBuf> {
-    let common_dir = game_path.parent()?;
-    if common_dir.file_name().and_then(|n| n.to_str()) != Some("common") {
-        return None;
-    }
-    let steamapps_dir = common_dir.parent()?;
-    if steamapps_dir.file_name().and_then(|n| n.to_str()) != Some("steamapps") {
-        return None;
-    }
-    Some(steamapps_dir.to_path_buf())
-}
-
-#[cfg(target_os = "linux")]
-fn ensure_proton_mod_dir_link(game_path: &Path) -> Result<(), String> {
-    let host_mods = bmm_lib::local_mod_detection::resolve_mods_dir_path()
-        .map_err(|e| format!("Could not resolve mods directory: {e}"))?;
-
-    let steamapps_dir = find_steamapps_root(game_path).or_else(|| {
-        dirs::home_dir()
-            .map(|h| h.join(".local/share/Steam/steamapps"))
-            .filter(|p| p.exists())
-    });
-    let Some(steamapps_dir) = steamapps_dir else {
-        return Ok(());
-    };
-
-    let compat_mods = steamapps_dir
-        .join("compatdata/2379780/pfx/drive_c/users/steamuser/AppData/Roaming/Balatro/Mods");
-
-    if compat_mods == host_mods {
-        return Ok(());
-    }
-
-    if let Some(parent) = compat_mods.parent()
-        && let Err(e) = fs::create_dir_all(parent)
-    {
-        return Err(format!(
-            "Failed to create Proton mods parent {}: {}",
-            parent.display(),
-            e
-        ));
-    }
-
-    if compat_mods.exists() {
-        if compat_mods.is_symlink() {
-            return Ok(());
-        }
-        warn!(
-            "Proton Mods path already exists and is not a symlink: {}",
-            compat_mods.display()
-        );
-        sync_proton_mods(&host_mods, &compat_mods)?;
-        return Ok(());
-    }
-
-    if let Err(e) = fs::create_dir_all(&host_mods) {
-        warn!(
-            "Failed to create host mods dir {}: {}",
-            host_mods.display(),
-            e
-        );
-    }
-    symlink(&host_mods, &compat_mods).map_err(|e| {
-        format!(
-            "Failed to link Proton mods dir {} -> {}: {}",
-            compat_mods.display(),
-            host_mods.display(),
-            e
-        )
-    })?;
-    info!(
-        "Linked Proton mods dir to host: {} -> {}",
-        compat_mods.display(),
-        host_mods.display()
-    );
-    Ok(())
-}
-
-#[cfg(target_os = "linux")]
-fn sync_proton_mods(host_mods: &Path, compat_mods: &Path) -> Result<(), String> {
-    if !host_mods.exists() {
-        if let Err(e) = fs::create_dir_all(host_mods) {
-            warn!(
-                "Failed to create host mods dir {}: {}",
-                host_mods.display(),
-                e
-            );
-        }
-        return Ok(());
-    }
-
-    if !compat_mods.exists() {
-        return Ok(());
-    }
-
-    let entries = fs::read_dir(host_mods).map_err(|e| {
-        format!(
-            "Failed to read host mods dir {}: {}",
-            host_mods.display(),
-            e
-        )
-    })?;
-
-    for entry in entries.flatten() {
-        let path = entry.path();
-        let file_type = match entry.file_type() {
-            Ok(t) => t,
-            Err(_) => continue,
-        };
-        if !file_type.is_dir() {
-            continue;
-        }
-        let name = match path.file_name() {
-            Some(n) => n,
-            None => continue,
-        };
-        let dest = compat_mods.join(name);
-        if dest.exists() {
-            continue;
-        }
-        if let Err(e) = symlink(&path, &dest) {
-            warn!(
-                "Failed to link Proton mod {} -> {}: {}",
-                dest.display(),
-                path.display(),
-                e
-            );
-        }
-    }
-
-    Ok(())
-}
-
 #[cfg(target_os = "windows")]
 #[tauri::command]
 pub async fn launch_balatro(state: tauri::State<'_, AppState>) -> Result<(), String> {
@@ -568,7 +432,7 @@ pub async fn launch_balatro(state: tauri::State<'_, AppState>) -> Result<(), Str
             .await
             .map_err(|e| format!("Failed to ensure version.dll: {e}"))?;
 
-        ensure_proton_mod_dir_link(&path)?;
+        bmm_lib::local_mod_detection::ensure_proton_mod_dir_link(Some(&path))?;
 
         let exe_path = find_executable_in_directory(&path)
             .ok_or_else(|| format!("No executable found in {}", path.display()))?;

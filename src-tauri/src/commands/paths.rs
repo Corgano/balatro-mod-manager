@@ -317,6 +317,10 @@ pub async fn set_balatro_path(
                     .into(),
             );
         }
+        // Ensure Proton symlinks are set up when the path is configured
+        if let Err(e) = local_mod_detection::ensure_proton_mod_dir_link(Some(&path_buf)) {
+            log::warn!("Failed to ensure Proton mod dir link: {}", e);
+        }
     }
     let db = match state.db.lock() {
         Ok(db) => db,
@@ -342,6 +346,16 @@ pub async fn find_steam_balatro(state: tauri::State<'_, AppState>) -> Result<Vec
         {
             let db = state.db.lock().map_err(|e| e.to_string())?;
             map_error(db.set_installation_path(&steam_path))?;
+        }
+
+        // Ensure Proton symlinks are set up when Steam path is auto-detected
+        #[cfg(target_os = "linux")]
+        {
+            if let Err(e) =
+                local_mod_detection::ensure_proton_mod_dir_link(Some(&steam_balatro.path))
+            {
+                log::warn!("Failed to ensure Proton mod dir link: {}", e);
+            }
         }
 
         let mut ordered = Vec::with_capacity(balatros.len() + 1);

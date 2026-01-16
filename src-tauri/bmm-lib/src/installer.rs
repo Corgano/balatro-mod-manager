@@ -1,5 +1,7 @@
 use crate::errors::AppError;
-use crate::local_mod_detection::{mod_dir_candidates, resolve_mods_dir_path};
+use crate::local_mod_detection::{
+    ensure_proton_mod_dir_link, mod_dir_candidates, resolve_mods_dir_path,
+};
 use flate2::read::GzDecoder;
 use reqwest::Client;
 use reqwest::header::{CONTENT_DISPOSITION, CONTENT_TYPE};
@@ -634,6 +636,13 @@ fn validate_uninstall_path(path: &PathBuf, mods_dirs: &[PathBuf]) -> Result<(), 
 }
 
 fn resolve_mods_dir() -> Result<PathBuf, AppError> {
+    // Ensure Proton symlinks are set up before resolving the mods directory.
+    // This ensures that on Linux, the symlink from the Proton prefix to the
+    // host mods directory exists before we try to install mods.
+    if let Err(e) = ensure_proton_mod_dir_link(None) {
+        log::warn!("Failed to ensure Proton mod dir link during install: {}", e);
+    }
+
     let mods_dir = resolve_mods_dir_path().map_err(|e| AppError::DirNotFound(PathBuf::from(e)))?;
     fs::create_dir_all(&mods_dir).map_err(|e| AppError::DirCreate {
         path: mods_dir.clone(),

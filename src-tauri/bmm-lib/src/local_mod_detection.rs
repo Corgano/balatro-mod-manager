@@ -2,11 +2,15 @@ use crate::cache;
 use crate::database::Database;
 use crate::finder;
 use lazy_static::lazy_static;
+#[cfg(target_os = "linux")]
+use log::{info, warn};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::env;
 use std::fs::{self, File};
 use std::io::{BufRead, BufReader};
+#[cfg(target_os = "linux")]
+use std::os::unix::fs::symlink;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Mutex;
@@ -76,6 +80,181 @@ fn is_proton_mods_path(path: &Path) -> bool {
     let path_str = path.to_string_lossy();
     path_str.contains("compatdata/2379780")
         && (path_str.contains("/Balatro/Mods") || path_str.ends_with("/Balatro/Mods"))
+}
+
+/// Finds the steamapps root directory from a game path.
+/// Returns None if the path doesn't follow the expected Steam directory structure.
+#[cfg(target_os = "linux")]
+fn find_steamapps_root(game_path: &Path) -> Option<PathBuf> {
+    let common_dir = game_path.parent()?;
+    if common_dir.file_name().and_then(|n| n.to_str()) != Some("common") {
+        return None;
+    }
+    let steamapps_dir = common_dir.parent()?;
+    if steamapps_dir.file_name().and_then(|n| n.to_str()) != Some("steamapps") {
+        return None;
+    }
+    Some(steamapps_dir.to_path_buf())
+}
+
+/// Syncs individual mod folders from host mods directory to Proton's compat mods directory
+/// when the compat directory already exists as a real directory (not a symlink).
+#[cfg(target_os = "linux")]
+fn sync_proton_mods(host_mods: &Path, compat_mods: &Path) -> Result<(), String> {
+    if !host_mods.exists() {
+        if let Err(e) = fs::create_dir_all(host_mods) {
+            warn!(
+                "Failed to create host mods dir {}: {}",
+                host_mods.display(),
+                e
+            );
+        }
+        return Ok(());
+    }
+
+    if !compat_mods.exists() {
+        return Ok(());
+    }
+
+    let entries = fs::read_dir(host_mods).map_err(|e| {
+        format!(
+            "Failed to read host mods dir {}: {}",
+            host_mods.display(),
+            e
+        )
+    })?;
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let file_type = match entry.file_type() {
+            Ok(t) => t,
+            Err(_) => continue,
+        };
+        if !file_type.is_dir() {
+            continue;
+        }
+        let name = match path.file_name() {
+            Some(n) => n,
+            None => continue,
+        };
+        let dest = compat_mods.join(name);
+        if dest.exists() {
+            continue;
+        }
+        if let Err(e) = symlink(&path, &dest) {
+            warn!(
+                "Failed to link Proton mod {} -> {}: {}",
+                dest.display(),
+                path.display(),
+                e
+            );
+        }
+    }
+
+    Ok(())
+}
+
+/// Ensures symlinks exist so that mods installed to the host config directory
+/// are visible to Proton/Wine when running Balatro via Steam.
+///
+/// This creates a symlink from the Proton prefix mods directory to the host mods directory:
+/// `~/.local/share/Steam/steamapps/compatdata/2379780/pfx/drive_c/users/steamuser/AppData/Roaming/Balatro/Mods`
+/// -> `~/.config/Balatro/Mods`
+///
+/// If the Proton directory already exists as a real directory (not a symlink),
+/// it syncs individual mod folders instead.
+///
+/// # Arguments
+/// * `game_path` - Optional path to the Balatro game installation. If provided, the function
+///                 will try to derive the steamapps directory from it.
+#[cfg(target_os = "linux")]
+pub fn ensure_proton_mod_dir_link(game_path: Option<&Path>) -> Result<(), String> {
+    // Don't run inside Flatpak - Flatpak has its own path handling
+    if std::env::var_os("FLATPAK_ID").is_some() {
+        return Ok(());
+    }
+
+    let host_mods =
+        resolve_mods_dir_path().map_err(|e| format!("Could not resolve mods directory: {e}"))?;
+
+    // Try to find steamapps from game_path, otherwise use default Steam location
+    let steamapps_dir = game_path.and_then(find_steamapps_root).or_else(|| {
+        dirs::home_dir()
+            .map(|h| h.join(".local/share/Steam/steamapps"))
+            .filter(|p| p.exists())
+    });
+
+    let Some(steamapps_dir) = steamapps_dir else {
+        // No Steam installation found, nothing to do
+        return Ok(());
+    };
+
+    let compat_mods = steamapps_dir
+        .join("compatdata/2379780/pfx/drive_c/users/steamuser/AppData/Roaming/Balatro/Mods");
+
+    // If the paths are the same, nothing to do
+    if compat_mods == host_mods {
+        return Ok(());
+    }
+
+    // Create the parent directory for the compat mods path
+    if let Some(parent) = compat_mods.parent()
+        && let Err(e) = fs::create_dir_all(parent)
+    {
+        return Err(format!(
+            "Failed to create Proton mods parent {}: {}",
+            parent.display(),
+            e
+        ));
+    }
+
+    // Check if compat_mods already exists
+    if compat_mods.exists() {
+        if compat_mods.is_symlink() {
+            // Already a symlink, we're good
+            return Ok(());
+        }
+        // It's a real directory, sync individual mods
+        warn!(
+            "Proton Mods path already exists and is not a symlink: {}",
+            compat_mods.display()
+        );
+        sync_proton_mods(&host_mods, &compat_mods)?;
+        return Ok(());
+    }
+
+    // Create the host mods directory if it doesn't exist
+    if let Err(e) = fs::create_dir_all(&host_mods) {
+        warn!(
+            "Failed to create host mods dir {}: {}",
+            host_mods.display(),
+            e
+        );
+    }
+
+    // Create the symlink
+    symlink(&host_mods, &compat_mods).map_err(|e| {
+        format!(
+            "Failed to link Proton mods dir {} -> {}: {}",
+            compat_mods.display(),
+            host_mods.display(),
+            e
+        )
+    })?;
+
+    info!(
+        "Linked Proton mods dir to host: {} -> {}",
+        compat_mods.display(),
+        host_mods.display()
+    );
+
+    Ok(())
+}
+
+/// No-op on non-Linux platforms.
+#[cfg(not(target_os = "linux"))]
+pub fn ensure_proton_mod_dir_link(_game_path: Option<&Path>) -> Result<(), String> {
+    Ok(())
 }
 
 pub fn mod_dir_candidates() -> Result<Vec<PathBuf>, String> {
