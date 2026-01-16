@@ -742,9 +742,13 @@
         Object.values($updateAvailableStore).some((value) => value === true),
     );
 
+    let isUpdatingAll = $state(false);
+
     async function updateAllMods(e?: Event) {
         if (e) e.preventDefault();
+        if (isUpdatingAll) return;
 
+        isUpdatingAll = true;
         try {
             // Get all installed mods with available updates
             const modsToUpdate = $modsStore.filter(
@@ -883,6 +887,8 @@
                 `Update all failed: ${error instanceof Error ? error.message : String(error)}`,
                 "error",
             );
+        } finally {
+            isUpdatingAll = false;
         }
     }
 
@@ -3025,16 +3031,18 @@
                             {#if hasUpdatesAvailable}
                                 <button
                                     class="update-all-button-top"
+                                    class:updating={isUpdatingAll}
                                     onclick={updateAllMods}
-                                    title="Update all mods with available updates"
+                                    disabled={isUpdatingAll}
+                                    title={isUpdatingAll ? "Updating mods..." : "Update all mods with available updates"}
                                     in:fly={{
                                         duration: 400,
                                         y: 10,
                                         opacity: 0.2,
                                     }}
                                 >
-                                    <RefreshCw size={18} />
-                                    <span>Update All</span>
+                                    <RefreshCw size={18} class={isUpdatingAll ? "spinning" : ""} />
+                                    <span>{isUpdatingAll ? "Updating..." : "Update All"}</span>
                                 </button>
                             {/if}
                         {/if}
@@ -3382,6 +3390,31 @@
     .update-all-button-top:active {
         transform: translateY(-50%) translateY(0px);
         box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+    }
+
+    .update-all-button-top:disabled,
+    .update-all-button-top.updating {
+        opacity: 0.7;
+        cursor: not-allowed;
+        background: var(--ui-info);
+    }
+
+    .update-all-button-top:disabled:hover {
+        background: var(--ui-info);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+    }
+
+    .update-all-button-top :global(.spinning) {
+        animation: spin 1s linear infinite;
+    }
+
+    @keyframes spin {
+        from {
+            transform: rotate(0deg);
+        }
+        to {
+            transform: rotate(360deg);
+        }
     }
 
     /* Adjust position for smaller screens */
