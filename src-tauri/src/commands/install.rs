@@ -53,7 +53,7 @@ fn refresh_mod_detection_cache() {
     local_mod_detection::clear_detection_cache();
 }
 
-#[cfg(any(target_os = "macos", target_os = "windows"))]
+#[cfg(target_os = "windows")]
 fn get_installation_and_console(
     state: &tauri::State<'_, AppState>,
 ) -> Result<(String, bool), String> {
@@ -74,17 +74,40 @@ fn get_installation_and_console(
 #[cfg(target_os = "macos")]
 #[tauri::command]
 pub async fn launch_balatro(state: tauri::State<'_, AppState>) -> Result<(), String> {
-    let (path_str, lovely_console_enabled) = get_installation_and_console(&state)?;
+    let (path_str, lovely_console_enabled, launch_mode) = {
+        let db = state.db.lock().map_err(|_| {
+            AppError::LockPoisoned("Database lock poisoned".to_string()).to_string()
+        })?;
+        let install_path = db
+            .get_installation_path()
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| {
+                AppError::InvalidState("No installation path set".to_string()).to_string()
+            })?;
+        let lovely_console = db.is_lovely_console_enabled().map_err(|e| e.to_string())?;
+        let mode = db
+            .get_launch_mode()
+            .unwrap_or_else(|_| "modded".to_string());
+        (install_path, lovely_console, mode)
+    };
+
+    let is_vanilla = launch_mode == "vanilla";
     let path = PathBuf::from(path_str);
     let balatro = bmm_lib::balamod::Balatro::from_custom_path(path.clone())
         .ok_or_else(|| "Stored Balatro path is no longer valid".to_string())?;
 
-    let lovely_path = map_error(lovely::ensure_lovely_exists().await)?;
     let app_bundle = balatro
         .get_app_bundle_path()
         .ok_or_else(|| "Unable to locate Balatro app bundle".to_string())?;
     let balatro_executable = app_bundle.join("Contents/MacOS/love");
     let launch_root = balatro.path.clone();
+
+    // Only get lovely path if launching in modded mode
+    let lovely_path: Option<PathBuf> = if !is_vanilla {
+        Some(map_error(lovely::ensure_lovely_exists().await)?)
+    } else {
+        None
+    };
 
     if lovely_console_enabled {
         let disable_arg = if !lovely_console_enabled {
@@ -92,13 +115,23 @@ pub async fn launch_balatro(state: tauri::State<'_, AppState>) -> Result<(), Str
         } else {
             ""
         };
-        let command_line = format!(
-            "cd '{}' && DYLD_INSERT_LIBRARIES='{}' '{}'{}",
-            launch_root.display(),
-            lovely_path.display(),
-            balatro_executable.display(),
-            disable_arg
-        );
+
+        let command_line = if let Some(ref lovely) = lovely_path {
+            format!(
+                "cd '{}' && DYLD_INSERT_LIBRARIES='{}' '{}'{}",
+                launch_root.display(),
+                lovely.display(),
+                balatro_executable.display(),
+                disable_arg
+            )
+        } else {
+            format!(
+                "cd '{}' && '{}'{}",
+                launch_root.display(),
+                balatro_executable.display(),
+                disable_arg
+            )
+        };
 
         let applescript = format!("tell application \"Terminal\" to do script \"{command_line}\"");
 
@@ -108,11 +141,15 @@ pub async fn launch_balatro(state: tauri::State<'_, AppState>) -> Result<(), Str
             .status()
             .map_err(|e| e.to_string())?;
     } else {
-        let cmd = format!(
-            "DYLD_INSERT_LIBRARIES='{}' '{}'",
-            lovely_path.display(),
-            balatro_executable.display()
-        );
+        let cmd = if let Some(ref lovely) = lovely_path {
+            format!(
+                "DYLD_INSERT_LIBRARIES='{}' '{}'",
+                lovely.display(),
+                balatro_executable.display()
+            )
+        } else {
+            format!("'{}'", balatro_executable.display())
+        };
         // Spawn the process without waiting so the UI doesn't block
         Command::new("sh")
             .arg("-c")
@@ -398,7 +435,7 @@ pub async fn launch_balatro(state: tauri::State<'_, AppState>) -> Result<(), Str
         .or_else(|| bmm_lib::finder::get_balatro_paths().into_iter().next())
         .ok_or_else(|| "No Balatro installation path is configured or detected".to_string())?;
 
-    let (lovely_console_enabled, linux_prefix) = {
+    let (lovely_console_enabled, linux_prefix, launch_mode) = {
         let db = state.db.lock().map_err(|_| {
             AppError::LockPoisoned("Database lock poisoned".to_string()).to_string()
         })?;
@@ -407,8 +444,13 @@ pub async fn launch_balatro(state: tauri::State<'_, AppState>) -> Result<(), Str
             .get_linux_prefix()
             .map_err(|e| e.to_string())?
             .unwrap_or_default();
-        (lovely, prefix)
+        let mode = db
+            .get_launch_mode()
+            .unwrap_or_else(|_| "modded".to_string());
+        (lovely, prefix, mode)
     };
+
+    let is_vanilla = launch_mode == "vanilla";
 
     // Validate Balatro path
     let _balatro = bmm_lib::balamod::Balatro::from_custom_path(path.clone())
@@ -428,9 +470,12 @@ pub async fn launch_balatro(state: tauri::State<'_, AppState>) -> Result<(), Str
         validate_prefix_executable(&cmd_parts[0])?;
         ensure_prefix_log_dir(&envs)?;
 
-        ensure_version_dll_exists(&path)
-            .await
-            .map_err(|e| format!("Failed to ensure version.dll: {e}"))?;
+        // Only ensure version.dll exists if launching in modded mode
+        if !is_vanilla {
+            ensure_version_dll_exists(&path)
+                .await
+                .map_err(|e| format!("Failed to ensure version.dll: {e}"))?;
+        }
 
         bmm_lib::local_mod_detection::ensure_proton_mod_dir_link(Some(&path))?;
 
@@ -438,7 +483,8 @@ pub async fn launch_balatro(state: tauri::State<'_, AppState>) -> Result<(), Str
             .ok_or_else(|| format!("No executable found in {}", path.display()))?;
         log_launch_env("pre-spawn (prefix)");
         info!(
-            "Launching Balatro via Linux prefix\n  prefix_cmd={}\n  exe={}\n  cwd={}",
+            "Launching Balatro via Linux prefix (mode: {})\n  prefix_cmd={}\n  exe={}\n  cwd={}",
+            launch_mode,
             linux_prefix,
             exe_path.display(),
             path.display()
@@ -482,31 +528,41 @@ pub async fn launch_balatro(state: tauri::State<'_, AppState>) -> Result<(), Str
         if launch_parts.len() > 1 {
             cmd.args(&launch_parts[1..]);
         }
-        let winedll_idx = envs
-            .iter()
-            .position(|(key, _)| key.eq_ignore_ascii_case("WINEDLLOVERRIDES"));
+
+        // Apply user-provided environment variables
         for (key, value) in &envs {
             cmd.env(key, value);
         }
-        match winedll_idx {
-            None => {
-                cmd.env("WINEDLLOVERRIDES", "version=n,b");
-                info!("WINEDLLOVERRIDES not set; defaulting to version=n,b for Lovely injection");
-            }
-            Some(idx) => {
-                let value = envs.get(idx).map(|(_, v)| v.as_str()).unwrap_or("");
-                if !value.contains("version") {
-                    let updated = if value.is_empty() {
-                        "version=n,b".to_string()
-                    } else {
-                        format!("{value};version=n,b")
-                    };
-                    cmd.env("WINEDLLOVERRIDES", updated);
+
+        // Only set WINEDLLOVERRIDES for Lovely injection if in modded mode
+        if !is_vanilla {
+            let winedll_idx = envs
+                .iter()
+                .position(|(key, _)| key.eq_ignore_ascii_case("WINEDLLOVERRIDES"));
+            match winedll_idx {
+                None => {
+                    cmd.env("WINEDLLOVERRIDES", "version=n,b");
                     info!(
-                        "WINEDLLOVERRIDES missing version; appended version=n,b for Lovely injection"
+                        "WINEDLLOVERRIDES not set; defaulting to version=n,b for Lovely injection"
                     );
                 }
+                Some(idx) => {
+                    let value = envs.get(idx).map(|(_, v)| v.as_str()).unwrap_or("");
+                    if !value.contains("version") {
+                        let updated = if value.is_empty() {
+                            "version=n,b".to_string()
+                        } else {
+                            format!("{value};version=n,b")
+                        };
+                        cmd.env("WINEDLLOVERRIDES", updated);
+                        info!(
+                            "WINEDLLOVERRIDES missing version; appended version=n,b for Lovely injection"
+                        );
+                    }
+                }
             }
+        } else {
+            info!("Vanilla mode: skipping WINEDLLOVERRIDES injection");
         }
         cmd.current_dir(&path);
         if append_exe {
@@ -538,23 +594,31 @@ pub async fn launch_balatro(state: tauri::State<'_, AppState>) -> Result<(), Str
     // Ensure host mods map to LOVE's native mods dir
     ensure_native_mod_dir_link()?;
 
-    // Ensure Lovely's liblovely.so is present for native LOVE injection
-    // Refresh Lovely if a newer version is available
-    if let Ok(latest) = get_latest_lovely_version().await
-        && let Ok(db) = state.db.lock()
-        && let Ok(current) = db.get_lovely_version()
-        && current.as_deref() != Some(latest.as_str())
-    {
-        let _ = db.set_lovely_version(&latest);
-        if let Some(config_dir) = dirs::config_dir() {
-            let _ = remove_file(config_dir.join("Balatro/bins/liblovely.so"));
+    // Only set up Lovely injection if in modded mode
+    let lovely_so: Option<PathBuf> = if !is_vanilla {
+        // Ensure Lovely's liblovely.so is present for native LOVE injection
+        // Refresh Lovely if a newer version is available
+        if let Ok(latest) = get_latest_lovely_version().await
+            && let Ok(db) = state.db.lock()
+            && let Ok(current) = db.get_lovely_version()
+            && current.as_deref() != Some(latest.as_str())
+        {
+            let _ = db.set_lovely_version(&latest);
+            if let Some(config_dir) = dirs::config_dir() {
+                let _ = remove_file(config_dir.join("Balatro/bins/liblovely.so"));
+            }
+            let _ = remove_file(path.join("liblovely.so"));
         }
-        let _ = remove_file(path.join("liblovely.so"));
-    }
 
-    let lovely_so = ensure_lovely_so_exists(&path)
-        .await
-        .map_err(|e| format!("Failed to ensure liblovely.so: {e}"))?;
+        Some(
+            ensure_lovely_so_exists(&path)
+                .await
+                .map_err(|e| format!("Failed to ensure liblovely.so: {e}"))?,
+        )
+    } else {
+        info!("Vanilla mode: skipping Lovely injection setup");
+        None
+    };
 
     // Native LOVE launch (no Steam/Proton)
     let love_bin_env = env::var("BMM_LOVE_BIN").ok();
@@ -594,10 +658,13 @@ pub async fn launch_balatro(state: tauri::State<'_, AppState>) -> Result<(), Str
     }
 
     let mut love_cmd = Command::new(&love_bin_path);
-    love_cmd
-        .current_dir(&path)
-        .arg("Balatro.love")
-        .env("LD_PRELOAD", &lovely_so);
+    love_cmd.current_dir(&path).arg("Balatro.love");
+
+    // Only set LD_PRELOAD for Lovely injection if in modded mode
+    if let Some(ref lovely_so_path) = lovely_so {
+        love_cmd.env("LD_PRELOAD", lovely_so_path);
+    }
+
     // Use host config dir so mods/logs live outside the Flatpak sandbox.
     if let Some(home) = dirs::home_dir() {
         let host_config = home.join(".config").join("Balatro");
@@ -633,13 +700,17 @@ pub async fn launch_balatro(state: tauri::State<'_, AppState>) -> Result<(), Str
     strip_wrapper_env(&mut love_cmd);
     log_launch_env("pre-spawn");
     info!(
-        "Launching Balatro via LOVE\n  love_bin={}\n  love_lib={}\n  preload={}\n  cwd={}",
+        "Launching Balatro via LOVE (mode: {})\n  love_bin={}\n  love_lib={}\n  preload={}\n  cwd={}",
+        launch_mode,
         love_bin_path.display(),
         love_lib_path
             .as_ref()
             .map(|p| p.display().to_string())
             .unwrap_or_else(|| "<none>".to_string()),
-        lovely_so.display(),
+        lovely_so
+            .as_ref()
+            .map(|p| p.display().to_string())
+            .unwrap_or_else(|| "<none>".to_string()),
         path.display()
     );
     let spawn_result = love_cmd.spawn();

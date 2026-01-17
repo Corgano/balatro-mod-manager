@@ -409,6 +409,142 @@ pub fn remove_installed_lovely() -> Result<(), AppError> {
     }
 }
 
+/// Set whether the Lovely injector is enabled or disabled by renaming files.
+/// When disabled, the injector file is renamed to .disabled so it won't load.
+/// Returns Ok(()) if successful, or an error if the operation fails.
+pub fn set_injector_enabled(enabled: bool) -> Result<(), AppError> {
+    #[cfg(target_os = "macos")]
+    {
+        let config_dir = dirs::config_dir()
+            .ok_or_else(|| AppError::DirNotFound(PathBuf::from("config directory")))?;
+        let bins_dir = config_dir.join("Balatro/bins");
+        let active_path = bins_dir.join("liblovely.dylib");
+        let disabled_path = bins_dir.join("liblovely.dylib.disabled");
+
+        toggle_injector_file(&active_path, &disabled_path, enabled)
+    }
+
+    #[cfg(any(target_os = "windows", target_os = "linux"))]
+    {
+        // For Windows and Linux (Proton), we need to toggle version.dll in the game directory
+        let balatro_paths = crate::finder::get_balatro_paths();
+        if balatro_paths.is_empty() {
+            // No game path found - if we're enabling, that's an error; if disabling, nothing to do
+            if enabled {
+                return Err(AppError::DirNotFound(PathBuf::from("Balatro installation")));
+            }
+            return Ok(());
+        }
+        let game_path = &balatro_paths[0];
+        let active_path = game_path.join("version.dll");
+        let disabled_path = game_path.join("version.dll.disabled");
+
+        toggle_injector_file(&active_path, &disabled_path, enabled)?;
+
+        // On Linux, also handle liblovely.so for native LOVE builds
+        #[cfg(target_os = "linux")]
+        {
+            if let Some(config_dir) = dirs::config_dir() {
+                let bins_dir = config_dir.join("Balatro/bins");
+                let so_active = bins_dir.join("liblovely.so");
+                let so_disabled = bins_dir.join("liblovely.so.disabled");
+                // Also check in game directory
+                let game_so_active = game_path.join("liblovely.so");
+                let game_so_disabled = game_path.join("liblovely.so.disabled");
+
+                // Toggle both locations (ignore errors if files don't exist)
+                let _ = toggle_injector_file(&so_active, &so_disabled, enabled);
+                let _ = toggle_injector_file(&game_so_active, &game_so_disabled, enabled);
+            }
+        }
+
+        Ok(())
+    }
+
+    #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+    {
+        Err(AppError::InvalidState(
+            "Lovely injection is not supported on this platform.".into(),
+        ))
+    }
+}
+
+/// Check if the injector is currently enabled (active file exists).
+pub fn is_injector_enabled() -> Result<bool, AppError> {
+    #[cfg(target_os = "macos")]
+    {
+        let config_dir = dirs::config_dir()
+            .ok_or_else(|| AppError::DirNotFound(PathBuf::from("config directory")))?;
+        let bins_dir = config_dir.join("Balatro/bins");
+        let active_path = bins_dir.join("liblovely.dylib");
+        Ok(active_path.exists())
+    }
+
+    #[cfg(any(target_os = "windows", target_os = "linux"))]
+    {
+        let balatro_paths = crate::finder::get_balatro_paths();
+        if balatro_paths.is_empty() {
+            // No game path - consider it "enabled" (no injector to disable)
+            return Ok(true);
+        }
+        let game_path = &balatro_paths[0];
+        let active_path = game_path.join("version.dll");
+        Ok(active_path.exists())
+    }
+
+    #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+    {
+        Err(AppError::InvalidState(
+            "Lovely injection is not supported on this platform.".into(),
+        ))
+    }
+}
+
+/// Helper function to toggle an injector file between active and disabled states.
+fn toggle_injector_file(
+    active_path: &Path,
+    disabled_path: &Path,
+    enable: bool,
+) -> Result<(), AppError> {
+    if enable {
+        // Enable: rename .disabled to active
+        if disabled_path.exists() {
+            // If both exist (corrupt state), remove the disabled one
+            if active_path.exists() {
+                std::fs::remove_file(disabled_path).map_err(|e| AppError::FileWrite {
+                    path: disabled_path.to_path_buf(),
+                    source: e.to_string(),
+                })?;
+            } else {
+                std::fs::rename(disabled_path, active_path).map_err(|e| AppError::FileWrite {
+                    path: active_path.to_path_buf(),
+                    source: format!("Failed to enable injector: {}", e),
+                })?;
+            }
+        }
+        // If neither exists, Lovely isn't installed - that's fine, we just save the preference
+        Ok(())
+    } else {
+        // Disable: rename active to .disabled
+        if active_path.exists() {
+            // If both exist (corrupt state), remove the active one since we're disabling
+            if disabled_path.exists() {
+                std::fs::remove_file(active_path).map_err(|e| AppError::FileWrite {
+                    path: active_path.to_path_buf(),
+                    source: e.to_string(),
+                })?;
+            } else {
+                std::fs::rename(active_path, disabled_path).map_err(|e| AppError::FileWrite {
+                    path: disabled_path.to_path_buf(),
+                    source: format!("Failed to disable injector: {}", e),
+                })?;
+            }
+        }
+        // If active doesn't exist, already disabled - that's fine
+        Ok(())
+    }
+}
+
 #[cfg(target_os = "macos")]
 async fn download_and_install_lovely(target_path: &Path) -> Result<(), AppError> {
     let temp_dir = tempfile::tempdir().map_err(|e| AppError::FileWrite {

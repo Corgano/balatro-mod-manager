@@ -15,6 +15,7 @@ use tauri_plugin_window_state::StateFlags;
 
 use bmm_lib::{
     database::Database, discord_rpc::DiscordRpcManager, errors::AppError, local_mod_detection,
+    lovely,
 };
 
 use crate::models::Payload;
@@ -62,6 +63,26 @@ pub fn run() {
             let discord_rpc = DiscordRpcManager::new();
             let discord_rpc_enabled = db.is_discord_rpc_enabled().unwrap_or(true);
             discord_rpc.set_enabled(discord_rpc_enabled);
+
+            // Sync launch mode: ensure injector file state matches saved preference
+            // (must happen before db is moved into AppState)
+            match db.get_launch_mode() {
+                Ok(mode) => {
+                    let enable_injector = mode == "modded";
+                    if let Err(e) = lovely::set_injector_enabled(enable_injector) {
+                        log::warn!(
+                            "Failed to sync launch mode injector state on startup: {}",
+                            e
+                        );
+                    } else {
+                        log::debug!("Launch mode synced on startup: {}", mode);
+                    }
+                }
+                Err(e) => {
+                    log::warn!("Failed to read launch mode on startup: {}", e);
+                }
+            }
+
             app.manage(AppState {
                 db: Mutex::new(db),
                 discord_rpc: Mutex::new(discord_rpc),
@@ -328,6 +349,8 @@ pub fn run() {
             commands::settings::get_linux_prefix,
             commands::settings::set_security_warning_acknowledged,
             commands::settings::is_security_warning_acknowledged,
+            commands::settings::get_launch_mode,
+            commands::settings::set_launch_mode,
             commands::cache::get_last_fetched,
             commands::cache::update_last_fetched,
             commands::repo::list_repo_mods,

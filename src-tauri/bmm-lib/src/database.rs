@@ -703,6 +703,29 @@ impl Database {
             Ok(false)
         }
     }
+
+    /// Set the launch mode preference ("modded" or "vanilla")
+    pub fn set_launch_mode(&self, mode: &str) -> Result<(), AppError> {
+        self.conn.execute(
+            "INSERT OR REPLACE INTO settings (setting, value) VALUES ('launch_mode', ?1)",
+            [mode],
+        )?;
+        Ok(())
+    }
+
+    /// Get the launch mode preference. Defaults to "modded" if not set.
+    pub fn get_launch_mode(&self) -> Result<String, AppError> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT value FROM settings WHERE setting = 'launch_mode'")?;
+
+        let mut rows = stmt.query([])?;
+        if let Some(row) = rows.next()? {
+            Ok(row.get::<_, String>(0)?)
+        } else {
+            Ok("modded".to_string())
+        }
+    }
 }
 
 fn resolve_storage_path(primary_balatro_dir: &Path) -> PathBuf {
