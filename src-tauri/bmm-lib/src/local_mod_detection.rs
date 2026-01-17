@@ -166,7 +166,7 @@ fn sync_proton_mods(host_mods: &Path, compat_mods: &Path) -> Result<(), String> 
 ///
 /// # Arguments
 /// * `game_path` - Optional path to the Balatro game installation. If provided, the function
-///                 will try to derive the steamapps directory from it.
+///   will try to derive the steamapps directory from it.
 #[cfg(target_os = "linux")]
 pub fn ensure_proton_mod_dir_link(game_path: Option<&Path>) -> Result<(), String> {
     // Don't run inside Flatpak - Flatpak has its own path handling
