@@ -508,8 +508,7 @@ pub async fn launch_balatro(state: tauri::State<'_, AppState>) -> Result<(), Str
                 && resolved_parts.iter().any(|p| p == "-applaunch")
         });
         let mut launch_parts = resolved_parts.clone();
-        let uses_flatpak_spawn =
-            is_steam_applaunch && std::env::var_os("FLATPAK_ID").is_some();
+        let uses_flatpak_spawn = is_steam_applaunch && std::env::var_os("FLATPAK_ID").is_some();
         if uses_flatpak_spawn {
             // Flatpak sandbox can't see host steam directly; route via flatpak-spawn.
             if let Some(first) = launch_parts.first().cloned() {
