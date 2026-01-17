@@ -74,17 +74,40 @@ fn get_installation_and_console(
 #[cfg(target_os = "macos")]
 #[tauri::command]
 pub async fn launch_balatro(state: tauri::State<'_, AppState>) -> Result<(), String> {
-    let (path_str, lovely_console_enabled) = get_installation_and_console(&state)?;
+    let (path_str, lovely_console_enabled, launch_mode) = {
+        let db = state.db.lock().map_err(|_| {
+            AppError::LockPoisoned("Database lock poisoned".to_string()).to_string()
+        })?;
+        let install_path = db
+            .get_installation_path()
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| {
+                AppError::InvalidState("No installation path set".to_string()).to_string()
+            })?;
+        let lovely_console = db.is_lovely_console_enabled().map_err(|e| e.to_string())?;
+        let mode = db
+            .get_launch_mode()
+            .unwrap_or_else(|_| "modded".to_string());
+        (install_path, lovely_console, mode)
+    };
+
+    let is_vanilla = launch_mode == "vanilla";
     let path = PathBuf::from(path_str);
     let balatro = bmm_lib::balamod::Balatro::from_custom_path(path.clone())
         .ok_or_else(|| "Stored Balatro path is no longer valid".to_string())?;
 
-    let lovely_path = map_error(lovely::ensure_lovely_exists().await)?;
     let app_bundle = balatro
         .get_app_bundle_path()
         .ok_or_else(|| "Unable to locate Balatro app bundle".to_string())?;
     let balatro_executable = app_bundle.join("Contents/MacOS/love");
     let launch_root = balatro.path.clone();
+
+    // Only get lovely path if launching in modded mode
+    let lovely_path: Option<PathBuf> = if !is_vanilla {
+        Some(map_error(lovely::ensure_lovely_exists().await)?)
+    } else {
+        None
+    };
 
     if lovely_console_enabled {
         let disable_arg = if !lovely_console_enabled {
@@ -92,13 +115,23 @@ pub async fn launch_balatro(state: tauri::State<'_, AppState>) -> Result<(), Str
         } else {
             ""
         };
-        let command_line = format!(
-            "cd '{}' && DYLD_INSERT_LIBRARIES='{}' '{}'{}",
-            launch_root.display(),
-            lovely_path.display(),
-            balatro_executable.display(),
-            disable_arg
-        );
+
+        let command_line = if let Some(ref lovely) = lovely_path {
+            format!(
+                "cd '{}' && DYLD_INSERT_LIBRARIES='{}' '{}'{}",
+                launch_root.display(),
+                lovely.display(),
+                balatro_executable.display(),
+                disable_arg
+            )
+        } else {
+            format!(
+                "cd '{}' && '{}'{}",
+                launch_root.display(),
+                balatro_executable.display(),
+                disable_arg
+            )
+        };
 
         let applescript = format!("tell application \"Terminal\" to do script \"{command_line}\"");
 
@@ -108,11 +141,15 @@ pub async fn launch_balatro(state: tauri::State<'_, AppState>) -> Result<(), Str
             .status()
             .map_err(|e| e.to_string())?;
     } else {
-        let cmd = format!(
-            "DYLD_INSERT_LIBRARIES='{}' '{}'",
-            lovely_path.display(),
-            balatro_executable.display()
-        );
+        let cmd = if let Some(ref lovely) = lovely_path {
+            format!(
+                "DYLD_INSERT_LIBRARIES='{}' '{}'",
+                lovely.display(),
+                balatro_executable.display()
+            )
+        } else {
+            format!("'{}'", balatro_executable.display())
+        };
         // Spawn the process without waiting so the UI doesn't block
         Command::new("sh")
             .arg("-c")
