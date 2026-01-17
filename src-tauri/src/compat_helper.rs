@@ -540,6 +540,10 @@ local function ensure_safe_mode_errorhandler()
   if safe_mode_bypass then
     return false
   end
+  -- Already installed - don't reinstall (performance optimization)
+  if safe_mode_errorhook then
+    return true
+  end
   if not (love and (love.errorhandler or love.errhand)) then
     return false
   end
@@ -1483,7 +1487,6 @@ local function collect_fs_issues()
                 )
               end
               -- When smods_version == "unknown", we skip version checks silently
-              end
             end
           end
         else
@@ -1515,7 +1518,6 @@ local function collect_fs_issues()
                 )
               end
               -- When smods_version == "unknown", we skip version checks silently
-              end
             end
           end
         end
@@ -2025,9 +2027,8 @@ local preflight_done = false
 
 local function maybe_audit()
   flush_pending()
-  if cfg.safe_mode and not safe_mode_bypass then
-    ensure_safe_mode_errorhandler()
-  end
+  -- Note: ensure_safe_mode_errorhandler is called once at startup, not repeatedly here
+  -- This avoids per-frame overhead from the old implementation
   setup_safe_mode()
   if audit_done then
     return
@@ -2036,6 +2037,7 @@ local function maybe_audit()
     local ok_audit = audit_smods()
     if ok_audit then
       audit_done = true
+      log_line("audit_done set to true")
     end
     flush_pending()
   end
@@ -2054,39 +2056,60 @@ end
 
 preflight()
 maybe_audit()
+
+-- Store original love.update for restoration after audit
+local bmm_original_love_update = love and love.update
+
 if not audit_done and love and love.update then
   local prev_update = love.update
   love.update = function(...)
-    maybe_audit()
-    if cfg.safe_mode and not safe_mode_bypass then
-      ensure_safe_mode_errorhandler()
+    if audit_done then
+      -- Audit complete: reinstall error handler (Steamodded may have overwritten it)
+      -- then restore original love.update to remove per-frame overhead
+      if cfg.safe_mode and not safe_mode_bypass then
+        safe_mode_errorhook = false  -- Force reinstall
+        ensure_safe_mode_errorhandler()
+        log_line("audit_done reinstalled errorhandler")
+      end
+      love.update = prev_update
+      log_line("audit_done restoring love.update")
+      return prev_update(...)
     end
+    maybe_audit()
     return prev_update(...)
   end
   safe_mode_updatehook = true
 end
 
-if debug and debug.sethook and (not audit_done or cfg.safe_mode) then
+-- Install safe mode error handler once at startup
+-- (will be reinstalled after audit in case Steamodded overwrites it)
+if cfg.safe_mode and not safe_mode_bypass then
+  ensure_safe_mode_errorhandler()
+end
+
+if debug and debug.sethook and not audit_done then
   local hook_ticks = 0
   debug.sethook(function()
     maybe_audit()
-    if cfg.safe_mode and not safe_mode_updatehook and not safe_mode_bypass then
+    -- Keep reinstalling error handler during loading phase
+    -- in case Steamodded or other mods overwrite it
+    if cfg.safe_mode and not safe_mode_bypass then
+      safe_mode_errorhook = false  -- Force reinstall check
       ensure_safe_mode_errorhandler()
     end
     hook_ticks = hook_ticks + 1
-    if audit_done and (not cfg.safe_mode or safe_mode_updatehook or hook_ticks > 200) then
+    -- Remove hook once audit is done or after 500 ticks (give more time for SMODS to load)
+    if audit_done or hook_ticks > 500 then
+      -- Final reinstall of error handler before removing hook
+      if cfg.safe_mode and not safe_mode_bypass then
+        safe_mode_errorhook = false
+        ensure_safe_mode_errorhandler()
+        log_line("final errorhandler reinstall before hook removal")
+      end
       debug.sethook()
+      log_line("debug.sethook removed after audit")
     end
   end, "", 10000)
-end
-
-if cfg.safe_mode and love and love.update and not safe_mode_updatehook and not safe_mode_bypass then
-  local prev_update = love.update
-  love.update = function(...)
-    ensure_safe_mode_errorhandler()
-    return prev_update(...)
-  end
-  safe_mode_updatehook = true
 end
 end
 
