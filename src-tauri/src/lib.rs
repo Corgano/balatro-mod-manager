@@ -45,6 +45,19 @@ pub fn run() {
         .plugin(tauri_plugin_prevent_default::init())
         .setup(|app| {
             let db = map_error(Database::new())?;
+
+            // One-time migration for 0.3.7: disable compat helper for all users
+            // due to reported performance issues (GitHub issue #348)
+            if !db.is_compat_helper_037_migrated().unwrap_or(true) {
+                log::info!("Applying 0.3.7 migration: disabling compatibility helper");
+                if let Err(e) = db.set_compat_helper_enabled(false) {
+                    log::warn!("Failed to disable compat helper during migration: {}", e);
+                }
+                if let Err(e) = db.set_compat_helper_037_migrated() {
+                    log::warn!("Failed to mark 0.3.7 migration as complete: {}", e);
+                }
+            }
+
             let compat_enabled = db.is_compat_helper_enabled().unwrap_or(false);
             let discord_rpc = DiscordRpcManager::new();
             let discord_rpc_enabled = db.is_discord_rpc_enabled().unwrap_or(true);

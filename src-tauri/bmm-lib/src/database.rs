@@ -605,6 +605,24 @@ impl Database {
         }
     }
 
+    /// Check if the 0.3.7 compat helper migration has been applied.
+    pub fn is_compat_helper_037_migrated(&self) -> Result<bool, AppError> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT value FROM settings WHERE setting = 'compat_helper_037_migrated'")?;
+        let mut rows = stmt.query([])?;
+        Ok(rows.next()?.is_some())
+    }
+
+    /// Mark the 0.3.7 compat helper migration as complete.
+    pub fn set_compat_helper_037_migrated(&self) -> Result<(), AppError> {
+        self.conn.execute(
+            "INSERT OR REPLACE INTO settings (setting, value) VALUES ('compat_helper_037_migrated', 'true')",
+            [],
+        )?;
+        Ok(())
+    }
+
     fn enable_lovely_console(&self) -> Result<(), AppError> {
         self.conn.execute(
             "INSERT OR REPLACE INTO settings (setting, value) VALUES ('lovely_console', 'enabled')",
