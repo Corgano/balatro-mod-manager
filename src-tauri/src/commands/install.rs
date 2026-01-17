@@ -508,7 +508,9 @@ pub async fn launch_balatro(state: tauri::State<'_, AppState>) -> Result<(), Str
                 && resolved_parts.iter().any(|p| p == "-applaunch")
         });
         let mut launch_parts = resolved_parts.clone();
-        if is_steam_applaunch && std::env::var_os("FLATPAK_ID").is_some() {
+        let uses_flatpak_spawn =
+            is_steam_applaunch && std::env::var_os("FLATPAK_ID").is_some();
+        if uses_flatpak_spawn {
             // Flatpak sandbox can't see host steam directly; route via flatpak-spawn.
             if let Some(first) = launch_parts.first().cloned() {
                 launch_parts = vec!["flatpak-spawn".to_string(), "--host".to_string(), first];
@@ -517,6 +519,63 @@ pub async fn launch_balatro(state: tauri::State<'_, AppState>) -> Result<(), Str
             }
         }
         let append_exe = !uses_placeholder && !is_steam_applaunch;
+
+        // Collect all environment variables that need to be passed to the launched process.
+        // When using flatpak-spawn, these must be passed as --env=KEY=VALUE arguments
+        // because cmd.env() only affects the flatpak-spawn process, not the host process.
+        let mut launch_envs: Vec<(String, String)> = envs.clone();
+
+        // Only set WINEDLLOVERRIDES for Lovely injection if in modded mode
+        if !is_vanilla {
+            let winedll_idx = launch_envs
+                .iter()
+                .position(|(key, _)| key.eq_ignore_ascii_case("WINEDLLOVERRIDES"));
+            match winedll_idx {
+                None => {
+                    launch_envs.push(("WINEDLLOVERRIDES".to_string(), "version=n,b".to_string()));
+                    info!(
+                        "WINEDLLOVERRIDES not set; defaulting to version=n,b for Lovely injection"
+                    );
+                }
+                Some(idx) => {
+                    let value = launch_envs.get(idx).map(|(_, v)| v.as_str()).unwrap_or("");
+                    if !value.contains("version") {
+                        let updated = if value.is_empty() {
+                            "version=n,b".to_string()
+                        } else {
+                            format!("{value};version=n,b")
+                        };
+                        launch_envs[idx].1 = updated;
+                        info!(
+                            "WINEDLLOVERRIDES missing version; appended version=n,b for Lovely injection"
+                        );
+                    }
+                }
+            }
+        } else {
+            info!("Vanilla mode: skipping WINEDLLOVERRIDES injection");
+        }
+
+        // If using flatpak-spawn --host, inject env vars as --env=KEY=VALUE arguments
+        // after --host but before the command. Otherwise, use cmd.env().
+        if uses_flatpak_spawn && !launch_envs.is_empty() {
+            // Find the position after "--host" to insert --env arguments
+            if let Some(host_idx) = launch_parts.iter().position(|p| p == "--host") {
+                let env_args: Vec<String> = launch_envs
+                    .iter()
+                    .map(|(k, v)| format!("--env={}={}", k, v))
+                    .collect();
+                // Insert env args after "--host"
+                let insert_pos = host_idx + 1;
+                for (i, arg) in env_args.into_iter().enumerate() {
+                    launch_parts.insert(insert_pos + i, arg);
+                }
+                info!(
+                    "Flatpak: passing {} env vars via --env arguments",
+                    launch_envs.len()
+                );
+            }
+        }
 
         info!(
             "Prefix exec: {} args: {:?} append_exe={}",
@@ -529,40 +588,11 @@ pub async fn launch_balatro(state: tauri::State<'_, AppState>) -> Result<(), Str
             cmd.args(&launch_parts[1..]);
         }
 
-        // Apply user-provided environment variables
-        for (key, value) in &envs {
-            cmd.env(key, value);
-        }
-
-        // Only set WINEDLLOVERRIDES for Lovely injection if in modded mode
-        if !is_vanilla {
-            let winedll_idx = envs
-                .iter()
-                .position(|(key, _)| key.eq_ignore_ascii_case("WINEDLLOVERRIDES"));
-            match winedll_idx {
-                None => {
-                    cmd.env("WINEDLLOVERRIDES", "version=n,b");
-                    info!(
-                        "WINEDLLOVERRIDES not set; defaulting to version=n,b for Lovely injection"
-                    );
-                }
-                Some(idx) => {
-                    let value = envs.get(idx).map(|(_, v)| v.as_str()).unwrap_or("");
-                    if !value.contains("version") {
-                        let updated = if value.is_empty() {
-                            "version=n,b".to_string()
-                        } else {
-                            format!("{value};version=n,b")
-                        };
-                        cmd.env("WINEDLLOVERRIDES", updated);
-                        info!(
-                            "WINEDLLOVERRIDES missing version; appended version=n,b for Lovely injection"
-                        );
-                    }
-                }
+        // Apply environment variables directly to the command when not using flatpak-spawn
+        if !uses_flatpak_spawn {
+            for (key, value) in &launch_envs {
+                cmd.env(key, value);
             }
-        } else {
-            info!("Vanilla mode: skipping WINEDLLOVERRIDES injection");
         }
         cmd.current_dir(&path);
         if append_exe {
