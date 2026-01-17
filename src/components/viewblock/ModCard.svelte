@@ -834,7 +834,7 @@
 
     .toggle-button.enabled {
         background: var(--ui-success-strong); /* Bright green when enabled */
-        outline: var(--ui-success-strong) solid 2px;
+        outline: #1a7a42 solid 2px; /* Darker green border for visibility */
     }
 
     .toggle-button.disabled {
@@ -844,6 +844,7 @@
 
     .toggle-button:hover.enabled {
         background: var(--ui-success-strong-hover); /* Lighter green on hover */
+        outline: #1a7a42 solid 2px; /* Keep darker border on hover */
         transform: translateY(-2px);
         box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
     }

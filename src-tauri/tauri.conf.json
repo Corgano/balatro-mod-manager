@@ -88,7 +88,13 @@
         "all": true
       },
       "fs": {
-        "scope": ["**", "$RESOURCE/**", "$ASSET/**", "$CONFIG/**", "$APPDATA/**"]
+        "scope": [
+          "**",
+          "$RESOURCE/**",
+          "$ASSET/**",
+          "$CONFIG/**",
+          "$APPDATA/**"
+        ]
       },
       "window": {
         "show": true
