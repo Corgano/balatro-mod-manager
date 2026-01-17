@@ -53,7 +53,7 @@ fn refresh_mod_detection_cache() {
     local_mod_detection::clear_detection_cache();
 }
 
-#[cfg(any(target_os = "macos", target_os = "windows"))]
+#[cfg(target_os = "windows")]
 fn get_installation_and_console(
     state: &tauri::State<'_, AppState>,
 ) -> Result<(String, bool), String> {
