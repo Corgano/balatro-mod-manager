@@ -98,7 +98,7 @@ onDestroy(() => {
 		<h1>Welcome to Balatro Mod Manager</h1>
 		<BalatroPicker />
 		<ReportIssue />
-		{#if appVersion}<div class="version-text">v0.3.7</div>{/if}
+		{#if appVersion}<div class="version-text">v0.3.8</div>{/if}
 	</div>
 {/if}
 
