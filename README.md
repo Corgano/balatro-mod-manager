@@ -60,7 +60,7 @@ sudo apt install ./Balatro.Mod.Manager_*_amd64.deb
 
 ## Flatpak (Steam Deck/Linux)
 
-> You need [flatpak-builder](https://docs.flatpak.org/de/latest/flatpak-builder.html) for this.
+> You need [flatpak-builder](https://docs.flatpak.org/en/latest/flatpak-builder.html) for this.
 
 - Run from a local checkout:
   ```bash
