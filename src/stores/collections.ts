@@ -13,6 +13,11 @@ const COLLECTIONS_KEY = "mods-collections";
 const ACTIVE_COLLECTION_KEY = "mods-collections-active";
 const COLLECTION_SHARE_PREFIX = "BMMCOLL1:";
 
+/** Helper to check if a collection is currently active */
+export function isCollectionActive(id: string): boolean {
+  return get(activeCollectionIds).includes(id);
+}
+
 function generateId(): string {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
     return crypto.randomUUID();
@@ -21,7 +26,7 @@ function generateId(): string {
 }
 
 export const collectionsStore: Writable<ModCollection[]> = writable([]);
-export const activeCollectionId = writable<string | null>(null);
+export const activeCollectionIds = writable<string[]>([]);
 export const lastImportedCollectionId = writable<string | null>(null);
 export const collectionImportStore = writable<{
   open: boolean;
@@ -147,7 +152,9 @@ export function renameCollection(
 
 export function deleteCollection(id: string) {
   collectionsStore.update((list) => list.filter((c) => c.id !== id));
-  activeCollectionId.update((cur) => (cur === id ? null : cur));
+  activeCollectionIds.update((ids) =>
+    ids.filter((activeId) => activeId !== id),
+  );
 }
 
 export function toggleModInCollection(
@@ -221,7 +228,43 @@ export function setModInCollection(
 }
 
 export function setActiveCollection(id: string | null) {
-  activeCollectionId.set(id);
+  if (id === null) {
+    activeCollectionIds.set([]);
+  } else {
+    activeCollectionIds.update((ids) =>
+      ids.includes(id) ? ids : [...ids, id],
+    );
+  }
+}
+
+export function addActiveCollection(id: string) {
+  activeCollectionIds.update((ids) => (ids.includes(id) ? ids : [...ids, id]));
+}
+
+export function removeActiveCollection(id: string) {
+  activeCollectionIds.update((ids) =>
+    ids.filter((activeId) => activeId !== id),
+  );
+}
+
+/** Get all mod titles that should remain enabled based on all active collections except the given one */
+export function getModsFromOtherActiveCollections(
+  excludeId: string,
+): Set<string> {
+  const collections = get(collectionsStore);
+  const activeIds = get(activeCollectionIds);
+  const otherActiveIds = activeIds.filter((id) => id !== excludeId);
+
+  const modTitles = new Set<string>();
+  for (const id of otherActiveIds) {
+    const collection = collections.find((c) => c.id === id);
+    if (collection) {
+      for (const title of collection.modTitles) {
+        modTitles.add(title);
+      }
+    }
+  }
+  return modTitles;
 }
 
 export function exportCollectionCode(id: string): {
@@ -313,7 +356,18 @@ if (typeof window !== "undefined") {
     }
     const active = window.localStorage.getItem(ACTIVE_COLLECTION_KEY);
     if (active) {
-      activeCollectionId.set(active);
+      // Migration: old format was a single string ID, new format is JSON array
+      try {
+        const parsed = JSON.parse(active);
+        if (Array.isArray(parsed)) {
+          activeCollectionIds.set(parsed);
+        } else if (typeof parsed === "string") {
+          activeCollectionIds.set([parsed]);
+        }
+      } catch {
+        // Old format: plain string (not JSON)
+        activeCollectionIds.set([active]);
+      }
     }
   } catch {
     // ignore malformed cache
@@ -327,10 +381,10 @@ if (typeof window !== "undefined") {
     }
   });
 
-  activeCollectionId.subscribe((val) => {
+  activeCollectionIds.subscribe((val) => {
     try {
-      if (val) {
-        window.localStorage.setItem(ACTIVE_COLLECTION_KEY, val);
+      if (val.length > 0) {
+        window.localStorage.setItem(ACTIVE_COLLECTION_KEY, JSON.stringify(val));
       } else {
         window.localStorage.removeItem(ACTIVE_COLLECTION_KEY);
       }

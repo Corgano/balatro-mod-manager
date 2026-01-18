@@ -42,11 +42,14 @@
     } from "../../stores/descriptions";
     import {
         collectionsStore,
-        activeCollectionId,
+        activeCollectionIds,
         createCollection,
         renameCollection,
         deleteCollection,
         setActiveCollection,
+        addActiveCollection,
+        removeActiveCollection,
+        getModsFromOtherActiveCollections,
         exportCollectionCode,
         openCollectionImport,
         setCollectionImportCode,
@@ -2068,9 +2071,9 @@
             return;
         }
         const preferred =
-            $activeCollectionId &&
-            list.some((c) => c.id === $activeCollectionId)
-                ? $activeCollectionId
+            $activeCollectionIds.length > 0 &&
+            list.some((c) => $activeCollectionIds.includes(c.id))
+                ? $activeCollectionIds[0]
                 : list[0].id;
         selectedCollectionId = preferred;
     });
@@ -2467,38 +2470,38 @@
             );
             const wanted = new Set(desiredTitles.map((t) => normalizeName(t)));
             const toEnable: string[] = [];
-            const toDisable: string[] = [];
+            // Multi-collection mode: only enable mods from this collection, don't disable others
             const installedNames = Object.keys(enabledMap);
             let installedInCollection = 0;
             for (const name of installedNames) {
                 const shouldEnable = wanted.has(normalizeName(name));
                 if (shouldEnable) installedInCollection += 1;
                 const current = enabledMap[name];
-                if (current !== shouldEnable) {
-                    (shouldEnable ? toEnable : toDisable).push(name);
+                // Only enable mods that are in this collection and currently disabled
+                if (shouldEnable && !current) {
+                    toEnable.push(name);
                 }
             }
             if (installedNames.length === 0) {
                 addMessage("No installed mods found to activate.", "info");
                 return;
             }
-            if (toEnable.length === 0 && toDisable.length === 0) {
-                setActiveCollection(id);
+            if (toEnable.length === 0) {
+                addActiveCollection(id);
                 addMessage("Collection already active.", "info");
                 return;
             }
             await invoke("toggle_mods_enabled_batch", {
                 enabled: toEnable,
-                disabled: toDisable,
+                disabled: [],
                 localPaths,
             });
             modEnabledStore.update((map) => {
                 const next = { ...map };
                 for (const name of toEnable) next[name] = true;
-                for (const name of toDisable) next[name] = false;
                 return next;
             });
-            setActiveCollection(id);
+            addActiveCollection(id);
             addMessage(`Activated "${collection.name}".`, "success");
             await refreshStateSummary();
         } catch (error) {
@@ -2515,7 +2518,8 @@
 
     async function deactivateCollection(id: string) {
         if (collectionBusy) return;
-        if ($activeCollectionId !== id) return;
+        // Check if this collection is actually active
+        if (!$activeCollectionIds.includes(id)) return;
         const collection = $collectionsStore.find((c) => c.id === id);
         if (!collection) return;
         collectionBusy = id;
@@ -2530,24 +2534,38 @@
                 "enabled_state_map",
                 { localPaths },
             );
-            const wanted = new Set(
+
+            // Get mods in this collection
+            const thisCollectionMods = new Set(
                 collection.modTitles.map((t) => normalizeName(t)),
             );
             for (const modId of collection.modIds ?? []) {
                 const match = get(modsStore).find((m) => m.id === modId);
                 if (match) {
-                    wanted.add(normalizeName(match.title));
+                    thisCollectionMods.add(normalizeName(match.title));
                 } else {
-                    wanted.add(normalizeName(modId));
+                    thisCollectionMods.add(normalizeName(modId));
                 }
             }
 
+            // Get mods that should stay enabled because they're in other active collections
+            const modsInOtherCollections = getModsFromOtherActiveCollections(id);
+            const normalizedOtherMods = new Set(
+                Array.from(modsInOtherCollections).map((t) => normalizeName(t)),
+            );
+
+            // Only disable mods that are in this collection but NOT in any other active collection
             const toDisable = Object.entries(enabledMap)
-                .filter(
-                    ([name, enabled]) =>
-                        enabled && wanted.has(normalizeName(name)),
-                )
+                .filter(([name, enabled]) => {
+                    const normalized = normalizeName(name);
+                    return (
+                        enabled &&
+                        thisCollectionMods.has(normalized) &&
+                        !normalizedOtherMods.has(normalized)
+                    );
+                })
                 .map(([name]) => name);
+
             if (toDisable.length > 0) {
                 await invoke("toggle_mods_enabled_batch", {
                     enabled: [],
@@ -2560,8 +2578,8 @@
                     return next;
                 });
             }
-            setActiveCollection(null);
-            addMessage("Collection deactivated.", "info");
+            removeActiveCollection(id);
+            addMessage(`Deactivated "${collection.name}".`, "info");
             await refreshStateSummary();
         } catch (error) {
             addMessage(
@@ -2947,13 +2965,15 @@
                                             {/if}
                                             <button
                                                 class="toggle-collection"
-                                                class:enabled={$activeCollectionId ===
-                                                    col.id}
+                                                class:enabled={$activeCollectionIds.includes(
+                                                    col.id,
+                                                )}
                                                 disabled={collectionBusy ===
                                                     col.id}
                                                 onclick={() =>
-                                                    $activeCollectionId ===
-                                                    col.id
+                                                    $activeCollectionIds.includes(
+                                                        col.id,
+                                                    )
                                                         ? deactivateCollection(
                                                               col.id,
                                                           )
@@ -2966,8 +2986,9 @@
                                                         $loadingDots,
                                                     )}
                                                 {:else}
-                                                    {$activeCollectionId ===
-                                                    col.id
+                                                    {$activeCollectionIds.includes(
+                                                        col.id,
+                                                    )
                                                         ? "On"
                                                         : "Off"}
                                                 {/if}
@@ -2998,8 +3019,9 @@
                                                     {mod}
                                                     deferImages={paginating}
                                                     hideDescription={true}
-                                                    disableInstall={$activeCollectionId ===
-                                                        selectedCollectionId ||
+                                                    disableInstall={$activeCollectionIds.includes(
+                                                        selectedCollectionId ?? "",
+                                                    ) ||
                                                         collectionBusy ===
                                                             selectedCollectionId}
                                                     onmodclick={handleModClick}
