@@ -3013,8 +3013,8 @@
                                     <div
                                         class="mods-grid collections-mods-grid"
                                     >
-                                        {#each selectedCollectionMods as mod (mod.title)}
-                                            <div class="virtual-cell">
+                                        {#each selectedCollectionMods as mod, index (mod.title)}
+                                            <div class="virtual-cell" style="--card-index: {index}">
                                                 <ModCard
                                                     {mod}
                                                     deferImages={paginating}
@@ -3216,12 +3216,14 @@
                                     </p>
                                 </div>
                                 <div class="mods-grid local-mods-grid">
-                                    {#each visibleEnabledLocal as mod (mod.name)}
+                                    {#each visibleEnabledLocal as mod, index (mod.name)}
+                                        <div class="virtual-cell" style="--card-index: {index}">
                                         <LocalModCard
                                             {mod}
                                             onUninstall={handleModUninstalled}
                                             onToggleEnabled={handleModToggled}
                                         />
+                                        </div>
                                     {/each}
                                     <div
                                         bind:this={localSentinel}
@@ -3246,12 +3248,14 @@
                                     </p>
                                 </div>
                                 <div class="mods-grid local-mods-grid">
-                                    {#each visibleDisabledLocal as mod (mod.name)}
+                                    {#each visibleDisabledLocal as mod, index (mod.name)}
+                                        <div class="virtual-cell" style="--card-index: {index}">
                                         <LocalModCard
                                             {mod}
                                             onUninstall={handleModUninstalled}
                                             onToggleEnabled={handleModToggled}
                                         />
+                                        </div>
                                     {/each}
                                     <div
                                         bind:this={localSentinel}
@@ -3305,7 +3309,7 @@
                                     class:has-local-mods={localMods.length > 0}
                                 >
                                     {#each visiblePaginatedMods.filter( (m) => enabledMods.some((e) => e.title === m.title), ) as mod, index (mod.title)}
-                                        <div class="virtual-cell">
+                                        <div class="virtual-cell" style="--card-index: {index}">
                                             <ModCard
                                                 {mod}
                                                 deferImages={paginating}
@@ -3335,7 +3339,7 @@
                                     class:has-local-mods={localMods.length > 0}
                                 >
                                     {#each visiblePaginatedMods.filter( (m) => disabledMods.some((e) => e.title === m.title), ) as mod, index (mod.title)}
-                                        <div class="virtual-cell">
+                                        <div class="virtual-cell" style="--card-index: {index}">
                                             <ModCard
                                                 {mod}
                                                 deferImages={paginating}
@@ -3353,7 +3357,7 @@
                                 <!-- Fallback: show installed catalog mods before enabled state resolves -->
                                 <div class="mods-grid">
                                     {#each visiblePaginatedMods as mod, index (mod.title)}
-                                        <div class="virtual-cell">
+                                        <div class="virtual-cell" style="--card-index: {index}">
                                             <ModCard
                                                 {mod}
                                                 deferImages={paginating}
@@ -3371,7 +3375,7 @@
                         <!-- Original non-InstalledMods categories -->
                         <div class="mods-grid">
                             {#each visiblePaginatedMods as mod, index (mod.title)}
-                                <div class="virtual-cell">
+                                <div class="virtual-cell" style="--card-index: {index}">
                                     <ModCard
                                         {mod}
                                         deferImages={paginating}
@@ -3598,6 +3602,26 @@
 
     .virtual-cell {
         min-height: 0;
+        animation: cardEntrance 0.3s ease-out backwards;
+        animation-delay: calc(min(var(--card-index, 0), 15) * 30ms);
+    }
+
+    @keyframes cardEntrance {
+        from {
+            opacity: 0;
+            transform: translateY(15px);
+        }
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+
+    /* Respect reduced motion preference */
+    @media (prefers-reduced-motion: reduce) {
+        .virtual-cell {
+            animation: none;
+        }
     }
 
     .open-folder-button:active {
