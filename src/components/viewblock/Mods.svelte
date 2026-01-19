@@ -2606,12 +2606,10 @@
         Math.ceil(sortedAndFilteredMods.length / $itemsPerPage),
     );
     let paginatedMods = $derived(
-        $currentCategory === "Installed Mods"
-            ? sortedAndFilteredMods
-            : sortedAndFilteredMods.slice(
-                  ($currentPage - 1) * $itemsPerPage,
-                  $currentPage * $itemsPerPage,
-              ),
+        sortedAndFilteredMods.slice(
+            ($currentPage - 1) * $itemsPerPage,
+            $currentPage * $itemsPerPage,
+        ),
     );
 
     let visiblePaginatedMods: Mod[] = $state([]);
