@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { fly } from "svelte/transition";
+	import { flip } from "svelte/animate";
 	import { messageStore } from "../lib/stores";
 </script>
 
@@ -8,6 +9,7 @@
 		<div
 			class="message {message.type}"
 			transition:fly={{ y: -20, duration: 200 }}
+			animate:flip={{ duration: 200 }}
 		>
 			<div class="message-content">
 				{#if message.type === "success"}
@@ -53,8 +55,10 @@
 		z-index: 9999;
 		display: flex;
 		flex-direction: column;
+		align-items: flex-end;
 		gap: 12px;
 		pointer-events: none;
+		max-width: calc(100vw - 40px);
 	}
 
 	.message {
@@ -64,6 +68,7 @@
 		font-weight: 500;
 		box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
 		min-width: 300px;
+		max-width: calc(100vw - 40px);
 	}
 
 	.message-content {
@@ -115,7 +120,6 @@
 
 		.message {
 			min-width: unset;
-			width: 90%;
 			max-width: 320px;
 			padding: 12px 16px;
 			border-radius: 6px;
