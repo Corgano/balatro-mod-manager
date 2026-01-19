@@ -47,7 +47,6 @@
     }: Props = $props();
 
     let isEnabled = $state(true); // Default to enabled if not yet checked
-    let enabledChecked = false;
     let isLinux = false;
     let descriptionText = $derived(
         $descriptionsStore[mod.title] ?? mod.description ?? "",
@@ -73,15 +72,11 @@
         thumbLoaded = true;
     }
 
-    // Load the enabled state whenever the mod changes or when installationStatus changes
+    // Sync local isEnabled state with the store
     $effect(() => {
-        if (
-            $installationStatus[mod.title] &&
-            !enabledChecked &&
-            $modEnabledStore[mod.title] === undefined
-        ) {
-            enabledChecked = true;
-            checkModEnabled(mod.title);
+        const storeValue = $modEnabledStore[mod.title];
+        if (storeValue !== undefined) {
+            isEnabled = storeValue;
         }
     });
 
@@ -134,33 +129,6 @@
         titleResizeObserver?.disconnect();
         titleResizeObserver = null;
     });
-
-    async function checkModEnabled(modName: string) {
-        try {
-            const enabled = await invoke<boolean>("is_mod_enabled", {
-                modName,
-            });
-
-            modEnabledStore.update((enabledMods: Record<string, boolean>) => ({
-                ...enabledMods,
-                [modName]: enabled,
-            }));
-
-            // Also update local variable for reactive binding
-            isEnabled = enabled;
-        } catch (error) {
-            console.error(
-                `Failed to check if mod ${modName} is enabled:`,
-                error,
-            );
-            // Default to enabled on error
-            modEnabledStore.update((enabledMods: Record<string, boolean>) => ({
-                ...enabledMods,
-                [modName]: true,
-            }));
-            isEnabled = true;
-        }
-    }
 
     async function toggleModEnabled(e: Event) {
         e.stopPropagation();
@@ -325,9 +293,6 @@
                 [mod.title]: desiredEnabledState,
             }));
             isEnabled = desiredEnabledState;
-
-            // Manually check mod enabled status after installation
-            setTimeout(() => checkModEnabled(mod.title), 500);
 
             // After install, verify Lovely is still present
             if (!isLinux) {

@@ -6,7 +6,6 @@
 		Folder,
 	} from "lucide-svelte";
 	import { invoke } from "@tauri-apps/api/core";
-	import { onMount } from "svelte";
 	import { addMessage } from "$lib/stores";
 	import { modsStore } from "../../stores/modStore";
 	import { modEnabledStore } from "../../stores/modStore";
@@ -34,37 +33,13 @@
 	let isInstalling = $state(false);
 	let isEnabled = $state(true); // Default to enabled if not yet checked
 
-	onMount(() => {
-		checkModEnabled(mod.name);
-	});
-
-	async function checkModEnabled(modName: string) {
-		try {
-			// Use the full path for local mods
-			const enabled = await invoke<boolean>("is_mod_enabled_by_path", {
-				modPath: mod.path,
-			});
-
-			modEnabledStore.update((enabledMods: Record<string, boolean>) => ({
-				...enabledMods,
-				[modName]: enabled,
-			}));
-
-			// Also update local variable for reactive binding
-			isEnabled = enabled;
-		} catch (error) {
-			console.error(
-				`Failed to check if mod ${modName} is enabled:`,
-				error,
-			);
-			// Default to enabled on error
-			modEnabledStore.update((enabledMods: Record<string, boolean>) => ({
-				...enabledMods,
-				[modName]: true,
-			}));
-			isEnabled = true;
+	// Sync local isEnabled state with the store
+	$effect(() => {
+		const storeValue = $modEnabledStore[mod.name];
+		if (storeValue !== undefined) {
+			isEnabled = storeValue;
 		}
-	}
+	});
 
 	async function toggleModEnabled(e: Event) {
 		e.stopPropagation();

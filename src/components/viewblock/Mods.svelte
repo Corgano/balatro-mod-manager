@@ -65,7 +65,7 @@
     // Lazy-load SearchView only when Search tab is active
     import type { Component } from "svelte";
     let SearchViewComp = $state<Component | null>(null);
-    import { onMount, onDestroy } from "svelte";
+    import { onMount, onDestroy, untrack } from "svelte";
     import { listen } from "@tauri-apps/api/event";
     import { get, writable } from "svelte/store";
     import { addMessage } from "$lib/stores";
@@ -462,12 +462,7 @@
         disabledLocalMods = disabled;
     }
 
-    // Update the lists whenever the stores change
-    $effect(() => {
-        if ($currentCategory === "Installed Mods") {
-            updateEnabledDisabledLists();
-        }
-    });
+    // Note: updateEnabledDisabledLists is called in the effect near line 2598
 
     $effect(() => {
         if (
@@ -2596,11 +2591,14 @@
     let sortedAndFilteredMods = $derived(sortMods(filteredMods, $currentSort));
 
     $effect(() => {
-        // touch dependencies so effect runs when these change
+        // track these dependencies explicitly
         sortedAndFilteredMods;
         paginatedMods;
+        $currentCategory;
+        $modEnabledStore;
+        $installationStatus;
         if ($currentCategory === "Installed Mods") {
-            updateEnabledDisabledLists();
+            untrack(() => updateEnabledDisabledLists());
         }
     });
 

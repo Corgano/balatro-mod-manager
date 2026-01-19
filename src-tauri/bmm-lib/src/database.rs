@@ -329,6 +329,13 @@ impl Database {
         )
         .map_err(|e| AppError::DatabaseInit(e.to_string()))?;
 
+        // Create index on name for faster lookups by mod name
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_installed_mods_name ON installed_mods(name)",
+            [],
+        )
+        .map_err(|e| AppError::DatabaseInit(e.to_string()))?;
+
         // Set the database version
         conn.execute(
             "INSERT OR REPLACE INTO settings (setting, value) VALUES ('db_version', ?1)",
