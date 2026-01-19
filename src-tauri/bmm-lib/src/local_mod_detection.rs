@@ -330,14 +330,14 @@ pub fn resolve_mods_dir_path() -> Result<PathBuf, String> {
             // (running via Steam/Proton outside the sandbox) can find them.
             if let Some(home) = dirs::home_dir() {
                 let host_mods = home.join(".config").join("Balatro").join("Mods");
-                if !host_mods.exists() {
-                    if let Err(e) = fs::create_dir_all(&host_mods) {
-                        log::warn!(
-                            "Failed to create host mods directory {}: {}",
-                            host_mods.display(),
-                            e
-                        );
-                    }
+                if !host_mods.exists()
+                    && let Err(e) = fs::create_dir_all(&host_mods)
+                {
+                    log::warn!(
+                        "Failed to create host mods directory {}: {}",
+                        host_mods.display(),
+                        e
+                    );
                 }
                 if host_mods.exists() {
                     return Ok(host_mods);
