@@ -136,6 +136,10 @@
 		width: 100%;
 		height: 100%;
 		object-fit: cover;
+		-webkit-user-drag: none;
+		user-select: none;
+		-webkit-user-select: none;
+		pointer-events: none;
 	}
 
 	.content {
