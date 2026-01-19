@@ -322,7 +322,29 @@ pub fn resolve_mods_dir_path() -> Result<PathBuf, String> {
 
     #[cfg(target_os = "linux")]
     {
-        if std::env::var_os("FLATPAK_ID").is_none() {
+        let is_flatpak = std::env::var_os("FLATPAK_ID").is_some();
+
+        if is_flatpak {
+            // In Flatpak, always prefer the host config path (~/.config/Balatro/Mods).
+            // Create it if it doesn't exist so mods are installed where Balatro
+            // (running via Steam/Proton outside the sandbox) can find them.
+            if let Some(home) = dirs::home_dir() {
+                let host_mods = home.join(".config").join("Balatro").join("Mods");
+                if !host_mods.exists() {
+                    if let Err(e) = fs::create_dir_all(&host_mods) {
+                        log::warn!(
+                            "Failed to create host mods directory {}: {}",
+                            host_mods.display(),
+                            e
+                        );
+                    }
+                }
+                if host_mods.exists() {
+                    return Ok(host_mods);
+                }
+            }
+        } else {
+            // Non-Flatpak Linux: prefer Proton compatdata paths if they exist
             let compat_candidates: Vec<PathBuf> = candidates
                 .iter()
                 .filter(|p| is_proton_mods_path(p))

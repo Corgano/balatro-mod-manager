@@ -19,6 +19,7 @@
     "--talk-name=org.freedesktop.portal.OpenURI",
     "--talk-name=org.freedesktop.Flatpak",
     "--filesystem=xdg-config/Balatro",
+    "--filesystem=home/.config/Balatro:create",
     "--filesystem=xdg-data/Balatro",
     "--filesystem=home/.local/share/Steam",
     "--filesystem=home/.steam",
