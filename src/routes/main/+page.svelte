@@ -334,20 +334,18 @@ import { isLinuxPlatform } from "$lib/platform";
 		bind:this={contentElement}
         style="--card-scale: {$cardScale}"
 	>
-		<!-- Keep Mods mounted to preserve state and avoid re-fetching
-		     Use display: contents when visible to avoid layout shifts -->
-		<div class="section" style:display={currentSection !== "mods" ? 'none' : 'contents'}>
+		<!-- All sections stay mounted for smooth transitions -->
+		<div class="section-wrapper" class:active={currentSection === "mods"}>
 			<Mods mod={null} {handleDependencyCheck} />
 		</div>
 
-		<!-- Settings and About can remain conditional to save resources -->
-		{#if currentSection === "settings"}
+		<div class="section-wrapper" class:active={currentSection === "settings"}>
 			<Settings />
-		{/if}
+		</div>
 
-		{#if currentSection === "about"}
+		<div class="section-wrapper" class:active={currentSection === "about"}>
 			<About />
-		{/if}
+		</div>
 	</div>
 
 	{#if currentSection === "mods" && !$currentModView && $currentCategory !== "Search" && $currentCategory !== "Collections" && $currentCategory !== "Installed Mods" && $paginationWindow.totalPages > 1}
@@ -491,6 +489,43 @@ import { isLinuxPlatform } from "$lib/platform";
 	.content.modal-open {
 		/* padding-right: var(--scrollbar-width); */
 		padding-right: 0;
+	}
+
+	.section-wrapper {
+		position: absolute;
+		top: 0;
+		left: 0;
+		right: 0;
+		bottom: 0;
+		opacity: 0;
+		visibility: hidden;
+		transition: opacity 0.2s ease, visibility 0.2s ease;
+		overflow-y: auto;
+		overflow-x: hidden;
+	}
+
+	.section-wrapper::-webkit-scrollbar {
+		width: 10px;
+	}
+
+	.section-wrapper::-webkit-scrollbar-track {
+		background: transparent;
+		border-radius: 15px;
+	}
+
+	.section-wrapper::-webkit-scrollbar-thumb {
+		background: var(--ui-scroll-thumb);
+		border: 2px solid var(--ui-scroll-thumb-border);
+		border-radius: 15px;
+	}
+
+	.section-wrapper.active {
+		opacity: 1;
+		visibility: visible;
+	}
+
+	.content {
+		position: relative;
 	}
 
 	.version-text {
