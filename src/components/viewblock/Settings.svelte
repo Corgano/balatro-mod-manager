@@ -161,19 +161,6 @@
 	async function handleDarkModeChange() {
 		const newValue = !isDarkMode;
 		darkMode.set(newValue);
-		if (newValue && isBackgroundAnimationEnabled) {
-			try {
-				await invoke("set_background_state", { enabled: false });
-				backgroundEnabled.set(false);
-				isBackgroundAnimationEnabled = false;
-			} catch (error) {
-				console.error("Failed to disable background animation:", error);
-				addMessage(
-					"Failed to disable background animation for dark mode",
-					"error",
-				);
-			}
-		}
 	}
 
 	async function handleLinuxPrefixChange() {
@@ -528,7 +515,7 @@
 			<p class="description-small">
 				Use a darker palette across the UI for low-light environments.
 			</p>
-			{#if !isLinux && !isDarkMode}
+			{#if !isLinux}
 				<div class="console-settings">
 					<span class="label-text">Enable Background Animation</span>
 					<div class="switch-container">

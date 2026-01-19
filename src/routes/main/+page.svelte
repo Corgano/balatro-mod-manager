@@ -26,7 +26,7 @@ let ShaderBackgroundComp = $state<Component | null>(null);
 	import UninstallDialog from "../../components/UninstallDialog.svelte";
 	import { onMount } from "svelte";
 import { lovelyPopupStore } from "../../stores/modStore";
-import { cardScale } from "../../stores/ui";
+import { cardScale, darkMode } from "../../stores/ui";
 import { get } from "svelte/store";
 import ReportIssue from "../../components/ReportIssue.svelte";
 import CollectionPicker from "../../components/CollectionPicker.svelte";
@@ -297,7 +297,7 @@ import { isLinuxPlatform } from "$lib/platform";
 <!-- Background shader is dynamically imported below when enabled -->
 
 {#if $backgroundEnabled && ShaderBackgroundComp && !isLinux}
-	<ShaderBackgroundComp />
+	<ShaderBackgroundComp darkMode={$darkMode} />
 {/if}
 
 <div class="main-page">

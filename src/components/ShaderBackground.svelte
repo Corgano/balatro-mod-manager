@@ -1,11 +1,33 @@
 <script lang="ts">
 	import { onMount } from "svelte";
 
+	// Props
+	interface Props {
+		darkMode?: boolean;
+	}
+	let { darkMode = false }: Props = $props();
+
+	// Color palettes
+	const LIGHT_COLORS = {
+		colour_1: [0.85, 0.2, 0.2, 1.0],        // Vibrant red
+		colour_2: [0.0, 156/255, 1.0, 1.0],    // Bright blue
+		colour_3: [0.0, 0.0, 0.0, 1.0],        // Black
+	};
+
+	const DARK_COLORS = {
+		colour_1: [20/255, 15/255, 90/255, 1.0],     // Deep blue-purple
+		colour_2: [40/255, 5/255, 70/255, 1.0],      // Blue-magenta
+		colour_3: [3/255, 3/255, 15/255, 1.0],       // Dark blue-black
+	};
+
 	let canvas: HTMLCanvasElement;
 	let gl: WebGLRenderingContext;
 	let program: WebGLProgram;
 	let timeLocation: WebGLUniformLocation;
 	let resolutionLocation: WebGLUniformLocation;
+	let colour1Location: WebGLUniformLocation;
+	let colour2Location: WebGLUniformLocation;
+	let colour3Location: WebGLUniformLocation;
 	let startTime: number;
 
 	const vertexShader = `
@@ -19,12 +41,12 @@
     precision highp float;
     uniform float iTime;
     uniform vec2 iResolution;
+    uniform vec4 colour_1;
+    uniform vec4 colour_2;
+    uniform vec4 colour_3;
 
     #define PIXEL_SIZE_FAC 700.0
     #define SPIN_EASE 0.5
-    #define colour_2 vec4(0.0,156./255.,1.,1.0)
-    #define colour_1 vec4(0.85,0.2,0.2,1.0)
-    #define colour_3 vec4(0.0,0.0,0.0,1.0)
     #define spin_amount 0.7
     #define contrast 1.5
 
@@ -117,11 +139,14 @@
 
 		const tLocation = gl.getUniformLocation(program, "iTime");
 		const rLocation = gl.getUniformLocation(program, "iResolution");
+		const c1Location = gl.getUniformLocation(program, "colour_1");
+		const c2Location = gl.getUniformLocation(program, "colour_2");
+		const c3Location = gl.getUniformLocation(program, "colour_3");
 
 		// Check if uniforms exist in the shader
-		if (tLocation === null || rLocation === null) {
+		if (tLocation === null || rLocation === null || c1Location === null || c2Location === null || c3Location === null) {
 			throw new Error(
-				"Failed to get uniform locations: iTime or iResolution not found in shader",
+				"Failed to get uniform locations: required uniforms not found in shader",
 			);
 		}
 
@@ -138,6 +163,9 @@
 
 		timeLocation = tLocation;
 		resolutionLocation = rLocation;
+		colour1Location = c1Location;
+		colour2Location = c2Location;
+		colour3Location = c3Location;
 
 		startTime = performance.now();
 		render();
@@ -161,6 +189,13 @@
     gl.useProgram(program);
     gl.uniform1f(timeLocation, time);
     gl.uniform2f(resolutionLocation, canvas.width, canvas.height);
+
+    // Set colors based on theme
+    const colors = darkMode ? DARK_COLORS : LIGHT_COLORS;
+    gl.uniform4f(colour1Location, colors.colour_1[0], colors.colour_1[1], colors.colour_1[2], colors.colour_1[3]);
+    gl.uniform4f(colour2Location, colors.colour_2[0], colors.colour_2[1], colors.colour_2[2], colors.colour_2[3]);
+    gl.uniform4f(colour3Location, colors.colour_3[0], colors.colour_3[1], colors.colour_3[2], colors.colour_3[3]);
+
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
     animationFrame = requestAnimationFrame(render);
   }
