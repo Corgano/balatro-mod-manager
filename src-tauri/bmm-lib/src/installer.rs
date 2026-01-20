@@ -25,14 +25,15 @@ use crate::local_mod_detection::{
 use flate2::read::GzDecoder;
 use reqwest::Client;
 use reqwest::header::{CONTENT_DISPOSITION, CONTENT_TYPE};
-use std::fs;
+use std::fs::{self, File};
 use std::io::Read;
-use std::io::{self, Cursor};
+use std::io::{self, BufReader};
 use std::path::Path;
 use std::path::PathBuf;
 use std::thread;
 use std::time::Duration;
 use tar::Archive;
+use tokio::io::AsyncWriteExt;
 use tokio::time::sleep;
 use zip::ZipArchive;
 
@@ -102,23 +103,73 @@ pub async fn install_mod(url: String, folder_name: Option<String>) -> Result<Pat
         response.content_length()
     );
 
-    let file = response.bytes().await.map_err(|e| {
-        log::error!("Failed to read response body from {}: {}", url, e);
+    // Stream download to a temporary file to avoid loading entire archive into memory
+    // This reduces peak memory usage from "archive size" to ~64KB chunk size
+    let temp_dir = std::env::temp_dir();
+    let temp_file_path = temp_dir.join(format!("bmm_download_{}.tmp", std::process::id()));
+
+    let mut temp_file = tokio::fs::File::create(&temp_file_path)
+        .await
+        .map_err(|e| {
+            log::error!("Failed to create temp file: {}", e);
+            AppError::FileWrite {
+                path: temp_file_path.clone(),
+                source: e.to_string(),
+            }
+        })?;
+
+    let mut total_bytes: u64 = 0;
+    let mut magic_bytes = Vec::with_capacity(512);
+
+    // Use response.chunk() for streaming without needing futures-util
+    let mut response = response;
+    while let Some(chunk) = response.chunk().await.map_err(|e| {
+        log::error!("Failed to read response chunk from {}: {}", url, e);
         AppError::NetworkRequest {
             url: url.clone(),
             source: e.to_string(),
         }
+    })? {
+        // Capture first 512 bytes for magic detection
+        if magic_bytes.len() < 512 {
+            let needed = 512 - magic_bytes.len();
+            let take = needed.min(chunk.len());
+            magic_bytes.extend_from_slice(&chunk[..take]);
+        }
+
+        temp_file.write_all(&chunk).await.map_err(|e| {
+            log::error!("Failed to write to temp file: {}", e);
+            AppError::FileWrite {
+                path: temp_file_path.clone(),
+                source: e.to_string(),
+            }
+        })?;
+        total_bytes += chunk.len() as u64;
+    }
+
+    temp_file.flush().await.map_err(|e| AppError::FileWrite {
+        path: temp_file_path.clone(),
+        source: e.to_string(),
     })?;
+    drop(temp_file); // Close the file handle
 
-    log::debug!("Downloaded {} bytes from {}", file.len(), url);
+    log::debug!(
+        "Downloaded {} bytes from {} (streamed to temp file)",
+        total_bytes,
+        url
+    );
 
+    // Detect archive type from magic bytes
+    let magic_bytes = bytes::Bytes::from(magic_bytes);
     let archive_kind = guess_archive_kind(
-        &file,
+        &magic_bytes,
         &url,
         content_type_header.as_deref(),
         content_disposition_filename.as_deref(),
     )
     .ok_or_else(|| {
+        // Clean up temp file on error
+        let _ = std::fs::remove_file(&temp_file_path);
         AppError::InvalidState(
             "Unsupported or unknown archive type (supported: .zip, .tar, .tar.gz)".into(),
         )
@@ -183,13 +234,23 @@ pub async fn install_mod(url: String, folder_name: Option<String>) -> Result<Pat
     // Run CPU-bound archive extraction in a blocking task
     let mod_dir_clone = mod_dir.clone();
     let mod_name_clone = mod_name.clone();
-    let installed_path = tokio::task::spawn_blocking(move || match archive_kind {
-        ArchiveKind::Zip => handle_zip(file, &mod_dir_clone, &mod_name_clone),
-        ArchiveKind::Tar => handle_tar(file, &mod_dir_clone, &mod_name_clone),
-        ArchiveKind::TarGz => handle_tar_gz(file, &mod_dir_clone, &mod_name_clone),
+    let temp_path_clone = temp_file_path.clone();
+    let installed_path = tokio::task::spawn_blocking(move || {
+        let result = match archive_kind {
+            ArchiveKind::Zip => handle_zip(&temp_path_clone, &mod_dir_clone, &mod_name_clone),
+            ArchiveKind::Tar => handle_tar(&temp_path_clone, &mod_dir_clone, &mod_name_clone),
+            ArchiveKind::TarGz => handle_tar_gz(&temp_path_clone, &mod_dir_clone, &mod_name_clone),
+        };
+        // Clean up temp file after extraction (regardless of success/failure)
+        let _ = std::fs::remove_file(&temp_path_clone);
+        result
     })
     .await
-    .map_err(|e| AppError::InvalidState(format!("Archive extraction task failed: {e}")))??;
+    .map_err(|e| {
+        // Clean up temp file if spawn_blocking fails
+        let _ = std::fs::remove_file(&temp_file_path);
+        AppError::InvalidState(format!("Archive extraction task failed: {e}"))
+    })??;
 
     if was_disabled {
         log::info!("Restoring disabled state for {}", installed_path.display());
@@ -326,10 +387,19 @@ fn guess_archive_kind(
     None
 }
 
-fn handle_zip(file: bytes::Bytes, mod_dir: &Path, mod_name: &str) -> Result<PathBuf, AppError> {
-    log::debug!("Parsing ZIP archive, size: {} bytes", file.len());
-    let cursor = Cursor::new(file);
-    let mut zip = ZipArchive::new(cursor).map_err(|e| {
+fn handle_zip(archive_path: &Path, mod_dir: &Path, mod_name: &str) -> Result<PathBuf, AppError> {
+    let file = File::open(archive_path).map_err(|e| {
+        log::error!("Failed to open archive file: {}", e);
+        AppError::FileRead {
+            path: archive_path.to_path_buf(),
+            source: e.to_string(),
+        }
+    })?;
+    let file_size = file.metadata().map(|m| m.len()).unwrap_or(0);
+    log::debug!("Parsing ZIP archive, size: {} bytes", file_size);
+
+    let reader = BufReader::new(file);
+    let mut zip = ZipArchive::new(reader).map_err(|e| {
         log::error!("Failed to parse ZIP archive: {}", e);
         AppError::FileWrite {
             path: mod_dir.to_path_buf(),
@@ -397,8 +467,8 @@ fn handle_zip(file: bytes::Bytes, mod_dir: &Path, mod_name: &str) -> Result<Path
     Ok(target_dir)
 }
 
-fn extract_zip_root(
-    zip: &mut ZipArchive<Cursor<bytes::Bytes>>,
+fn extract_zip_root<R: Read + io::Seek>(
+    zip: &mut ZipArchive<R>,
     path: &PathBuf,
 ) -> Result<(), AppError> {
     fs::create_dir_all(path).map_err(|e| AppError::DirCreate {
@@ -432,8 +502,8 @@ fn extract_zip_root(
     Ok(())
 }
 
-fn get_zip_root_dir(
-    zip: &mut ZipArchive<Cursor<bytes::Bytes>>,
+fn get_zip_root_dir<R: Read + io::Seek>(
+    zip: &mut ZipArchive<R>,
     mod_dir: &Path,
 ) -> Result<String, AppError> {
     let first_entry = zip.by_index(0).map_err(|e| AppError::FileRead {
@@ -444,11 +514,14 @@ fn get_zip_root_dir(
     let name_parts: Vec<&str> = first_entry.name().split('/').collect();
     name_parts
         .first()
-        .map(|s| s.to_string())
+        .map(|s: &&str| s.to_string())
         .ok_or_else(|| AppError::InvalidState("Empty zip archive".into()))
 }
 
-fn extract_zip(zip: &mut ZipArchive<Cursor<bytes::Bytes>>, mod_dir: &Path) -> Result<(), AppError> {
+fn extract_zip<R: Read + io::Seek>(
+    zip: &mut ZipArchive<R>,
+    mod_dir: &Path,
+) -> Result<(), AppError> {
     for i in 0..zip.len() {
         let mut file = zip.by_index(i).map_err(|e| AppError::FileRead {
             path: mod_dir.to_path_buf(),
@@ -475,15 +548,23 @@ fn extract_zip(zip: &mut ZipArchive<Cursor<bytes::Bytes>>, mod_dir: &Path) -> Re
     Ok(())
 }
 
-fn handle_tar(file: bytes::Bytes, mod_dir: &Path, mod_name: &str) -> Result<PathBuf, AppError> {
-    let cursor = Cursor::new(file);
-    let mut tar = Archive::new(cursor);
+fn handle_tar(archive_path: &Path, mod_dir: &Path, mod_name: &str) -> Result<PathBuf, AppError> {
+    let file = File::open(archive_path).map_err(|e| AppError::FileRead {
+        path: archive_path.to_path_buf(),
+        source: e.to_string(),
+    })?;
+    let reader = BufReader::new(file);
+    let mut tar = Archive::new(reader);
     extract_tar(&mut tar, mod_dir, mod_name)
 }
 
-fn handle_tar_gz(file: bytes::Bytes, mod_dir: &Path, mod_name: &str) -> Result<PathBuf, AppError> {
-    let cursor = Cursor::new(file);
-    let gz = GzDecoder::new(cursor);
+fn handle_tar_gz(archive_path: &Path, mod_dir: &Path, mod_name: &str) -> Result<PathBuf, AppError> {
+    let file = File::open(archive_path).map_err(|e| AppError::FileRead {
+        path: archive_path.to_path_buf(),
+        source: e.to_string(),
+    })?;
+    let reader = BufReader::new(file);
+    let gz = GzDecoder::new(reader);
     let mut tar = Archive::new(gz);
     extract_tar(&mut tar, mod_dir, mod_name)
 }
@@ -774,7 +855,12 @@ mod tests {
 
         let td = tempdir().unwrap();
         let mod_dir = td.path();
-        let out = handle_zip(Bytes::from(buf), mod_dir, "TestMod").unwrap();
+
+        // Write buffer to temp file for handle_zip
+        let archive_path = td.path().join("test.zip");
+        std::fs::write(&archive_path, &buf).unwrap();
+
+        let out = handle_zip(&archive_path, mod_dir, "TestMod").unwrap();
         let file_path = out.join("hello.txt");
         assert!(file_path.exists());
         let content = std::fs::read_to_string(file_path).unwrap();
@@ -801,7 +887,12 @@ mod tests {
 
         let td = tempdir().unwrap();
         let mod_dir = td.path();
-        let out = handle_zip(Bytes::from(buf), mod_dir, "TestMod").unwrap();
+
+        // Write buffer to temp file for handle_zip
+        let archive_path = td.path().join("test.zip");
+        std::fs::write(&archive_path, &buf).unwrap();
+
+        let out = handle_zip(&archive_path, mod_dir, "TestMod").unwrap();
         let file_path = out.join("readme.md");
         assert!(file_path.exists());
         let content = std::fs::read_to_string(file_path).unwrap();

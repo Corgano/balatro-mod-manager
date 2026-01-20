@@ -131,10 +131,42 @@ impl Database {
         conn.execute_batch(
             "PRAGMA journal_mode=WAL;
              PRAGMA synchronous=NORMAL;
-             PRAGMA wal_autocheckpoint=1000;
+             PRAGMA wal_autocheckpoint=500;
              PRAGMA busy_timeout=5000;",
         )
         .map_err(|e| AppError::DatabaseInit(format!("Failed to configure database: {e}")))?;
+        Ok(())
+    }
+
+    /// Force a WAL checkpoint to merge the WAL file into the main database.
+    /// Call this on app shutdown for a cleaner database state.
+    pub fn checkpoint(&self) -> Result<(), AppError> {
+        self.conn
+            .execute_batch("PRAGMA wal_checkpoint(TRUNCATE);")
+            .map_err(|e| AppError::DatabaseInit(format!("Failed to checkpoint WAL: {e}")))?;
+        Ok(())
+    }
+
+    /// Get a setting value using cached prepared statement.
+    /// Returns None if the setting doesn't exist.
+    fn get_setting(&self, setting: &str) -> Result<Option<String>, AppError> {
+        let mut stmt = self
+            .conn
+            .prepare_cached("SELECT value FROM settings WHERE setting = ?1")?;
+        let mut rows = stmt.query([setting])?;
+        if let Some(row) = rows.next()? {
+            Ok(Some(row.get(0)?))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Set a setting value using cached prepared statement.
+    fn set_setting(&self, setting: &str, value: &str) -> Result<(), AppError> {
+        let mut stmt = self
+            .conn
+            .prepare_cached("INSERT OR REPLACE INTO settings (setting, value) VALUES (?1, ?2)")?;
+        stmt.execute([setting, value])?;
         Ok(())
     }
 
@@ -352,7 +384,7 @@ impl Database {
         conn.execute_batch(
             "PRAGMA journal_mode=WAL;
              PRAGMA synchronous=NORMAL;
-             PRAGMA wal_autocheckpoint=1000;
+             PRAGMA wal_autocheckpoint=500;
              PRAGMA busy_timeout=5000;",
         )
         .map_err(|e| AppError::DatabaseInit(format!("Failed to enable WAL mode: {e}")))?;
@@ -474,9 +506,10 @@ impl Database {
     }
 
     pub fn get_installed_mods(&self) -> Result<Vec<InstalledMod>, AppError> {
-        let mut stmt = self
-            .conn
-            .prepare("SELECT name, path, dependencies, current_version FROM installed_mods")?;
+        // Use prepare_cached for frequently called queries to avoid re-parsing SQL
+        let mut stmt = self.conn.prepare_cached(
+            "SELECT name, path, dependencies, current_version FROM installed_mods",
+        )?;
         let mut mods = Vec::new();
         let mut rows = stmt.query([])?;
 
@@ -508,7 +541,8 @@ impl Database {
     }
 
     pub fn get_dependents(&self, mod_name: &str) -> Result<Vec<String>, AppError> {
-        let mut stmt = self.conn.prepare(
+        // Use prepare_cached for frequently called queries
+        let mut stmt = self.conn.prepare_cached(
             "SELECT name FROM installed_mods
             WHERE EXISTS (
                 SELECT 1 FROM json_each(dependencies)
@@ -549,24 +583,11 @@ impl Database {
     }
 
     pub fn get_installation_path(&self) -> Result<Option<String>, AppError> {
-        let mut stmt = self
-            .conn
-            .prepare("SELECT value FROM settings WHERE setting = 'installation_path'")?;
-        let mut rows = stmt.query([])?;
-
-        if let Some(row) = rows.next()? {
-            Ok(Some(row.get(0)?))
-        } else {
-            Ok(None)
-        }
+        self.get_setting("installation_path")
     }
 
     pub fn set_installation_path(&self, path: &str) -> Result<(), AppError> {
-        self.conn.execute(
-            "INSERT OR REPLACE INTO settings (setting, value) VALUES (?1, ?2)",
-            ["installation_path", path],
-        )?;
-        Ok(())
+        self.set_setting("installation_path", path)
     }
 
     pub fn remove_installation_path(&self) -> Result<(), AppError> {
@@ -578,30 +599,18 @@ impl Database {
     }
 
     pub fn get_lovely_version(&self) -> Result<Option<String>, AppError> {
-        let mut stmt = self
-            .conn
-            .prepare("SELECT value FROM settings WHERE setting = 'lovely_version'")?;
-        let mut rows = stmt.query([])?;
-
-        if let Some(row) = rows.next()? {
-            Ok(Some(row.get(0)?))
-        } else {
-            Ok(None)
-        }
+        self.get_setting("lovely_version")
     }
 
     pub fn set_lovely_version(&self, version: &str) -> Result<(), AppError> {
-        self.conn.execute(
-            "INSERT OR REPLACE INTO settings (setting, value) VALUES ('lovely_version', ?1)",
-            [version],
-        )?;
-        Ok(())
+        self.set_setting("lovely_version", version)
     }
 
     pub fn get_last_installed_version(&self, mod_name: &str) -> Result<String, AppError> {
+        // Use prepare_cached for frequently called queries
         let mut stmt = self
             .conn
-            .prepare("SELECT current_version FROM installed_mods WHERE name = ?1")?;
+            .prepare_cached("SELECT current_version FROM installed_mods WHERE name = ?1")?;
         let mut rows = stmt.query([mod_name])?;
 
         if let Some(row) = rows.next()? {
@@ -633,47 +642,21 @@ impl Database {
     }
 
     pub fn get_background_enabled(&self) -> Result<bool, AppError> {
-        let mut stmt = self
-            .conn
-            .prepare("SELECT value FROM settings WHERE setting = 'background_enabled'")?;
-        let mut rows = stmt.query([])?;
-
-        if let Some(row) = rows.next()? {
-            Ok(row.get::<_, String>(0)? == "enabled")
-        } else {
-            Ok(false)
-        }
+        Ok(self.get_setting("background_enabled")?.as_deref() == Some("enabled"))
     }
 
     pub fn set_compat_helper_enabled(&self, enabled: bool) -> Result<(), AppError> {
-        let enabled: &str = if enabled { "enabled" } else { "disabled" };
-        self.conn.execute(
-            "INSERT OR REPLACE INTO settings (setting, value) VALUES ('compat_helper', ?1)",
-            [enabled],
-        )?;
-        Ok(())
+        let value = if enabled { "enabled" } else { "disabled" };
+        self.set_setting("compat_helper", value)
     }
 
     pub fn is_compat_helper_enabled(&self) -> Result<bool, AppError> {
-        let mut stmt = self
-            .conn
-            .prepare("SELECT value FROM settings WHERE setting = 'compat_helper'")?;
-        let mut rows = stmt.query([])?;
-
-        if let Some(row) = rows.next()? {
-            Ok(row.get::<_, String>(0)? == "enabled")
-        } else {
-            Ok(false)
-        }
+        Ok(self.get_setting("compat_helper")?.as_deref() == Some("enabled"))
     }
 
     /// Check if the 0.3.7 compat helper migration has been applied.
     pub fn is_compat_helper_037_migrated(&self) -> Result<bool, AppError> {
-        let mut stmt = self
-            .conn
-            .prepare("SELECT value FROM settings WHERE setting = 'compat_helper_037_migrated'")?;
-        let mut rows = stmt.query([])?;
-        Ok(rows.next()?.is_some())
+        Ok(self.get_setting("compat_helper_037_migrated")?.is_some())
     }
 
     /// Mark the 0.3.7 compat helper migration as complete.

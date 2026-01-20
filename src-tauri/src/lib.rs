@@ -156,6 +156,10 @@ pub fn run() {
                 const ACTIVE_TICK_SECS: u64 = 2; // 2s when mods are installed
                 const IDLE_TICK_SECS: u64 = 30; // 30s when no mods installed (saves CPU/battery)
                 const STABLE_TICK_SECS: u64 = 10; // 10s when fingerprint hasn't changed recently
+                const INITIAL_DELAY_SECS: u64 = 5; // Wait before first scan to let app finish loading
+
+                // Initial delay to let the app finish startup before consuming CPU
+                sleep(Duration::from_secs(INITIAL_DELAY_SECS)).await;
 
                 // Snapshot of installed mods to sweep over between refreshes
                 let mut snapshot: Vec<(String, String)> = Vec::new(); // (name, path)
@@ -443,12 +447,30 @@ pub fn run() {
             commands::init::get_all_settings,
             exit_application
         ])
-        .run(tauri::generate_context!());
+        .build(tauri::generate_context!());
 
-    if let Err(e) = result {
-        log::error!("Failed to run application: {e}");
-        log::logger().flush();
-        std::process::exit(1);
+    match result {
+        Ok(app) => {
+            app.run(|app_handle, event| {
+                if let tauri::RunEvent::Exit = event {
+                    // Checkpoint WAL on shutdown for a clean database state
+                    if let Some(state) = app_handle.try_state::<AppState>() {
+                        if let Ok(db) = state.db.try_lock() {
+                            if let Err(e) = db.checkpoint() {
+                                log::warn!("Failed to checkpoint database on exit: {}", e);
+                            } else {
+                                log::debug!("Database checkpointed on exit");
+                            }
+                        }
+                    }
+                }
+            });
+        }
+        Err(e) => {
+            log::error!("Failed to build application: {e}");
+            log::logger().flush();
+            std::process::exit(1);
+        }
     }
 }
 

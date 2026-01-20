@@ -19,6 +19,7 @@
         normalizeColorPair,
         pickDarkPalette,
     } from "../../utils/cardPalette";
+    import { observeResize } from "../../utils/resize-observer-pool";
     import { onMount, onDestroy } from "svelte";
     import { isLinuxPlatform } from "$lib/platform";
 
@@ -55,7 +56,7 @@
     let lastThumbKey = "";
     let titleEl: HTMLHeadingElement | null = $state(null);
     let titleScale = $state(1);
-    let titleResizeObserver: ResizeObserver | null = null;
+    let unobserveTitle: (() => void) | null = null;
     let cardColors = $derived(
         $darkMode ? pickDarkPalette(mod.title) : normalizeColorPair(mod.colors),
     );
@@ -117,17 +118,15 @@
     });
 
     onMount(() => {
-        if (typeof ResizeObserver === "undefined") return;
-        titleResizeObserver = new ResizeObserver(debouncedUpdateTitleScale);
         if (titleEl) {
-            titleResizeObserver.observe(titleEl);
+            unobserveTitle = observeResize(titleEl, debouncedUpdateTitleScale);
         }
     });
 
     onDestroy(() => {
         if (resizeDebounceTimer) clearTimeout(resizeDebounceTimer);
-        titleResizeObserver?.disconnect();
-        titleResizeObserver = null;
+        unobserveTitle?.();
+        unobserveTitle = null;
     });
 
     async function toggleModEnabled(e: Event) {

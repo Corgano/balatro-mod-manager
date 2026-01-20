@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount, onDestroy, createEventDispatcher } from "svelte";
   import { assets } from "$app/paths";
+  import { LRUCache } from "../../utils/lru-cache";
 
   export let src: string;
   export let alt: string = "";
@@ -58,8 +59,8 @@
   let pendingRelease: (() => void) | null = null;
   let localFileFallback: string | null = null;
   let triedLocalFileFallback = false;
-  const cacheUrlMemo = new Map<string, string | null>();
-  const thumbMemo = new Map<string, string>();
+  const cacheUrlMemo = new LRUCache<string, string | null>(500);
+  const thumbMemo = new LRUCache<string, string>(500);
 
   function releaseSlot() {
     if (releaseCurrent) {
