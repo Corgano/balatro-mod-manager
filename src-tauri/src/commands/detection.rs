@@ -1,5 +1,6 @@
 use std::path::{Path, PathBuf};
 
+use crate::models::ModsChangedEvent;
 use crate::state::AppState;
 use crate::util::map_error;
 use bmm_lib::{cache, database::Database, errors::AppError, local_mod_detection};
@@ -87,8 +88,15 @@ pub async fn reindex_mods(
     let result = reindex_db(&db);
     match &result {
         Ok((_files, cleaned)) if *cleaned > 0 => {
-            // Best-effort event notify; ignore if there are no listeners
-            let _ = app_handle.emit("installed-mods-changed", ());
+            // Best-effort event notify; use full_refresh since we don't track individual removals
+            let _ = app_handle.emit(
+                "installed-mods-changed",
+                ModsChangedEvent {
+                    added: Vec::new(),
+                    removed: Vec::new(),
+                    full_refresh: true,
+                },
+            );
         }
         _ => {}
     }

@@ -1,4 +1,8 @@
 import { writable, get, type Writable } from "svelte/store";
+import {
+  safeLocalStorageSet,
+  monitorStorageQuota,
+} from "../utils/storage-quota";
 
 export interface Mod {
   id?: string;
@@ -195,15 +199,28 @@ function persistModsCache(value: Mod[]) {
       // omit description and image fields (largest strings)
     }));
 
-    localStorage.setItem("mods-cache", JSON.stringify(slim));
+    const jsonData = JSON.stringify(slim);
+    if (!safeLocalStorageSet("mods-cache", jsonData)) {
+      // Quota exceeded - clear the cache entirely rather than corrupt it
+      console.warn(
+        "Failed to persist mods cache due to quota. Clearing cache.",
+      );
+      try {
+        localStorage.removeItem("mods-cache");
+        localStorage.removeItem("mods-cache-ts");
+      } catch {
+        // Ignore
+      }
+      return;
+    }
     const now = Date.now();
-    localStorage.setItem("mods-cache-ts", String(now));
+    safeLocalStorageSet("mods-cache-ts", String(now));
     catalogLastRefreshed.set(now);
-  } catch (e) {
+  } catch {
     try {
       localStorage.removeItem("mods-cache");
       localStorage.removeItem("mods-cache-ts");
-    } catch (_) {
+    } catch {
       // ignore
     }
   }
@@ -216,6 +233,13 @@ export const catalogResetNonce = writable(0);
 
 // Persist and hydrate the mods catalog for instant UI + offline fallback
 if (typeof window !== "undefined") {
+  // Monitor storage quota on startup
+  try {
+    monitorStorageQuota();
+  } catch {
+    // Ignore monitoring errors
+  }
+
   try {
     const cached = localStorage.getItem("mods-cache");
     if (cached) {
@@ -229,7 +253,7 @@ if (typeof window !== "undefined") {
       const n = Number(ts);
       if (!Number.isNaN(n)) catalogLastRefreshed.set(n);
     }
-  } catch (_) {
+  } catch {
     // ignore cache read errors
   }
 
@@ -239,14 +263,22 @@ if (typeof window !== "undefined") {
       clearTimeout(persistTimer);
     }
     // Debounce cache writes to avoid thrashing localStorage during hydration.
-    // Using 500ms for better performance during rapid updates.
+    // Using 2000ms debounce and requestIdleCallback for better performance.
     persistTimer = window.setTimeout(() => {
       if (persistSuspended) {
         persistPending = true;
         return;
       }
-      persistModsCache(value);
-    }, 500);
+      // Use requestIdleCallback when available for non-blocking persistence
+      if ("requestIdleCallback" in window) {
+        window.requestIdleCallback(
+          () => persistModsCache(value),
+          { timeout: 5000 }, // Ensure it runs within 5s even if browser is busy
+        );
+      } else {
+        persistModsCache(value);
+      }
+    }, 2000);
   });
 }
 

@@ -351,4 +351,124 @@ impl AppError {
             value: value.into(),
         }
     }
+
+    /// Convert to a frontend-friendly error with categorization.
+    /// This allows the frontend to show appropriate UI based on error type.
+    pub fn to_frontend_error(&self) -> FrontendError {
+        match self {
+            // Network errors
+            AppError::NetworkRequest { url, source } => FrontendError {
+                category: ErrorCategory::Network,
+                message: source.clone(),
+                details: Some(format!("URL: {}", url)),
+                retryable: true,
+            },
+            AppError::ApiLimitExceeded => FrontendError {
+                category: ErrorCategory::RateLimit,
+                message: "API rate limit exceeded. Please try again later.".to_string(),
+                details: None,
+                retryable: true,
+            },
+            AppError::Network(msg) => FrontendError {
+                category: ErrorCategory::Network,
+                message: msg.clone(),
+                details: None,
+                retryable: true,
+            },
+
+            // File system errors
+            AppError::FileRead { path, source } => FrontendError {
+                category: ErrorCategory::FileSystem,
+                message: format!("Failed to read file: {}", source),
+                details: Some(path.display().to_string()),
+                retryable: false,
+            },
+            AppError::FileWrite { path, source } => FrontendError {
+                category: ErrorCategory::FileSystem,
+                message: format!("Failed to write file: {}", source),
+                details: Some(path.display().to_string()),
+                retryable: false,
+            },
+            AppError::DirNotFound(path) => FrontendError {
+                category: ErrorCategory::FileSystem,
+                message: format!("Directory not found: {}", path.display()),
+                details: None,
+                retryable: false,
+            },
+
+            // Database errors
+            AppError::DatabaseInit(msg)
+            | AppError::DatabaseQuery(msg)
+            | AppError::DatabaseTransaction(msg) => FrontendError {
+                category: ErrorCategory::Database,
+                message: msg.clone(),
+                details: None,
+                retryable: false,
+            },
+
+            // Mod installation errors
+            AppError::ModInstall { mod_name, source } => FrontendError {
+                category: ErrorCategory::ModInstall,
+                message: format!("Failed to install {}: {}", mod_name, source),
+                details: None,
+                retryable: true,
+            },
+            AppError::ModNotFound { mod_name, version } => FrontendError {
+                category: ErrorCategory::ModInstall,
+                message: if version.is_empty() {
+                    format!("Mod '{}' not found", mod_name)
+                } else {
+                    format!("Mod '{}' version '{}' not found", mod_name, version)
+                },
+                details: None,
+                retryable: false,
+            },
+
+            // Default fallback
+            _ => FrontendError {
+                category: ErrorCategory::Unknown,
+                message: self.to_string(),
+                details: None,
+                retryable: false,
+            },
+        }
+    }
+}
+
+/// Error categories for frontend UI handling.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ErrorCategory {
+    /// Network connectivity or request failures
+    Network,
+    /// API rate limit exceeded
+    RateLimit,
+    /// File system read/write errors
+    FileSystem,
+    /// Database operation failures
+    Database,
+    /// Mod installation failures
+    ModInstall,
+    /// Unknown or uncategorized errors
+    Unknown,
+}
+
+/// Frontend-friendly error representation with categorization.
+/// Allows the UI to show appropriate feedback based on error type.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct FrontendError {
+    /// Category for UI handling (determines icon, color, etc.)
+    pub category: ErrorCategory,
+    /// Human-readable error message
+    pub message: String,
+    /// Optional additional details (file path, URL, etc.)
+    pub details: Option<String>,
+    /// Whether the operation can be retried
+    pub retryable: bool,
+}
+
+impl std::fmt::Display for FrontendError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.message)
+    }
 }

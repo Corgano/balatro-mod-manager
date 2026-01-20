@@ -169,8 +169,12 @@ pub async fn install_mod(url: String, folder_name: Option<String>) -> Result<Pat
         log::info!("Uninstalling existing mod at: {target_dir:?}");
         uninstall_mod(target_dir.clone()).await?;
 
-        // Give the filesystem a moment to fully release file handles
-        // This is especially important on Windows where file locks can persist briefly
+        // Give the filesystem time to fully release file handles.
+        // This is especially important on Windows where file locks can persist briefly.
+        // Using 250ms for Windows reliability (100ms was insufficient per issue reports).
+        #[cfg(target_os = "windows")]
+        sleep(Duration::from_millis(250)).await;
+        #[cfg(not(target_os = "windows"))]
         sleep(Duration::from_millis(100)).await;
     }
 
@@ -593,9 +597,16 @@ fn apply_disabled_marker(mod_path: &Path) -> Result<(), AppError> {
     })
 }
 
-/// Retry removing a directory with exponential backoff to handle file locks on Windows
+/// Retry removing a directory with exponential backoff to handle file locks on Windows.
+/// Uses longer delays on Windows where file handle release is slower.
 fn remove_dir_with_retry(path: &PathBuf, max_retries: u32) -> Result<(), AppError> {
     let mut last_error = None;
+
+    // Base delay is higher on Windows where file locks persist longer
+    #[cfg(target_os = "windows")]
+    let base_delay_ms: u64 = 100;
+    #[cfg(not(target_os = "windows"))]
+    let base_delay_ms: u64 = 50;
 
     for attempt in 0..max_retries {
         match fs::remove_dir_all(path) {
@@ -612,8 +623,9 @@ fn remove_dir_with_retry(path: &PathBuf, max_retries: u32) -> Result<(), AppErro
                 last_error = Some(e);
 
                 if attempt < max_retries - 1 {
-                    // Calculate exponential backoff: 50ms, 100ms, 200ms, 400ms, 800ms
-                    let delay_ms = 50 * (1 << attempt);
+                    // Calculate exponential backoff: 100ms, 200ms, 400ms, 800ms, 1600ms on Windows
+                    // or 50ms, 100ms, 200ms, 400ms, 800ms on other platforms
+                    let delay_ms = base_delay_ms * (1 << attempt);
                     log::warn!(
                         "Failed to remove directory {path:?} (attempt {}/{}): {}. Retrying in {}ms...",
                         attempt + 1,

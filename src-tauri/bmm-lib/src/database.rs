@@ -80,6 +80,10 @@ impl Database {
 
             match conn_result {
                 Ok(conn) => {
+                    // Ensure WAL mode and performance pragmas are set on every connection.
+                    // This handles existing databases that may not have WAL enabled yet.
+                    Self::configure_connection(&conn)?;
+
                     // Check if database needs migration
                     if Self::needs_migration(&conn)? {
                         // Close the connection before migration
@@ -91,6 +95,7 @@ impl Database {
                         // Reopen the database after migration
                         let conn = Connection::open(&storage_path)
                             .map_err(|e| AppError::DatabaseInit(e.to_string()))?;
+                        Self::configure_connection(&conn)?;
                         return Ok(Database { conn });
                     }
 
@@ -118,6 +123,19 @@ impl Database {
         Err(AppError::DatabaseInit(
             "Failed to open database after maximum retries".to_string(),
         ))
+    }
+
+    /// Configure connection with performance and reliability pragmas.
+    /// This ensures WAL mode and other optimizations are applied to every connection.
+    fn configure_connection(conn: &Connection) -> Result<(), AppError> {
+        conn.execute_batch(
+            "PRAGMA journal_mode=WAL;
+             PRAGMA synchronous=NORMAL;
+             PRAGMA wal_autocheckpoint=1000;
+             PRAGMA busy_timeout=5000;",
+        )
+        .map_err(|e| AppError::DatabaseInit(format!("Failed to configure database: {e}")))?;
+        Ok(())
     }
 
     // Check if database needs migration
@@ -329,6 +347,16 @@ impl Database {
     }
 
     fn initialize_database(conn: &Connection) -> Result<(), AppError> {
+        // Enable WAL mode for better concurrent read performance and reliability.
+        // WAL mode allows readers to not block writers and provides better crash recovery.
+        conn.execute_batch(
+            "PRAGMA journal_mode=WAL;
+             PRAGMA synchronous=NORMAL;
+             PRAGMA wal_autocheckpoint=1000;
+             PRAGMA busy_timeout=5000;",
+        )
+        .map_err(|e| AppError::DatabaseInit(format!("Failed to enable WAL mode: {e}")))?;
+
         conn.execute(
             "CREATE TABLE IF NOT EXISTS settings (
                 setting TEXT PRIMARY KEY,

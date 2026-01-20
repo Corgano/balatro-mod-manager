@@ -6,6 +6,18 @@ pub struct Payload {
     pub cwd: String,
 }
 
+/// Event payload for installed-mods-changed event.
+/// Contains delta information about what changed.
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+pub struct ModsChangedEvent {
+    /// Mod names that were added
+    pub added: Vec<String>,
+    /// Mod names that were removed
+    pub removed: Vec<String>,
+    /// Whether this is a full refresh (added/removed may be incomplete)
+    pub full_refresh: bool,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ModMeta {
     #[serde(rename = "requires-steamodded", alias = "requires_steamodded", default)]

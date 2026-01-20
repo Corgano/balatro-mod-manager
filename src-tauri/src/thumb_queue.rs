@@ -14,13 +14,16 @@ struct ThumbReq {
     title: String,
     url: String,
     attempts: u32,
+    priority: bool, // High priority requests (visible thumbnails) are processed first
 }
 
 /// Manager that rate-limits and retries thumbnail downloads in the background.
 /// It honors 429 Retry-After when present, and uses exponential backoff for 5xx/network errors.
+/// Supports priority queueing for visible thumbnails.
 #[derive(Clone)]
 pub struct ThumbnailManager {
-    tx: mpsc::Sender<ThumbReq>,
+    tx_high: mpsc::Sender<ThumbReq>, // High priority channel (visible thumbnails)
+    tx_low: mpsc::Sender<ThumbReq>,  // Low priority channel (background prefetch)
     // Prevent duplicate queueing per title within a session
     enqueued: Arc<Mutex<HashSet<String>>>,
 }
@@ -29,8 +32,9 @@ const THUMB_CACHE_TTL_SECS: u64 = 60 * 60 * 24 * 7;
 
 impl ThumbnailManager {
     pub fn new() -> Self {
-        // Bounded queue to avoid memory spikes on first run
-        let (tx, mut rx) = mpsc::channel::<ThumbReq>(1024);
+        // Smaller bounded queues to avoid memory spikes - high priority gets processed first
+        let (tx_high, mut rx_high) = mpsc::channel::<ThumbReq>(128);
+        let (tx_low, mut rx_low) = mpsc::channel::<ThumbReq>(256);
         let enqueued: Arc<Mutex<HashSet<String>>> = Arc::new(Mutex::new(HashSet::new()));
 
         // Limit concurrent downloads to avoid rate limits
@@ -42,11 +46,25 @@ impl ThumbnailManager {
             .build()
             .expect("reqwest client");
 
-        // Spawn dispatcher task
+        // Spawn dispatcher task that prioritizes high-priority requests
         let enq_for_task = enqueued.clone();
-        let tx_for_dispatch = tx.clone();
+        let tx_high_for_dispatch = tx_high.clone();
+        let tx_low_for_dispatch = tx_low.clone();
         tauri::async_runtime::spawn(async move {
-            while let Some(mut req) = rx.recv().await {
+            loop {
+                // Try high priority first (with timeout), then fall back to low priority
+                let req = tokio::select! {
+                    biased;
+                    Some(req) = rx_high.recv() => Some(req),
+                    Some(req) = rx_low.recv() => Some(req),
+                    else => None,
+                };
+
+                let Some(mut req) = req else {
+                    // Both channels closed
+                    break;
+                };
+
                 // Skip if file already exists or has been de-duped
                 if file_exists_for_title_async(&req.title).await {
                     // Remove from enqueued set so future explicit requests are allowed
@@ -59,7 +77,11 @@ impl ThumbnailManager {
                 let semaphore = semaphore.clone();
                 let client = client.clone();
                 let enq_set = enq_for_task.clone();
-                let tx_inner = tx_for_dispatch.clone();
+                let tx_retry = if req.priority {
+                    tx_high_for_dispatch.clone()
+                } else {
+                    tx_low_for_dispatch.clone()
+                };
                 tauri::async_runtime::spawn(async move {
                     // Acquire permit inside the spawned task to avoid blocking the dispatcher
                     let _permit = match semaphore.acquire_owned().await {
@@ -91,7 +113,7 @@ impl ThumbnailManager {
                             tauri::async_runtime::spawn(async move {
                                 sleep(delay).await;
                                 // Put back into queue, keep enqueued flag as-is
-                                let _ = tx_inner.send(req).await;
+                                let _ = tx_retry.send(req).await;
                                 // If send fails, allow future enqueue by clearing mark
                                 if let Ok(mut set) = enq_set.lock() {
                                     set.remove(&title);
@@ -103,11 +125,22 @@ impl ThumbnailManager {
             }
         });
 
-        Self { tx, enqueued }
+        Self {
+            tx_high,
+            tx_low,
+            enqueued,
+        }
     }
 
     /// Enqueue a single thumbnail request if not already present and not already cached.
+    /// Use `priority = true` for visible thumbnails to download them first.
     pub fn enqueue(&self, title: String, url: String) {
+        self.enqueue_with_priority(title, url, false);
+    }
+
+    /// Enqueue a single thumbnail with explicit priority.
+    /// High priority thumbnails (visible on screen) are processed before low priority ones.
+    pub fn enqueue_with_priority(&self, title: String, url: String, priority: bool) {
         // Use sync file check here since we're in a sync context
         if file_exists_for_title_sync(&title) {
             return;
@@ -117,17 +150,34 @@ impl ThumbnailManager {
         {
             return; // already queued
         }
-        let _ = self.tx.try_send(ThumbReq {
+        let req = ThumbReq {
             title,
             url,
             attempts: 0,
-        });
+            priority,
+        };
+        if priority {
+            let _ = self.tx_high.try_send(req);
+        } else {
+            let _ = self.tx_low.try_send(req);
+        }
     }
 
     /// Enqueue multiple thumbnail requests.
     pub fn enqueue_many(&self, items: impl IntoIterator<Item = (String, String)>) {
         for (title, url) in items {
             self.enqueue(title, url);
+        }
+    }
+
+    /// Enqueue multiple thumbnail requests with priority support.
+    /// Items are tuples of (title, url, priority).
+    pub fn enqueue_many_with_priority(
+        &self,
+        items: impl IntoIterator<Item = (String, String, bool)>,
+    ) {
+        for (title, url, priority) in items {
+            self.enqueue_with_priority(title, url, priority);
         }
     }
 }

@@ -38,6 +38,8 @@ use bmm_lib::{cache, database::InstalledMod};
 use shell_words::split as split_shell_words;
 use tauri::Emitter;
 
+use crate::models::ModsChangedEvent;
+
 /// Maximum number of retry attempts for mod installation when rate limited.
 const INSTALL_MAX_RETRIES: u32 = 3;
 
@@ -51,8 +53,20 @@ async fn sync_compat_helper_after_mod_change(state: &tauri::State<'_, AppState>)
     }
 }
 
-fn emit_installed_mods_changed(app_handle: &tauri::AppHandle) {
-    let _ = app_handle.emit("installed-mods-changed", ());
+/// Emit installed-mods-changed with optional delta information.
+fn emit_installed_mods_changed(
+    app_handle: &tauri::AppHandle,
+    added: Vec<String>,
+    removed: Vec<String>,
+) {
+    let _ = app_handle.emit(
+        "installed-mods-changed",
+        ModsChangedEvent {
+            added,
+            removed,
+            full_refresh: false,
+        },
+    );
 }
 
 fn refresh_mod_detection_cache() {
@@ -904,7 +918,8 @@ pub async fn cascade_uninstall(
 
     sync_compat_helper_after_mod_change(&state).await;
     refresh_mod_detection_cache();
-    emit_installed_mods_changed(&app_handle);
+    let removed_names: Vec<String> = mods_to_remove.iter().map(|(n, _)| n.clone()).collect();
+    emit_installed_mods_changed(&app_handle, Vec::new(), removed_names);
     Ok(())
 }
 
@@ -927,7 +942,7 @@ pub async fn force_remove_mod(
     }
     sync_compat_helper_after_mod_change(&state).await;
     refresh_mod_detection_cache();
-    emit_installed_mods_changed(&app_handle);
+    emit_installed_mods_changed(&app_handle, Vec::new(), vec![name]);
     Ok(())
 }
 
@@ -973,7 +988,7 @@ pub async fn remove_installed_mod(
 
     sync_compat_helper_after_mod_change(&state).await;
     refresh_mod_detection_cache();
-    emit_installed_mods_changed(&app_handle);
+    emit_installed_mods_changed(&app_handle, Vec::new(), vec![name]);
     Ok(())
 }
 
@@ -1089,7 +1104,7 @@ pub async fn add_installed_mod(
         map_error(db.add_installed_mod(&name, &path, &dependencies, current_version))?;
     }
     refresh_mod_detection_cache();
-    emit_installed_mods_changed(&app_handle);
+    emit_installed_mods_changed(&app_handle, vec![name], Vec::new());
     Ok(())
 }
 

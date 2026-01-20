@@ -6,7 +6,12 @@ use std::fs;
 use std::io::Cursor;
 use std::path::PathBuf;
 use tokio::fs as tokio_fs;
+use tokio::time::sleep;
 use zip::ZipArchive;
+
+use crate::rate_limiter::{
+    RateLimitResult, check_github_rate_limit, parse_rate_limit_headers, update_github_rate_limit,
+};
 
 #[derive(Debug, Serialize, Deserialize)]
 struct Release {
@@ -112,6 +117,25 @@ impl ModInstaller {
     }
 
     pub async fn get_available_versions(&self) -> Result<Vec<String>> {
+        // Check rate limit before making request
+        match check_github_rate_limit() {
+            RateLimitResult::Proceed => {}
+            RateLimitResult::Wait(delay) => {
+                log::debug!(
+                    "Rate limit backpressure: waiting {:?} before GitHub API call",
+                    delay
+                );
+                sleep(delay).await;
+            }
+            RateLimitResult::Limited(until) => {
+                log::warn!("GitHub API rate limited, reset in {:?}", until);
+                return Err(anyhow!(
+                    "GitHub API rate limit exceeded. Please wait {} seconds.",
+                    until.as_secs()
+                ));
+            }
+        }
+
         let mut headers = HeaderMap::new();
         headers.insert(
             USER_AGENT,
@@ -141,17 +165,18 @@ impl ModInstaller {
             })
             .context("Failed to fetch Steamodded releases")?;
 
+        // Update rate limit state from response headers
+        let (remaining, reset) = parse_rate_limit_headers(response.headers());
+        let is_429 = response.status() == reqwest::StatusCode::TOO_MANY_REQUESTS;
+        update_github_rate_limit(remaining, reset, is_429);
+
         if !response.status().is_success() {
             let status = response.status();
-            let rate_limit = response
-                .headers()
-                .get("X-RateLimit-Remaining")
-                .and_then(|v| v.to_str().ok());
             log::error!(
                 "GitHub API error for {}: status={}, rate_limit_remaining={:?}",
                 self.mod_type,
                 status,
-                rate_limit
+                remaining
             );
             let error_text = response.text().await?;
             return Err(anyhow::anyhow!(

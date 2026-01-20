@@ -17,6 +17,98 @@ declare global {
   }
 }
 
+/** Event payload from backend with delta information */
+interface ModsChangedEvent {
+  added: string[];
+  removed: string[];
+  full_refresh: boolean;
+}
+
+// Cached normalized sets to avoid rebuilding on every change
+let cachedInstalledNormalized: Set<string> = new Set();
+let cachedInstalledExact: Set<string> = new Set();
+let lastInstalledModsHash = "";
+
+// Compute a simple hash of installed mods for change detection
+function computeInstalledHash(mods: InstalledMod[]): string {
+  return mods
+    .map((m) => m.name)
+    .sort()
+    .join("|");
+}
+
+// Update installation status incrementally when possible
+function updateInstallationStatus(installed: InstalledMod[]) {
+  const newHash = computeInstalledHash(installed);
+
+  // Only rebuild the sets if the installed mods actually changed
+  if (newHash !== lastInstalledModsHash) {
+    cachedInstalledNormalized = new Set(
+      installed.map((mod) => normalizeModName(mod.name)),
+    );
+    cachedInstalledExact = new Set(
+      installed.map((mod) => mod.name.toLowerCase()),
+    );
+    lastInstalledModsHash = newHash;
+  }
+
+  const mods = get(modsStore);
+
+  // Build the status map using cached sets
+  const newStatus: { [key: string]: boolean } = {};
+  for (const mod of mods) {
+    newStatus[mod.title] =
+      cachedInstalledExact.has(mod.title.toLowerCase()) ||
+      cachedInstalledNormalized.has(normalizeModName(mod.title));
+  }
+
+  installationStatus.set(newStatus);
+}
+
+// Update installation status incrementally using delta information
+function updateInstallationStatusDelta(added: string[], removed: string[]) {
+  const currentStatus = get(installationStatus);
+  const newStatus = { ...currentStatus };
+  const mods = get(modsStore);
+
+  // Update cached sets
+  for (const name of added) {
+    cachedInstalledExact.add(name.toLowerCase());
+    cachedInstalledNormalized.add(normalizeModName(name));
+  }
+  for (const name of removed) {
+    cachedInstalledExact.delete(name.toLowerCase());
+    cachedInstalledNormalized.delete(normalizeModName(name));
+  }
+
+  // Only update status for affected mods
+  for (const mod of mods) {
+    const titleLower = mod.title.toLowerCase();
+    const titleNormalized = normalizeModName(mod.title);
+
+    // Check if this mod was in the added/removed lists
+    const wasAffected =
+      added.some(
+        (n) =>
+          n.toLowerCase() === titleLower ||
+          normalizeModName(n) === titleNormalized,
+      ) ||
+      removed.some(
+        (n) =>
+          n.toLowerCase() === titleLower ||
+          normalizeModName(n) === titleNormalized,
+      );
+
+    if (wasAffected) {
+      newStatus[mod.title] =
+        cachedInstalledExact.has(titleLower) ||
+        cachedInstalledNormalized.has(titleNormalized);
+    }
+  }
+
+  installationStatus.set(newStatus);
+}
+
 // Create a self-contained cache system
 const createModCache = () => {
   // Private variables inside closure
@@ -102,28 +194,24 @@ try {
   if (typeof window !== "undefined") {
     if (!window.__bmmInstalledModsListenerAttached) {
       window.__bmmInstalledModsListenerAttached = true;
-      listen("installed-mods-changed", async () => {
+      listen<ModsChangedEvent>("installed-mods-changed", async (event) => {
         try {
-          const installed = await modCache.forceRefreshCache();
-          // Create a set of normalized installed mod names for fuzzy matching
-          const installedNormalized = new Set(
-            installed.map((mod) => normalizeModName(mod.name)),
-          );
-          // Also keep exact lowercase names for exact matching
-          const installedExact = new Set(
-            installed.map((mod) => mod.name.toLowerCase()),
-          );
-          const mods = get(modsStore);
-          installationStatus.set(
-            Object.fromEntries(
-              mods.map((mod) => [
-                mod.title,
-                // Check exact match first, then normalized match
-                installedExact.has(mod.title.toLowerCase()) ||
-                  installedNormalized.has(normalizeModName(mod.title)),
-              ]),
-            ),
-          );
+          const payload = event.payload;
+
+          // If we have delta information and it's not a full refresh, use incremental update
+          if (
+            !payload.full_refresh &&
+            (payload.added.length > 0 || payload.removed.length > 0)
+          ) {
+            // Update the cache for consistency
+            await modCache.forceRefreshCache();
+            // Use delta-based status update for efficiency
+            updateInstallationStatusDelta(payload.added, payload.removed);
+          } else {
+            // Full refresh - fetch all and rebuild status
+            const installed = await modCache.forceRefreshCache();
+            updateInstallationStatus(installed);
+          }
         } catch {
           // ignore
         }

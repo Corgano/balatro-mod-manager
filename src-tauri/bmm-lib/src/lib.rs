@@ -16,6 +16,7 @@
 //! - [`logging`]: Centralized logging configuration
 //! - [`lovely`]: Lovely (mod loader/injector) installer and version management
 //! - [`mod_collections`]: Curated mod collection support
+//! - [`rate_limiter`]: Rate limiter for GitHub API requests
 //! - [`smods_installer`]: Steamodded/Talisman installer
 
 /// Balamod support and Balatro game detection.
@@ -40,6 +41,8 @@ pub mod logging;
 pub mod lovely;
 /// Curated mod collection support.
 pub mod mod_collections;
+/// Rate limiter for GitHub API requests.
+pub mod rate_limiter;
 /// Steamodded/Talisman installer.
 pub mod smods_installer;
 

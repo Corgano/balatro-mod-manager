@@ -19,7 +19,7 @@ use bmm_lib::{
     lovely,
 };
 
-use crate::models::Payload;
+use crate::models::{ModsChangedEvent, Payload};
 use crate::state::AppState;
 use crate::util::map_error;
 
@@ -145,19 +145,22 @@ pub fn run() {
             });
 
             // Periodically validate the mod database in a very cheap, incremental sweep.
-            // Runs every few seconds and checks only a small batch of entries each tick.
+            // Uses adaptive sleep intervals - faster when mods are present, slower when idle.
             // Clone a handle that is 'static so we can emit events from the background task.
             let handle_for_events = app.app_handle().clone();
             tauri::async_runtime::spawn(async move {
                 use std::time::Duration;
                 use tokio::time::sleep;
 
-                const REINDEX_TICK_SECS: u64 = 1; // 1s polling for quick updates
                 const REINDEX_BATCH_SIZE: usize = 5; // small batch to keep cost negligible
+                const ACTIVE_TICK_SECS: u64 = 2; // 2s when mods are installed
+                const IDLE_TICK_SECS: u64 = 30; // 30s when no mods installed (saves CPU/battery)
+                const STABLE_TICK_SECS: u64 = 10; // 10s when fingerprint hasn't changed recently
 
                 // Snapshot of installed mods to sweep over between refreshes
                 let mut snapshot: Vec<(String, String)> = Vec::new(); // (name, path)
                 let mut cursor_idx: usize = 0;
+                let mut consecutive_stable_checks: u32 = 0; // Track how long fingerprint has been stable
 
                 // Open a dedicated DB connection for this background task.
                 // Using a separate connection avoids borrowing app state and remains lightweight.
@@ -207,7 +210,15 @@ pub fn run() {
                 let mut last_fp = mods_dir_fingerprint();
 
                 loop {
-                    sleep(Duration::from_secs(REINDEX_TICK_SECS)).await;
+                    // Adaptive sleep: longer when idle/stable, shorter when active
+                    let tick_secs = if snapshot.is_empty() {
+                        IDLE_TICK_SECS
+                    } else if consecutive_stable_checks > 5 {
+                        STABLE_TICK_SECS
+                    } else {
+                        ACTIVE_TICK_SECS
+                    };
+                    sleep(Duration::from_secs(tick_secs)).await;
 
                     // Refresh snapshot when exhausted or empty
                     if cursor_idx >= snapshot.len() {
@@ -226,17 +237,34 @@ pub fn run() {
                     }
 
                     if snapshot.is_empty() {
-                        continue; // nothing to do
+                        // No mods installed - just check fingerprint occasionally
+                        let cur_fp = mods_dir_fingerprint();
+                        if cur_fp.is_some() && cur_fp != last_fp {
+                            last_fp = cur_fp;
+                            local_mod_detection::clear_detection_cache();
+                            let _ = handle_for_events.emit(
+                                "installed-mods-changed",
+                                ModsChangedEvent {
+                                    added: Vec::new(),
+                                    removed: Vec::new(),
+                                    full_refresh: true,
+                                },
+                            );
+                            consecutive_stable_checks = 0;
+                        } else {
+                            consecutive_stable_checks = consecutive_stable_checks.saturating_add(1);
+                        }
+                        continue;
                     }
 
                     let end = (cursor_idx + REINDEX_BATCH_SIZE).min(snapshot.len());
-                    let mut cleaned = 0usize;
+                    let mut removed_mods: Vec<String> = Vec::new();
                     for (name, path) in &snapshot[cursor_idx..end] {
                         if !std::path::Path::new(path).exists() {
                             // Remove missing entry from DB
                             match db.remove_installed_mod(name) {
                                 Ok(()) => {
-                                    cleaned += 1;
+                                    removed_mods.push(name.clone());
                                 }
                                 Err(e) => {
                                     log::warn!("Auto reindex: failed to remove '{}': {}", name, e)
@@ -251,23 +279,40 @@ pub fn run() {
                     let fp_changed = cur_fp.is_some() && cur_fp != last_fp;
                     if fp_changed {
                         last_fp = cur_fp;
+                        consecutive_stable_checks = 0;
                         // Clear cache so next detection reflects changes and notify UI
                         local_mod_detection::clear_detection_cache();
-                        let _ = handle_for_events.emit("installed-mods-changed", ());
+                        // Emit with full_refresh since we don't know exactly what changed
+                        let _ = handle_for_events.emit(
+                            "installed-mods-changed",
+                            ModsChangedEvent {
+                                added: Vec::new(),
+                                removed: Vec::new(),
+                                full_refresh: true,
+                            },
+                        );
+                    } else {
+                        consecutive_stable_checks = consecutive_stable_checks.saturating_add(1);
                     }
 
-                    if cleaned > 0 {
+                    if !removed_mods.is_empty() {
                         // Clear detection cache so next detection reflects changes
                         local_mod_detection::clear_detection_cache();
                         log::info!(
                             "Auto reindex: cleaned {} database entr{} (batch)",
-                            cleaned,
-                            if cleaned == 1 { "y" } else { "ies" }
+                            removed_mods.len(),
+                            if removed_mods.len() == 1 { "y" } else { "ies" }
                         );
 
-                        // Notify UI to refresh installed mods in real-time
-                        // Ignore errors if there are no listeners
-                        let _ = handle_for_events.emit("installed-mods-changed", ());
+                        // Notify UI with delta information
+                        let _ = handle_for_events.emit(
+                            "installed-mods-changed",
+                            ModsChangedEvent {
+                                added: Vec::new(),
+                                removed: removed_mods,
+                                full_refresh: false,
+                            },
+                        );
                     }
                 }
             });
