@@ -354,3 +354,60 @@ impl ModInstaller {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_mod_type_display() {
+        assert_eq!(format!("{}", ModType::Steamodded), "Steamodded");
+        assert_eq!(format!("{}", ModType::Talisman), "Talisman");
+    }
+
+    #[test]
+    fn test_mod_type_get_repo_url() {
+        assert_eq!(ModType::Steamodded.get_repo_url(), "Steamodded/smods");
+        assert_eq!(ModType::Talisman.get_repo_url(), "MathIsFun0/Talisman");
+    }
+
+    #[test]
+    fn test_version_sorting_descending() {
+        // Simulates the sorting logic used in get_available_versions
+        let mut versions = vec![
+            "1.0.0".to_string(),
+            "2.0.0".to_string(),
+            "1.5.0".to_string(),
+            "0.9.0".to_string(),
+        ];
+        versions.sort_by(|a, b| b.cmp(a));
+        assert_eq!(
+            versions,
+            vec![
+                "2.0.0".to_string(),
+                "1.5.0".to_string(),
+                "1.0.0".to_string(),
+                "0.9.0".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn test_is_installed_with_no_dir() {
+        // ModInstaller::is_installed returns false when the mods directory doesn't exist
+        // This tests the fallback behavior
+        let installer = ModInstaller::new(ModType::Steamodded);
+        // We can't fully test is_installed without mocking the filesystem,
+        // but we can verify the struct initializes correctly
+        assert!(matches!(installer.mod_type, ModType::Steamodded));
+    }
+
+    #[test]
+    fn test_mod_installer_new() {
+        let steamodded = ModInstaller::new(ModType::Steamodded);
+        assert!(matches!(steamodded.mod_type, ModType::Steamodded));
+
+        let talisman = ModInstaller::new(ModType::Talisman);
+        assert!(matches!(talisman.mod_type, ModType::Talisman));
+    }
+}

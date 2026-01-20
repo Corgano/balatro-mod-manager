@@ -145,7 +145,11 @@ impl fmt::Display for AppError {
                 dest,
                 source_error,
             } => {
-                write!(f, "Failed to copy '{}' to '{}': {}", source, dest, source_error)
+                write!(
+                    f,
+                    "Failed to copy '{}' to '{}': {}",
+                    source, dest, source_error
+                )
             }
             AppError::FileWrite { path, source } => {
                 write!(f, "Failed to write file '{}': {}", path.display(), source)
@@ -180,7 +184,10 @@ impl fmt::Display for AppError {
             AppError::ModInstall { mod_name, source } => {
                 write!(f, "Failed to install mod '{mod_name}': {source}")
             }
-            AppError::ModConflict { mod_name, conflicts } => {
+            AppError::ModConflict {
+                mod_name,
+                conflicts,
+            } => {
                 write!(
                     f,
                     "Mod '{}' conflicts with: {}",

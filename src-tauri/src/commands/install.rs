@@ -22,6 +22,8 @@ use crate::bmi::BmiClient;
 use crate::compat_helper;
 use crate::state::AppState;
 use crate::util::map_error;
+use bmm_lib::errors::AppError;
+use bmm_lib::local_mod_detection;
 #[cfg(target_os = "macos")]
 use bmm_lib::lovely;
 #[cfg(target_os = "linux")]
@@ -30,8 +32,6 @@ use bmm_lib::lovely::ensure_version_dll_exists;
 use bmm_lib::lovely::{ensure_love_binary, ensure_lovely_so_exists, get_latest_lovely_version};
 use bmm_lib::smods_installer::{ModInstaller, ModType};
 use bmm_lib::{cache, database::InstalledMod};
-use bmm_lib::errors::AppError;
-use bmm_lib::local_mod_detection;
 #[cfg(target_os = "linux")]
 use shell_words::split as split_shell_words;
 use tauri::Emitter;
@@ -426,7 +426,11 @@ pub async fn launch_balatro(state: tauri::State<'_, AppState>) -> Result<(), Str
     };
 
     let path = install_path
-        .or_else(|| bmm_lib::finder::get_balatro_paths().into_iter().next())
+        .or_else(|| {
+            bmm_lib::finder::get_balatro_paths_cached()
+                .into_iter()
+                .next()
+        })
         .ok_or_else(|| "No Balatro installation path is configured or detected".to_string())?;
 
     let (lovely_console_enabled, linux_prefix, launch_mode) = {

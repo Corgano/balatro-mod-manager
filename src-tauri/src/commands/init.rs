@@ -141,7 +141,7 @@ fn check_lovely_installed_inner(
         }
 
         // Fallback to first detected Balatro path
-        let candidates = bmm_lib::finder::get_balatro_paths();
+        let candidates = bmm_lib::finder::get_balatro_paths_cached();
         if let Some(p) = candidates.first() {
             let dll = p.join("version.dll");
             return Ok(dll.exists());
@@ -164,7 +164,7 @@ fn check_lovely_installed_inner(
         }
 
         // Fallback to first detected Balatro path
-        let candidates = bmm_lib::finder::get_balatro_paths();
+        let candidates = bmm_lib::finder::get_balatro_paths_cached();
         if let Some(p) = candidates.first() {
             let so = p.join("liblovely.so");
             return Ok(so.exists());

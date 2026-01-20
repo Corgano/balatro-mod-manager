@@ -483,6 +483,7 @@ dependencies = [
  "libproc",
  "log",
  "mockito",
+ "once_cell",
  "regex",
  "reqwest 0.13.1",
  "rstest",

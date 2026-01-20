@@ -6,6 +6,7 @@ use crate::state::AppState;
 use crate::util::map_error;
 use bmm_lib::balamod::find_balatros;
 use bmm_lib::errors::AppError;
+use bmm_lib::finder::invalidate_balatro_paths_cache;
 use bmm_lib::local_mod_detection;
 use log::error;
 #[cfg(target_os = "linux")]
@@ -323,7 +324,11 @@ pub async fn set_balatro_path(
         }
     }
     let db = state.db.lock().await;
-    map_error(db.set_installation_path(&path))
+    let result = map_error(db.set_installation_path(&path));
+    if result.is_ok() {
+        invalidate_balatro_paths_cache();
+    }
+    result
 }
 
 #[tauri::command]
@@ -343,6 +348,7 @@ pub async fn find_steam_balatro(state: tauri::State<'_, AppState>) -> Result<Vec
         {
             let db = state.db.lock().await;
             map_error(db.set_installation_path(&steam_path))?;
+            invalidate_balatro_paths_cache();
         }
 
         // Ensure Proton symlinks are set up when Steam path is auto-detected
@@ -371,6 +377,7 @@ pub async fn find_steam_balatro(state: tauri::State<'_, AppState>) -> Result<Vec
         if let Some(ref path_str) = first_path {
             let db = state.db.lock().await;
             map_error(db.set_installation_path(path_str))?;
+            invalidate_balatro_paths_cache();
         }
 
         Ok(balatros
@@ -512,6 +519,7 @@ pub async fn check_custom_balatro(
         let canonical = balatro.path.to_string_lossy().into_owned();
         let db = state.db.lock().await;
         map_error(db.set_installation_path(&canonical))?;
+        invalidate_balatro_paths_cache();
         Ok(true)
     } else {
         Ok(false)

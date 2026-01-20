@@ -114,7 +114,7 @@ pub async fn ensure_lovely_exists() -> Result<PathBuf, AppError> {
 
     #[cfg(target_os = "windows")]
     {
-        let balatro_paths = crate::finder::get_balatro_paths();
+        let balatro_paths = crate::finder::get_balatro_paths_cached();
         if balatro_paths.is_empty() {
             return Err(AppError::DirNotFound(PathBuf::from("Balatro installation")));
         }
@@ -128,7 +128,7 @@ pub async fn ensure_lovely_exists() -> Result<PathBuf, AppError> {
 
     #[cfg(target_os = "linux")]
     {
-        let balatro_paths = crate::finder::get_balatro_paths();
+        let balatro_paths = crate::finder::get_balatro_paths_cached();
         if balatro_paths.is_empty() {
             return Err(AppError::DirNotFound(PathBuf::from("Balatro installation")));
         }
@@ -403,7 +403,7 @@ pub fn remove_installed_lovely() -> Result<(), AppError> {
 
     #[cfg(any(target_os = "windows", target_os = "linux"))]
     {
-        let balatro_paths = crate::finder::get_balatro_paths();
+        let balatro_paths = crate::finder::get_balatro_paths_cached();
         if balatro_paths.is_empty() {
             return Ok(()); // Nothing to remove if we can't detect it
         }
@@ -444,7 +444,7 @@ pub fn set_injector_enabled(enabled: bool) -> Result<(), AppError> {
     #[cfg(any(target_os = "windows", target_os = "linux"))]
     {
         // For Windows and Linux (Proton), we need to toggle version.dll in the game directory
-        let balatro_paths = crate::finder::get_balatro_paths();
+        let balatro_paths = crate::finder::get_balatro_paths_cached();
         if balatro_paths.is_empty() {
             // No game path found - if we're enabling, that's an error; if disabling, nothing to do
             if enabled {
@@ -499,7 +499,7 @@ pub fn is_injector_enabled() -> Result<bool, AppError> {
 
     #[cfg(any(target_os = "windows", target_os = "linux"))]
     {
-        let balatro_paths = crate::finder::get_balatro_paths();
+        let balatro_paths = crate::finder::get_balatro_paths_cached();
         if balatro_paths.is_empty() {
             // No game path - consider it "enabled" (no injector to disable)
             return Ok(true);
@@ -646,11 +646,11 @@ async fn download_lovely_linux(target_path: &Path) -> Result<(), AppError> {
     let temp_tar_gz = temp_dir.path().join("lovely.tar.gz");
 
     let url = "https://github.com/ethangreen-dev/lovely-injector/releases/latest/download/lovely-x86_64-unknown-linux-gnu.tar.gz";
-    log::info!("Downloading lovely injector for Linux from {}", url);
+    log::info!("Downloading Lovely injector for Linux from: {}", url);
 
     let response = reqwest::get(url).await.map_err(|e| {
         log::error!("Failed to download Lovely injector for Linux: {}", e);
-        AppError::Network(format!("Failed to download lovely injector: {e}"))
+        AppError::Network(format!("Failed to download Lovely injector: {e}"))
     })?;
 
     if !response.status().is_success() {
@@ -711,13 +711,13 @@ async fn download_version_dll(target_path: &PathBuf) -> Result<(), AppError> {
     // URL to the latest version.dll in the lovely injector repository
     let url = "https://github.com/ethangreen-dev/lovely-injector/releases/latest/download/lovely-x86_64-pc-windows-msvc.zip";
 
-    log::info!("Downloading lovely injector for Windows from {}", url);
+    log::info!("Downloading Lovely injector for Windows from: {}", url);
 
     // Download the ZIP file
     let client = reqwest::Client::new();
     let response = client.get(url).send().await.map_err(|e| {
         log::error!("Failed to download Lovely injector for Windows: {}", e);
-        AppError::Network(format!("Failed to download lovely injector: {e}"))
+        AppError::Network(format!("Failed to download Lovely injector: {e}"))
     })?;
 
     if !response.status().is_success() {
@@ -795,4 +795,99 @@ async fn download_version_dll(target_path: &PathBuf) -> Result<(), AppError> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    #[test]
+    fn test_toggle_injector_enable_from_disabled() {
+        let dir = tempdir().unwrap();
+        let active = dir.path().join("version.dll");
+        let disabled = dir.path().join("version.dll.disabled");
+
+        // Create the disabled file
+        std::fs::write(&disabled, b"test").unwrap();
+        assert!(!active.exists());
+        assert!(disabled.exists());
+
+        // Enable should rename disabled to active
+        toggle_injector_file(&active, &disabled, true).unwrap();
+        assert!(active.exists());
+        assert!(!disabled.exists());
+    }
+
+    #[test]
+    fn test_toggle_injector_disable_from_enabled() {
+        let dir = tempdir().unwrap();
+        let active = dir.path().join("version.dll");
+        let disabled = dir.path().join("version.dll.disabled");
+
+        // Create the active file
+        std::fs::write(&active, b"test").unwrap();
+        assert!(active.exists());
+        assert!(!disabled.exists());
+
+        // Disable should rename active to disabled
+        toggle_injector_file(&active, &disabled, false).unwrap();
+        assert!(!active.exists());
+        assert!(disabled.exists());
+    }
+
+    #[test]
+    fn test_toggle_injector_already_enabled() {
+        let dir = tempdir().unwrap();
+        let active = dir.path().join("version.dll");
+        let disabled = dir.path().join("version.dll.disabled");
+
+        // Create both files (corrupt state)
+        std::fs::write(&active, b"active").unwrap();
+        std::fs::write(&disabled, b"disabled").unwrap();
+
+        // Enable should remove the disabled file
+        toggle_injector_file(&active, &disabled, true).unwrap();
+        assert!(active.exists());
+        assert!(!disabled.exists());
+        assert_eq!(std::fs::read(&active).unwrap(), b"active");
+    }
+
+    #[test]
+    fn test_toggle_injector_already_disabled() {
+        let dir = tempdir().unwrap();
+        let active = dir.path().join("version.dll");
+        let disabled = dir.path().join("version.dll.disabled");
+
+        // Create both files (corrupt state)
+        std::fs::write(&active, b"active").unwrap();
+        std::fs::write(&disabled, b"disabled").unwrap();
+
+        // Disable should remove the active file
+        toggle_injector_file(&active, &disabled, false).unwrap();
+        assert!(!active.exists());
+        assert!(disabled.exists());
+        assert_eq!(std::fs::read(&disabled).unwrap(), b"disabled");
+    }
+
+    #[test]
+    fn test_toggle_injector_no_files_exist() {
+        let dir = tempdir().unwrap();
+        let active = dir.path().join("version.dll");
+        let disabled = dir.path().join("version.dll.disabled");
+
+        // Neither file exists
+        assert!(!active.exists());
+        assert!(!disabled.exists());
+
+        // Enable should succeed without error
+        toggle_injector_file(&active, &disabled, true).unwrap();
+        assert!(!active.exists());
+        assert!(!disabled.exists());
+
+        // Disable should also succeed without error
+        toggle_injector_file(&active, &disabled, false).unwrap();
+        assert!(!active.exists());
+        assert!(!disabled.exists());
+    }
 }

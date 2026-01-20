@@ -33,7 +33,7 @@ pub async fn is_lovely_installed(_state: tauri::State<'_, AppState>) -> Result<b
         }
 
         // Fallback to first detected Balatro path
-        let candidates = bmm_lib::finder::get_balatro_paths();
+        let candidates = bmm_lib::finder::get_balatro_paths_cached();
         if let Some(p) = candidates.first() {
             let dll = p.join("version.dll");
             return Ok(dll.exists());
@@ -51,7 +51,7 @@ pub async fn is_lovely_installed(_state: tauri::State<'_, AppState>) -> Result<b
         }
 
         // Fallback to first detected Balatro path
-        let candidates = bmm_lib::finder::get_balatro_paths();
+        let candidates = bmm_lib::finder::get_balatro_paths_cached();
         if let Some(p) = candidates.first() {
             let so = p.join("liblovely.so");
             return Ok(so.exists());

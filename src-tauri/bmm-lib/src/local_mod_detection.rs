@@ -290,7 +290,7 @@ pub fn mod_dir_candidates() -> Result<Vec<PathBuf>, String> {
         // Prefer Proton's compatdata mods folder when available (Steam install).
         if !is_flatpak {
             let mut compat_candidates = Vec::new();
-            for balatro_path in finder::get_balatro_paths() {
+            for balatro_path in finder::get_balatro_paths_cached() {
                 if let Some(steamapps) = balatro_path.parent().and_then(|p| p.parent()) {
                     compat_candidates.push(steamapps.join(
                         "compatdata/2379780/pfx/drive_c/users/steamuser/AppData/Roaming/Balatro/Mods",
@@ -570,7 +570,7 @@ pub fn detect_manual_mods(
     log::debug!("Detected {} mods before filtering", all_detected_mods.len());
 
     // Detect Talisman installed at Balatro root (outside Mods)
-    for install_path in finder::get_balatro_paths() {
+    for install_path in finder::get_balatro_paths_cached() {
         let talisman_path = install_path.join("Talisman");
         if talisman_path.exists() && talisman_path.is_dir() {
             let mut talisman = DetectedMod {

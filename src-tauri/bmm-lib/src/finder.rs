@@ -16,6 +16,7 @@
 
 use crate::database::Database;
 use log::{debug, error};
+use once_cell::sync::Lazy;
 #[cfg(target_os = "linux")]
 use regex::Regex;
 use std::collections::HashSet;
@@ -30,12 +31,74 @@ use std::path::Path;
 #[cfg(target_os = "linux")]
 use std::path::Path;
 use std::path::PathBuf;
+use std::sync::RwLock;
+use std::time::{Duration, Instant};
 #[cfg(target_os = "windows")]
 use sysinfo::System;
 #[cfg(target_os = "windows")]
 use winreg::RegKey;
 #[cfg(target_os = "windows")]
 use winreg::enums::*;
+
+/// TTL for the Balatro paths cache (60 seconds).
+const BALATRO_PATHS_CACHE_TTL: Duration = Duration::from_secs(60);
+
+/// Cached Balatro installation paths with timestamp.
+struct CachedPaths {
+    paths: Vec<PathBuf>,
+    cached_at: Instant,
+}
+
+/// Global cache for Balatro paths to avoid repeated filesystem scans.
+static BALATRO_PATHS_CACHE: Lazy<RwLock<Option<CachedPaths>>> = Lazy::new(|| RwLock::new(None));
+
+/// Returns cached Balatro paths if available and not expired, otherwise performs a fresh scan.
+///
+/// This function wraps `get_balatro_paths()` with a time-based cache to avoid
+/// repeated filesystem scanning on every call. The cache is valid for 60 seconds.
+pub fn get_balatro_paths_cached() -> Vec<PathBuf> {
+    // Try to read from cache first
+    if let Ok(guard) = BALATRO_PATHS_CACHE.read()
+        && let Some(cached) = guard.as_ref()
+        && cached.cached_at.elapsed() < BALATRO_PATHS_CACHE_TTL
+    {
+        debug!("Returning {} cached Balatro paths", cached.paths.len());
+        return cached.paths.clone();
+    }
+
+    // Cache miss or expired, acquire write lock and refresh
+    if let Ok(mut guard) = BALATRO_PATHS_CACHE.write() {
+        // Double-check after acquiring write lock
+        if let Some(cached) = guard.as_ref()
+            && cached.cached_at.elapsed() < BALATRO_PATHS_CACHE_TTL
+        {
+            return cached.paths.clone();
+        }
+
+        // Perform fresh scan
+        debug!("Refreshing Balatro paths cache");
+        let paths = get_balatro_paths();
+        *guard = Some(CachedPaths {
+            paths: paths.clone(),
+            cached_at: Instant::now(),
+        });
+        return paths;
+    }
+
+    // Fallback if we can't get the lock
+    get_balatro_paths()
+}
+
+/// Invalidates the Balatro paths cache, forcing a fresh scan on the next call.
+///
+/// Call this when the user changes their installation path or when you need
+/// to ensure fresh results.
+pub fn invalidate_balatro_paths_cache() {
+    if let Ok(mut guard) = BALATRO_PATHS_CACHE.write() {
+        *guard = None;
+        debug!("Balatro paths cache invalidated");
+    }
+}
 
 #[cfg(target_os = "windows")]
 fn read_path_from_registry() -> Result<String, std::io::Error> {
@@ -448,7 +511,7 @@ pub fn is_balatro_running() -> bool {
         use libproc::proc_pid::name;
         use libproc::processes;
 
-        let balatro_roots: Vec<_> = crate::finder::get_balatro_paths()
+        let balatro_roots: Vec<_> = crate::finder::get_balatro_paths_cached()
             .into_iter()
             .map(|p| p.canonicalize().unwrap_or(p))
             .collect();

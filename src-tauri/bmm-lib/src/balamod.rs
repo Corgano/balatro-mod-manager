@@ -1,6 +1,5 @@
-use crate::finder::get_balatro_paths;
+use crate::finder::get_balatro_paths_cached;
 use libflate::deflate::Encoder;
-use log::error;
 use std::fs;
 use std::fs::File;
 use std::io::{BufReader, Cursor, Read, Write};
@@ -60,7 +59,7 @@ impl Balatro {
                 return Ok(contents);
             }
         }
-        error!("'{file_name}' not found in the archive.");
+        log::error!("'{}' not found in the archive", file_name);
         Ok(Vec::new())
     }
 
@@ -93,7 +92,7 @@ impl Balatro {
                 return Ok(version);
             }
         }
-        error!("'version.jkr' not found in the archive.");
+        log::error!("'version.jkr' not found in the archive");
         Ok("0.0.0".to_string())
     }
 
@@ -373,7 +372,7 @@ fn find_balatro_love(path: &Path, depth: usize) -> Option<PathBuf> {
 }
 
 pub fn find_balatros() -> Vec<Balatro> {
-    let paths: Vec<PathBuf> = get_balatro_paths();
+    let paths: Vec<PathBuf> = get_balatro_paths_cached();
     let mut balatros = Vec::new();
     for path in paths {
         if let Some(balatro) = Balatro::from_custom_path(path) {
@@ -408,4 +407,94 @@ pub fn get_save_dir(linux_native: bool) -> PathBuf {
     }
 
     PathBuf::from(save_dir)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    #[test]
+    fn test_balatro_struct_creation() {
+        let path = PathBuf::from("/test/path");
+        let balatro = Balatro { path: path.clone() };
+        assert_eq!(balatro.path, path);
+    }
+
+    #[test]
+    fn test_balatro_clone() {
+        let path = PathBuf::from("/test/path");
+        let balatro = Balatro { path: path.clone() };
+        let cloned = balatro.clone();
+        assert_eq!(cloned.path, path);
+    }
+
+    #[test]
+    fn test_find_zip_start_valid() {
+        let balatro = Balatro {
+            path: PathBuf::from("/fake"),
+        };
+
+        // Create data with ZIP signature embedded
+        let mut data = vec![0x00, 0x00, 0x00]; // Some prefix bytes
+        data.extend_from_slice(&[0x50, 0x4b, 0x03, 0x04]); // ZIP signature
+        data.extend_from_slice(&[0x00, 0x00]); // Some suffix bytes
+
+        let result = balatro.find_zip_start(&data);
+        assert_eq!(result, Ok(3)); // ZIP starts at index 3
+    }
+
+    #[test]
+    fn test_find_zip_start_at_beginning() {
+        let balatro = Balatro {
+            path: PathBuf::from("/fake"),
+        };
+
+        // ZIP signature at the start
+        let data = vec![0x50, 0x4b, 0x03, 0x04, 0x00, 0x00];
+        let result = balatro.find_zip_start(&data);
+        assert_eq!(result, Ok(0));
+    }
+
+    #[test]
+    fn test_find_zip_start_not_found() {
+        let balatro = Balatro {
+            path: PathBuf::from("/fake"),
+        };
+
+        // No ZIP signature
+        let data = vec![0x00, 0x01, 0x02, 0x03, 0x04, 0x05];
+        let result = balatro.find_zip_start(&data);
+        assert_eq!(result, Err("ZIP start not found"));
+    }
+
+    #[test]
+    fn test_is_valid_nonexistent_path() {
+        let dir = tempdir().unwrap();
+        let balatro = Balatro {
+            path: dir.path().join("nonexistent"),
+        };
+        assert!(!balatro.is_valid());
+    }
+
+    #[test]
+    fn test_get_exe_path_format() {
+        let path = PathBuf::from("/game/Balatro");
+        let balatro = Balatro { path };
+        let exe_path = balatro.get_exe_path();
+
+        // Platform-specific checks
+        #[cfg(target_os = "macos")]
+        {
+            // On macOS, it should look for Balatro.app/Contents/Resources/Balatro.love
+            let expected_suffix = "Balatro.app/Contents/Resources/Balatro.love";
+            assert!(exe_path.to_string_lossy().contains(expected_suffix));
+        }
+
+        #[cfg(any(target_os = "windows", target_os = "linux"))]
+        {
+            // On Windows/Linux, it should return Balatro.exe
+            assert!(exe_path.to_string_lossy().ends_with("Balatro.exe"));
+        }
+    }
 }
