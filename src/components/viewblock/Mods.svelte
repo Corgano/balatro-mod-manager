@@ -833,6 +833,16 @@
                     ...s,
                     [mod.title]: false,
                 }));
+
+                // Deactivate any active collections that contain this mod
+                const collections = get(collectionsStore);
+                const activeIds = get(activeCollectionIds);
+                for (const id of activeIds) {
+                    const collection = collections.find((c) => c.id === id);
+                    if (collection && collection.modTitles.includes(mod.title)) {
+                        removeActiveCollection(id);
+                    }
+                }
             }
         } catch (error) {
             console.error("Uninstall failed:", error);
@@ -2546,23 +2556,34 @@
                     );
                 }
             }
-            if (
-                missingUnresolved.length > 0 ||
-                missingUnresolvedIds.length > 0
-            ) {
-                const totalMissing =
-                    missingUnresolved.length + missingUnresolvedIds.length;
-                addMessage(
-                    `Missing ${totalMissing} mod(s) in the catalog. Install them manually to include in this collection.`,
-                    "warning",
-                );
-            }
 
             await refreshInstalledMods();
             enabledMap = await invoke<Record<string, boolean>>(
                 "enabled_state_map",
                 { localPaths },
             );
+
+            // Re-check missingUnresolved against what's now installed
+            // Suppress warning for mods that were successfully installed
+            const nowInstalledNormalized = normalizeInstalled(enabledMap);
+            const stillMissingUnresolved = missingUnresolved.filter(
+                (title) => !nowInstalledNormalized.has(normalizeName(title)),
+            );
+            const stillMissingUnresolvedIds = missingUnresolvedIds.filter(
+                (id) => !nowInstalledNormalized.has(normalizeName(id)),
+            );
+
+            if (
+                stillMissingUnresolved.length > 0 ||
+                stillMissingUnresolvedIds.length > 0
+            ) {
+                const totalMissing =
+                    stillMissingUnresolved.length + stillMissingUnresolvedIds.length;
+                addMessage(
+                    `Missing ${totalMissing} mod(s) in the catalog. Install them manually to include in this collection.`,
+                    "warning",
+                );
+            }
 
             // Check if this is the first collection being activated
             const isFirstCollection = $activeCollectionIds.length === 0;

@@ -22,6 +22,8 @@ function debounce<T extends (...args: any[]) => void>(fn: T, wait: number) {
 import { addMessage } from "$lib/stores";
 import { fade } from "svelte/transition";
 import ModCard from "./ModCard.svelte";
+import { collectionsStore, activeCollectionIds, removeActiveCollection } from "../../stores/collections";
+import { get } from "svelte/store";
 
 	let searchQuery = $state("");
 	let searchResults = $state<Mod[]>([]);
@@ -99,6 +101,16 @@ import ModCard from "./ModCard.svelte";
                     ...s,
                     [mod.title]: false,
                 }));
+
+                // Deactivate any active collections that contain this mod
+                const collections = get(collectionsStore);
+                const activeIds = get(activeCollectionIds);
+                for (const id of activeIds) {
+                    const collection = collections.find((c) => c.id === id);
+                    if (collection && collection.modTitles.includes(mod.title)) {
+                        removeActiveCollection(id);
+                    }
+                }
             }
         } catch (error) {
             console.error("Uninstall failed:", error);

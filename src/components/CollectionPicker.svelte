@@ -8,6 +8,7 @@
     closeCollectionPicker,
     createCollection,
     setModInCollection,
+    isModInCollection,
   } from "../stores/collections";
   import {
     modsStore,
@@ -29,13 +30,20 @@
     missing: string[];
   } | null>(null);
 
+  const normalizeName = (name: string): string =>
+    name.trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+
   const hasCollectionMod = (
     collection: { modTitles: string[]; modIds: string[] },
     title: string,
     id?: string | null,
   ) => {
-    if (id && collection.modIds.includes(id)) return true;
-    return collection.modTitles.includes(title);
+    const normalizedTitle = normalizeName(title);
+    if (id) {
+      const normalizedId = normalizeName(id);
+      if (collection.modIds.some((i) => normalizeName(i) === normalizedId)) return true;
+    }
+    return collection.modTitles.some((t) => normalizeName(t) === normalizedTitle);
   };
 
   const ensureDownloadUrl = (mod: Mod): Mod => {
@@ -166,9 +174,7 @@
     if (!modTitle) return;
     const collection = $collectionsStore.find((c) => c.id === id);
     if (!collection) return;
-    const isMember = modId
-      ? collection.modIds.includes(modId)
-      : collection.modTitles.includes(modTitle);
+    const isMember = hasCollectionMod(collection, modTitle, modId);
     if (isMember) {
       setModInCollection(id, modTitle, false, modId);
       return;
@@ -286,9 +292,11 @@
       {:else}
         <div class="list">
           {#each $collectionsStore as col (col.id)}
-            {@const isMember = $collectionPickerStore.modId
-              ? col.modIds.includes($collectionPickerStore.modId)
-              : col.modTitles.includes($collectionPickerStore.modTitle ?? "")}
+            {@const isMember = hasCollectionMod(
+              col,
+              $collectionPickerStore.modTitle ?? "",
+              $collectionPickerStore.modId,
+            )}
             {@const modCount = Math.max(col.modTitles.length, col.modIds.length)}
             <button
               class="row"

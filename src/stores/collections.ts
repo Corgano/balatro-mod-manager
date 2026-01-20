@@ -70,7 +70,28 @@ export function setCollectionImportCode(code: string) {
 }
 
 function normalizeName(name: string): string {
-  return name.trim().toLowerCase();
+  return name
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "");
+}
+
+/** Check if a mod title matches any title in the collection using normalized comparison */
+export function isModInCollection(
+  collection: ModCollection,
+  modTitle: string,
+): boolean {
+  const normalizedInput = normalizeName(modTitle);
+  return collection.modTitles.some((t) => normalizeName(t) === normalizedInput);
+}
+
+/** Find the original title in the collection that matches the given title (normalized) */
+function findMatchingTitle(
+  modTitles: string[],
+  modTitle: string,
+): string | null {
+  const normalizedInput = normalizeName(modTitle);
+  return modTitles.find((t) => normalizeName(t) === normalizedInput) ?? null;
 }
 
 function makeUniqueName(base: string, existing: Set<string>): string {
@@ -176,18 +197,34 @@ export function toggleModInCollection(
     list.map((c) => {
       if (c.id !== id) return c;
       const idValue = modId ?? "";
-      const has = c.modTitles.includes(modTitle);
-      const next = has
-        ? c.modTitles.filter((t) => t !== modTitle)
+      // Use normalized matching to find existing entry
+      const existingTitle = findMatchingTitle(c.modTitles, modTitle);
+      // Also check for matching ID with normalization
+      const existingId = idValue
+        ? c.modIds.find((i) => normalizeName(i) === normalizeName(idValue))
+        : null;
+      // Check if mod exists by either title OR id match
+      const has = existingTitle !== null || existingId !== null;
+      const nextTitles = has
+        ? existingTitle
+          ? c.modTitles.filter((t) => t !== existingTitle)
+          : c.modTitles
         : [...c.modTitles, modTitle];
       const nextIds = idValue
         ? has
-          ? c.modIds.filter((t) => t !== idValue)
+          ? existingId
+            ? c.modIds.filter((t) => t !== existingId)
+            : c.modIds
           : c.modIds.includes(idValue)
             ? c.modIds
             : [...c.modIds, idValue]
         : c.modIds;
-      return { ...c, modTitles: next, modIds: nextIds, updatedAt: Date.now() };
+      return {
+        ...c,
+        modTitles: nextTitles,
+        modIds: nextIds,
+        updatedAt: Date.now(),
+      };
     }),
   );
 }
@@ -202,10 +239,16 @@ export function setModInCollection(
     list.map((c) => {
       if (c.id !== id) return c;
       const idValue = modId ?? "";
-      const has = c.modTitles.includes(modTitle);
+      // Use normalized matching to find existing entry
+      const existingTitle = findMatchingTitle(c.modTitles, modTitle);
+      const existingId = idValue
+        ? c.modIds.find((i) => normalizeName(i) === normalizeName(idValue))
+        : null;
+      // Check if mod exists by either title OR id match
+      const has = existingTitle !== null || existingId !== null;
       if (enabled) {
         const nextIds = idValue
-          ? c.modIds.includes(idValue)
+          ? existingId || c.modIds.includes(idValue)
             ? c.modIds
             : [...c.modIds, idValue]
           : c.modIds;
@@ -222,12 +265,15 @@ export function setModInCollection(
         }
       }
       if (!enabled && has) {
-        const nextIds = idValue
-          ? c.modIds.filter((t) => t !== idValue)
+        const nextTitles = existingTitle
+          ? c.modTitles.filter((t) => t !== existingTitle)
+          : c.modTitles;
+        const nextIds = existingId
+          ? c.modIds.filter((t) => t !== existingId)
           : c.modIds;
         return {
           ...c,
-          modTitles: c.modTitles.filter((t) => t !== modTitle),
+          modTitles: nextTitles,
           modIds: nextIds,
           updatedAt: Date.now(),
         };

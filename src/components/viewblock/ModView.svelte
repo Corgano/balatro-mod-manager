@@ -42,7 +42,8 @@ import {
     import LazyImage from "../common/LazyImage.svelte";
 import { isLinuxPlatform } from "$lib/platform";
 import { openExternal } from "$lib/opener";
-import { openCollectionPicker } from "../../stores/collections";
+import { openCollectionPicker, collectionsStore, activeCollectionIds, removeActiveCollection } from "../../stores/collections";
+import { get } from "svelte/store";
 
 	// Configure marked options
 	marked.use({
@@ -464,6 +465,16 @@ let modView: HTMLDivElement;
                     ...s,
 					[mod.title]: false,
 				}));
+
+				// Deactivate any active collections that contain this mod
+				const collections = get(collectionsStore);
+				const activeIds = get(activeCollectionIds);
+				for (const id of activeIds) {
+					const collection = collections.find((c) => c.id === id);
+					if (collection && collection.modTitles.includes(mod.title)) {
+						removeActiveCollection(id);
+					}
+				}
 
 				// Reset update status for this mod
 				updateAvailableStore.update((updates) => ({
