@@ -128,32 +128,119 @@ pub enum AppError {
 impl fmt::Display for AppError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            // Database errors
             AppError::DatabaseInit(msg) => write!(f, "Database initialization failed: {msg}"),
-            AppError::DatabaseQuery(msg) => write!(f, "Database query error: {msg}"),
+            AppError::DatabaseQuery(msg) => write!(f, "Database error: {msg}"),
+            AppError::DatabaseTransaction(msg) => write!(f, "Database transaction failed: {msg}"),
 
+            // Logging errors
+            AppError::Logging(msg) => write!(f, "Logging error: {msg}"),
+
+            // File system errors
             AppError::FileRead { path, source } => {
                 write!(f, "Failed to read file '{}': {}", path.display(), source)
             }
+            AppError::FileCopy {
+                source,
+                dest,
+                source_error,
+            } => {
+                write!(f, "Failed to copy '{}' to '{}': {}", source, dest, source_error)
+            }
+            AppError::FileWrite { path, source } => {
+                write!(f, "Failed to write file '{}': {}", path.display(), source)
+            }
+            AppError::FileNotFound { path, source } => {
+                write!(f, "File not found '{}': {}", path.display(), source)
+            }
+            AppError::DirCreate { path, source } => {
+                write!(
+                    f,
+                    "Failed to create directory '{}': {}",
+                    path.display(),
+                    source
+                )
+            }
+            AppError::DirNotFound(path) => {
+                write!(f, "Directory not found: '{}'", path.display())
+            }
+            AppError::PathConversionError => {
+                write!(f, "Failed to convert path to string")
+            }
 
+            // System errors
+            AppError::SystemTime(msg) => write!(f, "System time error: {msg}"),
+            AppError::ProcessExecution(msg) => write!(f, "Process execution failed: {msg}"),
+
+            // Application state
+            AppError::LockPoisoned(msg) => write!(f, "Internal lock error: {msg}"),
+            AppError::InvalidState(msg) => write!(f, "{msg}"),
+
+            // Mod management
             AppError::ModInstall { mod_name, source } => {
                 write!(f, "Failed to install mod '{mod_name}': {source}")
             }
+            AppError::ModConflict { mod_name, conflicts } => {
+                write!(
+                    f,
+                    "Mod '{}' conflicts with: {}",
+                    mod_name,
+                    conflicts.join(", ")
+                )
+            }
+            AppError::ModNotFound { mod_name, version } => {
+                if version.is_empty() {
+                    write!(f, "Mod '{}' not found", mod_name)
+                } else {
+                    write!(f, "Mod '{}' version '{}' not found", mod_name, version)
+                }
+            }
+            AppError::GitOperation(msg) => write!(f, "Git operation failed: {msg}"),
 
+            // Network/API
             AppError::NetworkRequest { url: _, source } => {
                 // Show only the underlying message to keep UI errors concise
                 write!(f, "{source}")
             }
+            AppError::ApiLimitExceeded => {
+                write!(f, "API rate limit exceeded. Please try again later.")
+            }
+            AppError::InvalidApiResponse(msg) => write!(f, "Invalid API response: {msg}"),
 
+            // Platform specific
             AppError::MacOsLibrary { lib_name, source } => {
-                write!(f, "MacOS library '{lib_name}' error: {source}")
+                write!(f, "macOS library '{lib_name}' error: {source}")
+            }
+            AppError::SystemDetection(msg) => write!(f, "System detection failed: {msg}"),
+            AppError::UnsupportedArchitecture(arch) => {
+                write!(f, "Unsupported system architecture: {arch}")
             }
 
+            // Configuration
+            AppError::InvalidConfig { key, value } => {
+                write!(f, "Invalid configuration for '{}': {}", key, value)
+            }
             AppError::PathValidation { path, reason } => {
                 write!(f, "Invalid path '{}': {}", path.display(), reason)
             }
 
-            // Handle all variants similarly
-            _ => write!(f, "{self:?}"),
+            // UI/Window
+            AppError::WindowCreation(msg) => write!(f, "Window creation failed: {msg}"),
+            AppError::DialogError(msg) => write!(f, "Dialog error: {msg}"),
+
+            // Serialization
+            AppError::Serialization { format, source } => {
+                write!(f, "Failed to process {} data: {}", format, source)
+            }
+            AppError::JsonParse { path, source } => {
+                write!(f, "Failed to parse JSON '{}': {}", path.display(), source)
+            }
+
+            // Network
+            AppError::Network(msg) => write!(f, "Network error: {msg}"),
+
+            // Miscellaneous
+            AppError::Unknown(msg) => write!(f, "An error occurred: {msg}"),
         }
     }
 }

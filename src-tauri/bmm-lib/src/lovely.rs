@@ -1,3 +1,17 @@
+//! Lovely (mod loader/injector) installer and version management.
+//!
+//! Lovely is the mod injection framework that enables Balatro mods to work.
+//! This module handles:
+//! - Downloading and installing the Lovely injector
+//! - Version checking and updates
+//! - Platform-specific installation (Windows DLL, macOS dylib, Linux .so)
+//!
+//! # Platform-Specific Details
+//!
+//! - **Windows/Linux (Proton)**: Uses `version.dll` for DLL injection
+//! - **macOS**: Uses `liblovely.dylib` with `DYLD_INSERT_LIBRARIES`
+//! - **Linux (native LOVE)**: Uses `liblovely.so` with `LD_PRELOAD`
+
 use crate::errors::AppError;
 #[cfg(any(target_os = "windows", target_os = "linux"))]
 use std::fs::File;
@@ -11,6 +25,9 @@ use std::path::{Path, PathBuf};
 #[cfg(target_os = "linux")]
 use std::process::Command;
 
+/// Ensures the Lovely version.dll exists in the game directory (Windows/Linux).
+///
+/// Downloads the DLL from GitHub releases if not present.
 #[cfg(any(target_os = "windows", target_os = "linux"))]
 pub async fn ensure_version_dll_exists(game_path: &Path) -> Result<PathBuf, AppError> {
     let dll_path = game_path.join("version.dll");

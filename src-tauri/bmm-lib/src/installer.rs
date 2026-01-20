@@ -1,3 +1,23 @@
+//! Mod installation and uninstallation logic.
+//!
+//! This module handles downloading mods from URLs and extracting them into the
+//! Balatro Mods directory. It supports multiple archive formats:
+//! - ZIP archives (most common)
+//! - Gzipped tarballs (.tar.gz)
+//! - RAR archives
+//!
+//! # Installation Process
+//!
+//! 1. Download the mod archive from the provided URL
+//! 2. Detect the archive format (ZIP, tar.gz, or RAR)
+//! 3. Extract contents to the Mods directory
+//! 4. Handle nested folder structures (single-folder archives)
+//!
+//! # Security
+//!
+//! Path traversal attacks are prevented by validating extracted paths stay
+//! within the target directory.
+
 use crate::errors::AppError;
 use crate::local_mod_detection::{
     ensure_proton_mod_dir_link, mod_dir_candidates, resolve_mods_dir_path,
@@ -16,6 +36,25 @@ use tar::Archive;
 use tokio::time::sleep;
 use zip::ZipArchive;
 
+/// Downloads and installs a mod from the given URL.
+///
+/// The archive is automatically detected and extracted to the Balatro Mods
+/// directory. If `folder_name` is provided, it overrides the archive's internal
+/// folder name.
+///
+/// # Arguments
+///
+/// * `url` - The download URL for the mod archive
+/// * `folder_name` - Optional custom folder name for the installed mod
+///
+/// # Returns
+///
+/// The path to the installed mod directory on success.
+///
+/// # Errors
+///
+/// Returns an error if the download fails, the archive format is unsupported,
+/// or extraction fails.
 pub async fn install_mod(url: String, folder_name: Option<String>) -> Result<PathBuf, AppError> {
     log::info!("Starting mod download from: {}", url);
     let client = Client::new();

@@ -1,3 +1,23 @@
+//! Scanning Mods folder and detecting untracked mods.
+//!
+//! This module provides functionality to detect mods that are installed locally
+//! but not tracked in the database. It scans the Mods directory and attempts to
+//! match found mods against the remote catalog.
+//!
+//! # Features
+//!
+//! - Scans the Mods directory for installed mods
+//! - Matches local mods to catalog entries using fuzzy matching
+//! - Caches detection results to avoid repeated filesystem scans
+//! - Handles Proton/Wine prefix symlinks on Linux
+//!
+//! # Detection Logic
+//!
+//! Mods are identified by:
+//! 1. Presence of a `lovely.toml` configuration file
+//! 2. Mod metadata in JSON files
+//! 3. Directory name matching against the catalog
+
 use crate::cache;
 use crate::database::Database;
 use crate::finder;

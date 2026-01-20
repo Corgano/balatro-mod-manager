@@ -205,3 +205,69 @@ pub async fn enabled_state_map(
 
     Ok(out)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    #[test]
+    fn test_set_mod_enabled_creates_lovelyignore() {
+        let dir = tempdir().unwrap();
+        let mod_dir = dir.path().join("TestMod");
+        fs::create_dir(&mod_dir).unwrap();
+
+        // Initially no .lovelyignore
+        assert!(!mod_dir.join(".lovelyignore").exists());
+
+        // Disable the mod
+        set_mod_enabled_at_path(&mod_dir, false).unwrap();
+        assert!(mod_dir.join(".lovelyignore").exists());
+
+        // Enable the mod
+        set_mod_enabled_at_path(&mod_dir, true).unwrap();
+        assert!(!mod_dir.join(".lovelyignore").exists());
+    }
+
+    #[test]
+    fn test_set_mod_enabled_handles_subdirectories() {
+        let dir = tempdir().unwrap();
+        let mod_dir = dir.path().join("TestMod");
+        let sub_dir = mod_dir.join("submod");
+        fs::create_dir_all(&sub_dir).unwrap();
+
+        // Disable - should create .lovelyignore in both places
+        set_mod_enabled_at_path(&mod_dir, false).unwrap();
+        assert!(mod_dir.join(".lovelyignore").exists());
+        assert!(sub_dir.join(".lovelyignore").exists());
+
+        // Enable - should remove both
+        set_mod_enabled_at_path(&mod_dir, true).unwrap();
+        assert!(!mod_dir.join(".lovelyignore").exists());
+        assert!(!sub_dir.join(".lovelyignore").exists());
+    }
+
+    #[test]
+    fn test_set_mod_enabled_nonexistent_path() {
+        let result = set_mod_enabled_at_path(Path::new("/nonexistent/path"), true);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("does not exist"));
+    }
+
+    #[test]
+    fn test_set_mod_enabled_idempotent() {
+        let dir = tempdir().unwrap();
+        let mod_dir = dir.path().join("TestMod");
+        fs::create_dir(&mod_dir).unwrap();
+
+        // Disable twice should work
+        set_mod_enabled_at_path(&mod_dir, false).unwrap();
+        set_mod_enabled_at_path(&mod_dir, false).unwrap();
+        assert!(mod_dir.join(".lovelyignore").exists());
+
+        // Enable twice should work
+        set_mod_enabled_at_path(&mod_dir, true).unwrap();
+        set_mod_enabled_at_path(&mod_dir, true).unwrap();
+        assert!(!mod_dir.join(".lovelyignore").exists());
+    }
+}

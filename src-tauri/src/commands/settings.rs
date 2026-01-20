@@ -137,6 +137,7 @@ pub async fn set_launch_mode(
 
 #[cfg(test)]
 mod tests {
+    #[allow(unused_imports)]
     use super::*;
 
     #[test]

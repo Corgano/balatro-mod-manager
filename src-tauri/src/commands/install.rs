@@ -30,7 +30,8 @@ use bmm_lib::lovely::ensure_version_dll_exists;
 use bmm_lib::lovely::{ensure_love_binary, ensure_lovely_so_exists, get_latest_lovely_version};
 use bmm_lib::smods_installer::{ModInstaller, ModType};
 use bmm_lib::{cache, database::InstalledMod};
-use bmm_lib::{errors::AppError, local_mod_detection};
+use bmm_lib::errors::AppError;
+use bmm_lib::local_mod_detection;
 #[cfg(target_os = "linux")]
 use shell_words::split as split_shell_words;
 use tauri::Emitter;
@@ -620,14 +621,14 @@ pub async fn launch_balatro(state: tauri::State<'_, AppState>) -> Result<(), Str
         // Refresh Lovely if a newer version is available
         if let Ok(latest) = get_latest_lovely_version().await {
             let db = state.db.lock().await;
-            if let Ok(current) = db.get_lovely_version() {
-                if current.as_deref() != Some(latest.as_str()) {
-                    let _ = db.set_lovely_version(&latest);
-                    if let Some(config_dir) = dirs::config_dir() {
-                        let _ = remove_file(config_dir.join("Balatro/bins/liblovely.so"));
-                    }
-                    let _ = remove_file(path.join("liblovely.so"));
+            if let Ok(current) = db.get_lovely_version()
+                && current.as_deref() != Some(latest.as_str())
+            {
+                let _ = db.set_lovely_version(&latest);
+                if let Some(config_dir) = dirs::config_dir() {
+                    let _ = remove_file(config_dir.join("Balatro/bins/liblovely.so"));
                 }
+                let _ = remove_file(path.join("liblovely.so"));
             }
         }
 
@@ -1021,4 +1022,75 @@ pub async fn add_installed_mod(
     refresh_mod_detection_cache();
     emit_installed_mods_changed(&app_handle);
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    #[cfg(target_os = "linux")]
+    use super::*;
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn test_is_env_assignment_valid() {
+        assert!(is_env_assignment("FOO=bar"));
+        assert!(is_env_assignment("WINEDLLOVERRIDES=version=n,b"));
+        assert!(is_env_assignment("_VAR=value"));
+        assert!(is_env_assignment("VAR123=something"));
+        assert!(is_env_assignment("A=B"));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn test_is_env_assignment_invalid() {
+        assert!(!is_env_assignment("notassignment"));
+        assert!(!is_env_assignment("=value")); // empty key
+        assert!(!is_env_assignment("KEY=")); // empty value
+        assert!(!is_env_assignment("123VAR=value")); // starts with digit
+        assert!(!is_env_assignment("-VAR=value")); // starts with dash
+        assert!(!is_env_assignment(""));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn test_split_prefix_env_basic() {
+        let parts = vec![
+            "FOO=bar".to_string(),
+            "BAZ=qux".to_string(),
+            "steam".to_string(),
+            "-applaunch".to_string(),
+            "2379780".to_string(),
+        ];
+        let (envs, rest) = split_prefix_env(&parts);
+        assert_eq!(envs.len(), 2);
+        assert_eq!(envs[0], ("FOO".to_string(), "bar".to_string()));
+        assert_eq!(envs[1], ("BAZ".to_string(), "qux".to_string()));
+        assert_eq!(rest, vec!["steam", "-applaunch", "2379780"]);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn test_split_prefix_env_no_envs() {
+        let parts = vec!["steam".to_string(), "-applaunch".to_string()];
+        let (envs, rest) = split_prefix_env(&parts);
+        assert!(envs.is_empty());
+        assert_eq!(rest, vec!["steam", "-applaunch"]);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn test_split_prefix_env_all_envs() {
+        let parts = vec!["A=1".to_string(), "B=2".to_string()];
+        let (envs, rest) = split_prefix_env(&parts);
+        assert_eq!(envs.len(), 2);
+        assert!(rest.is_empty());
+    }
+
+    #[test]
+    fn test_emit_functions_exist() {
+        // Simple test to verify the helper functions compile and exist
+        // The actual emit functionality requires Tauri runtime
+        fn _check_refresh_exists() {
+            super::refresh_mod_detection_cache();
+        }
+    }
 }

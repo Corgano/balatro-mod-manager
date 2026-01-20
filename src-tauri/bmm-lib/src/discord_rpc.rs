@@ -1,9 +1,27 @@
+//! Discord Rich Presence integration.
+//!
+//! This module provides Discord Rich Presence support for the Balatro Mod Manager,
+//! showing the user's activity status in Discord while using the application.
+//!
+//! # Usage
+//!
+//! The [`DiscordRpcManager`] is initialized at app startup and runs in a background
+//! thread. It can be enabled/disabled via user settings.
+//!
+//! # Thread Safety
+//!
+//! The manager uses Arc<Mutex> internally and can be safely cloned and shared
+//! across threads.
+
 use discord_rich_presence::{DiscordIpc, DiscordIpcClient, activity};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
-// Add Clone derive
+/// Manages Discord Rich Presence integration.
+///
+/// This struct handles connecting to Discord, updating presence status,
+/// and gracefully handling connection failures.
 #[derive(Clone)]
 pub struct DiscordRpcManager {
     enabled: Arc<Mutex<bool>>,

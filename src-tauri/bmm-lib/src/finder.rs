@@ -1,3 +1,19 @@
+//! Automatic Balatro installation path detection.
+//!
+//! This module provides functions to locate Balatro game installations across
+//! different platforms and store types:
+//! - Steam installations (via library folders)
+//! - Registry entries (Windows)
+//! - Common installation directories
+//! - Flatpak and Proton prefixes (Linux)
+//!
+//! # Detection Strategy
+//!
+//! 1. Check user-configured path in database
+//! 2. Query Steam library folders via `libraryfolders.vdf`
+//! 3. Check common installation directories
+//! 4. (Windows) Query Windows Registry for Steam path
+
 use crate::database::Database;
 use log::{debug, error};
 #[cfg(target_os = "linux")]
