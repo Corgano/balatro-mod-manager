@@ -1,5 +1,6 @@
 <script lang="ts">
   import { fade, scale } from "svelte/transition";
+  import { Check, Plus } from "lucide-svelte";
   import { addMessage } from "$lib/stores";
   import {
     collectionsStore,
@@ -293,8 +294,12 @@
               class="row"
               onclick={() => handleToggle(col.id)}
             >
-              <span class:checked={isMember}>
-                {isMember ? "✓" : "+"}
+              <span class="icon" class:checked={isMember}>
+                {#if isMember}
+                  <Check size={18} strokeWidth={3} />
+                {:else}
+                  <Plus size={18} strokeWidth={2.5} />
+                {/if}
               </span>
               <span class="name">{col.name}</span>
               <span class="count">{modCount}</span>
@@ -394,6 +399,11 @@
     gap: 0.4rem;
     max-height: 300px;
     overflow-y: auto;
+    scrollbar-width: none;
+  }
+
+  .list::-webkit-scrollbar {
+    display: none;
   }
 
   .row {
@@ -429,6 +439,14 @@
 
   .row span.checked {
     color: #74cca8;
+  }
+
+  .icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
   }
 
   .name {
