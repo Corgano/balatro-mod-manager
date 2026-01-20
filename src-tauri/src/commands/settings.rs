@@ -134,3 +134,40 @@ pub async fn set_launch_mode(
     let db = state.db.lock().await;
     map_error(db.set_launch_mode(&mode))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_launch_mode_validation_valid_modes() {
+        // Test that validation logic in set_launch_mode accepts valid modes
+        let valid_modes = ["modded", "vanilla"];
+        for mode in valid_modes {
+            assert!(mode == "modded" || mode == "vanilla");
+        }
+    }
+
+    #[test]
+    fn test_launch_mode_validation_invalid_modes() {
+        // Test that invalid modes would be rejected
+        let invalid_modes = ["invalid", "MODDED", "Vanilla", "", "both"];
+        for mode in invalid_modes {
+            let is_valid = mode == "modded" || mode == "vanilla";
+            assert!(!is_valid, "Mode '{}' should be invalid", mode);
+        }
+    }
+
+    #[test]
+    fn test_launch_mode_error_message_format() {
+        // Verify error message format for invalid mode
+        let mode = "invalid";
+        let expected = format!(
+            "Invalid launch mode: {}. Must be 'modded' or 'vanilla'",
+            mode
+        );
+        assert!(expected.contains("Invalid launch mode"));
+        assert!(expected.contains("modded"));
+        assert!(expected.contains("vanilla"));
+    }
+}

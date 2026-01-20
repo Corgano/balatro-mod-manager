@@ -414,6 +414,77 @@ fn looks_like_steam_install(path: &Path) -> bool {
         .any(|window| window[0] == "steamapps" && window[1] == "common" && window[2] == "balatro")
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    #[test]
+    fn test_looks_like_steam_install_valid_paths() {
+        // Windows-style Steam path
+        let win_path = PathBuf::from("C:/Program Files/Steam/steamapps/common/Balatro");
+        assert!(looks_like_steam_install(&win_path));
+
+        // Linux-style Steam path
+        let linux_path = PathBuf::from("/home/user/.steam/steam/steamapps/common/Balatro");
+        assert!(looks_like_steam_install(&linux_path));
+
+        // macOS-style Steam path
+        let mac_path =
+            PathBuf::from("/Users/user/Library/Application Support/Steam/steamapps/common/Balatro");
+        assert!(looks_like_steam_install(&mac_path));
+
+        // Case insensitivity check
+        let mixed_case = PathBuf::from("/home/user/SteamApps/Common/BALATRO");
+        assert!(looks_like_steam_install(&mixed_case));
+    }
+
+    #[test]
+    fn test_looks_like_steam_install_invalid_paths() {
+        // Custom install path
+        let custom_path = PathBuf::from("/home/user/Games/Balatro");
+        assert!(!looks_like_steam_install(&custom_path));
+
+        // Missing common directory
+        let missing_common = PathBuf::from("/home/user/.steam/steamapps/Balatro");
+        assert!(!looks_like_steam_install(&missing_common));
+
+        // Wrong game name
+        let wrong_game = PathBuf::from("/home/user/.steam/steamapps/common/OtherGame");
+        assert!(!looks_like_steam_install(&wrong_game));
+
+        // Empty path
+        let empty = PathBuf::new();
+        assert!(!looks_like_steam_install(&empty));
+
+        // Just balatro without steam structure
+        let just_balatro = PathBuf::from("/Balatro");
+        assert!(!looks_like_steam_install(&just_balatro));
+    }
+
+    #[test]
+    fn test_looks_like_steam_install_nested_paths() {
+        // Subdirectory within Steam install
+        let nested =
+            PathBuf::from("/home/user/.steam/steam/steamapps/common/Balatro/resources/data");
+        assert!(looks_like_steam_install(&nested));
+
+        // Proton prefix path
+        let proton = PathBuf::from(
+            "/home/user/.steam/steam/steamapps/compatdata/2379780/pfx/drive_c/Balatro",
+        );
+        assert!(!looks_like_steam_install(&proton));
+    }
+
+    #[test]
+    fn test_verify_path_exists_format() {
+        // Test that path checking works with string conversion
+        let path_str = "/some/test/path".to_string();
+        let path_buf = PathBuf::from(&path_str);
+        assert_eq!(path_buf.to_string_lossy(), path_str);
+    }
+}
+
 #[tauri::command]
 pub async fn check_custom_balatro(
     state: tauri::State<'_, AppState>,

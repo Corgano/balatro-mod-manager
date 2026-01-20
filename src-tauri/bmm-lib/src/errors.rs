@@ -1,8 +1,24 @@
-// src/errors.rs
+//! Application-wide error types for the Balatro Mod Manager.
+//!
+//! This module defines [`AppError`], a comprehensive error enum that covers
+//! all error scenarios in the application, including:
+//! - Database operations
+//! - File system operations
+//! - Network requests
+//! - Mod installation and management
+//! - Platform-specific issues
+//!
+//! The error type implements conversions from common error types and can be
+//! easily converted to a String for Tauri command results.
+
 use std::fmt;
 use std::path::PathBuf;
 use std::time::SystemTimeError;
 
+/// Comprehensive error type for all application errors.
+///
+/// This enum provides detailed error variants for different failure scenarios,
+/// enabling precise error handling and informative error messages.
 #[derive(Debug)]
 pub enum AppError {
     // Database errors

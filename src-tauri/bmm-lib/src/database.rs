@@ -1,25 +1,52 @@
-// use crate::cache::Mod;
+//! SQLite database for storing app settings and installed mod metadata.
+//!
+//! This module provides a [`Database`] struct that handles all persistent storage
+//! for the mod manager, including:
+//! - Installed mod tracking
+//! - User settings (Discord RPC, lovely console, launch mode, etc.)
+//! - Installation paths and version information
+//!
+//! The database uses SQLite with automatic schema migrations.
+
 use crate::errors::AppError;
 use rusqlite::Connection;
 use serde::Serialize;
 use std::path::Path;
 use std::path::PathBuf;
 
+/// Handle to the SQLite database storing app settings and mod metadata.
+///
+/// All database operations are synchronous. For async contexts, wrap access
+/// in a tokio Mutex or similar synchronization primitive.
 pub struct Database {
     conn: Connection,
 }
 
+/// Represents an installed mod stored in the database.
 #[derive(Serialize)]
 pub struct InstalledMod {
+    /// The display name of the mod.
     pub name: String,
+    /// Filesystem path where the mod is installed.
     pub path: String,
+    /// List of dependency mod names.
     pub dependencies: Vec<String>,
+    /// Currently installed version string, if known.
     pub current_version: Option<String>,
 }
 
 impl Database {
     const CURRENT_DB_VERSION: &'static str = "1.2"; // Update this when schema changes
 
+    /// Creates a new Database instance, opening or creating the SQLite file.
+    ///
+    /// The database is stored in the platform's config directory under `Balatro/`.
+    /// Automatic schema migrations are performed if needed.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the config directory cannot be found, the database
+    /// cannot be opened, or migrations fail.
     pub fn new() -> Result<Self, AppError> {
         let config_dir = dirs::config_dir()
             .ok_or_else(|| AppError::DirNotFound(PathBuf::from("config directory")))?;

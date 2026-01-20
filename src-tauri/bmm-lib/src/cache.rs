@@ -1,3 +1,19 @@
+//! Binary cache for remote mod index data.
+//!
+//! This module provides functions to save and load the mod catalog from a
+//! compressed binary cache file. The cache is stored using gzip-compressed
+//! bincode serialization for efficient storage and fast loading.
+//!
+//! # Cache Location
+//!
+//! The cache file is stored in the platform's cache directory under
+//! `balatro-mod-manager/mods.cache.bin.gz`. On Flatpak, it uses the
+//! sandboxed cache path.
+//!
+//! # Cache Expiration
+//!
+//! The cache has a TTL of 15 minutes, after which it's considered stale.
+
 use crate::errors::AppError;
 use flate2::Compression;
 use flate2::read::GzDecoder;

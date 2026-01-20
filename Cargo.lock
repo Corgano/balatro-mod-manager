@@ -361,11 +361,9 @@ dependencies = [
  "tempfile",
  "test-case",
  "tokio",
- "tokio-stream",
  "tokio-test",
  "unrar",
  "urlencoding",
- "walkdir",
  "zip",
 ]
 
