@@ -13,6 +13,7 @@
         BookOpen,
         Folder,
         RefreshCw,
+        X,
     } from "lucide-svelte";
     import ModView from "./ModView.svelte";
     import { fly } from "svelte/transition";
@@ -27,6 +28,7 @@
         currentModView,
         currentCategory,
         uninstallDialogStore,
+        installedModsSearchStore,
     } from "../../stores/modStore";
     import type { LocalMod, Mod } from "../../stores/modStore";
     import { Category } from "../../stores/modStore";
@@ -121,6 +123,38 @@
     let disabledMods: Mod[] = $state([]);
     let enabledLocalMods: LocalMod[] = $state([]);
     let disabledLocalMods: LocalMod[] = $state([]);
+
+    // Search state for Installed Mods filter (uses store for cross-component access)
+    let installedSearchInputRef: HTMLInputElement | null = $state(null);
+
+    function matchesInstalledSearch(name: string, authorOrPublisher?: string | string[]): boolean {
+        const searchValue = $installedModsSearchStore;
+        if (!searchValue.trim()) return true;
+        const query = searchValue.toLowerCase().trim();
+        const normalizedName = name.toLowerCase();
+        if (normalizedName.includes(query)) return true;
+        if (authorOrPublisher) {
+            if (Array.isArray(authorOrPublisher)) {
+                return authorOrPublisher.some((a) => a.toLowerCase().includes(query));
+            }
+            return authorOrPublisher.toLowerCase().includes(query);
+        }
+        return false;
+    }
+
+    // Filtered versions of enabled/disabled lists based on search
+    let filteredEnabledMods = $derived(
+        enabledMods.filter((m) => matchesInstalledSearch(m.title, m.publisher))
+    );
+    let filteredDisabledMods = $derived(
+        disabledMods.filter((m) => matchesInstalledSearch(m.title, m.publisher))
+    );
+    let filteredEnabledLocalMods = $derived(
+        enabledLocalMods.filter((m) => matchesInstalledSearch(m.name, m.author))
+    );
+    let filteredDisabledLocalMods = $derived(
+        disabledLocalMods.filter((m) => matchesInstalledSearch(m.name, m.author))
+    );
 
     // Animate the dots
     let dotInterval: number;
@@ -2657,11 +2691,17 @@
     let totalPages = $derived(
         Math.ceil(sortedAndFilteredMods.length / $itemsPerPage),
     );
+
+    // For Installed Mods, show all mods (bypass pagination)
+    let isInstalledMods = $derived($currentCategory === "Installed Mods");
+
     let paginatedMods = $derived(
-        sortedAndFilteredMods.slice(
-            ($currentPage - 1) * $itemsPerPage,
-            $currentPage * $itemsPerPage,
-        ),
+        isInstalledMods
+            ? sortedAndFilteredMods
+            : sortedAndFilteredMods.slice(
+                ($currentPage - 1) * $itemsPerPage,
+                $currentPage * $itemsPerPage,
+            ),
     );
 
     let visiblePaginatedMods: Mod[] = $state([]);
@@ -2696,10 +2736,10 @@
     let startPage = $state(1);
 
     let visibleEnabledLocal = $derived(
-        enabledLocalMods.slice(0, renderLimitLocal),
+        filteredEnabledLocalMods.slice(0, renderLimitLocal),
     );
     let visibleDisabledLocal = $derived(
-        disabledLocalMods.slice(0, renderLimitLocal),
+        filteredDisabledLocalMods.slice(0, renderLimitLocal),
     );
     let observerLocal: IntersectionObserver | null = null;
 
@@ -3110,38 +3150,61 @@
                 {:else}
                     <div class="controls-container">
                         {#if $currentCategory === "Installed Mods" && !$currentModView}
-                            <button
-                                class="folder-icon-button"
-                                onclick={openModsFolder}
-                                title="Open Mods Folder"
-                                in:fly={{ duration: 400, y: 10, opacity: 0.2 }}
-                            >
-                                <Folder size={20} />
-                            </button>
-
-                            {#if hasUpdatesAvailable}
+                            <div class="controls-left" in:fly={{ duration: 400, y: 10, opacity: 0.2 }}>
                                 <button
-                                    class="update-all-button-top"
-                                    class:updating={isUpdatingAll}
-                                    onclick={updateAllMods}
-                                    disabled={isUpdatingAll}
-                                    title={isUpdatingAll ? "Updating mods..." : "Update all mods with available updates"}
-                                    in:fly={{
-                                        duration: 400,
-                                        y: 10,
-                                        opacity: 0.2,
-                                    }}
+                                    class="folder-icon-button"
+                                    onclick={openModsFolder}
+                                    title="Open Mods Folder"
                                 >
-                                    <RefreshCw size={18} class={isUpdatingAll ? "spinning" : ""} />
-                                    <span>{isUpdatingAll ? "Updating..." : "Update All"}</span>
+                                    <Folder size={20} />
                                 </button>
-                            {/if}
+
+                                {#if hasUpdatesAvailable}
+                                    <button
+                                        class="update-all-button-top"
+                                        class:updating={isUpdatingAll}
+                                        onclick={updateAllMods}
+                                        disabled={isUpdatingAll}
+                                        title={isUpdatingAll ? "Updating mods..." : "Update all mods with available updates"}
+                                    >
+                                        <RefreshCw size={18} class={isUpdatingAll ? "spinning" : ""} />
+                                        <span>{isUpdatingAll ? "Updating..." : "Update All"}</span>
+                                    </button>
+                                {/if}
+                            </div>
                         {/if}
 
                         <div
                             class="sort-controls"
                             in:fly={{ duration: 400, y: 10, opacity: 0.2 }}
                         >
+                            {#if $currentCategory === "Installed Mods" && !$currentModView}
+                                <div class="installed-search-wrapper">
+                                    <Search size={16} class="installed-search-icon" />
+                                    <input
+                                        type="text"
+                                        class="installed-search-input"
+                                        placeholder="Filter..."
+                                        bind:value={$installedModsSearchStore}
+                                        bind:this={installedSearchInputRef}
+                                        onkeydown={(e) => {
+                                            if (e.key === "Escape") {
+                                                installedModsSearchStore.set("");
+                                                installedSearchInputRef?.blur();
+                                            }
+                                        }}
+                                    />
+                                    {#if $installedModsSearchStore}
+                                        <button
+                                            class="installed-search-clear"
+                                            onclick={() => { installedModsSearchStore.set(""); }}
+                                            title="Clear search"
+                                        >
+                                            <X size={14} />
+                                        </button>
+                                    {/if}
+                                </div>
+                            {/if}
                             <div
                                 class="sort-dropdown"
                                 bind:this={sortDropdownRef}
@@ -3250,14 +3313,14 @@
                             </div>
 
                             <!-- Enabled Local Mods -->
-                            {#if enabledLocalMods.length > 0}
+                            {#if filteredEnabledLocalMods.length > 0}
                                 <div
                                     class="subsection-header enabled"
                                     class:top-margin={localMods.length === 0}
                                 >
                                     <h4>Enabled Local Mods</h4>
                                     <p>
-                                        {enabledLocalMods.length} mod{enabledLocalMods.length !==
+                                        {filteredEnabledLocalMods.length} mod{filteredEnabledLocalMods.length !==
                                         1
                                             ? "s"
                                             : ""} active
@@ -3282,14 +3345,14 @@
                             {/if}
 
                             <!-- Disabled Local Mods -->
-                            {#if disabledLocalMods.length > 0}
+                            {#if filteredDisabledLocalMods.length > 0}
                                 <div
                                     class="subsection-header disabled"
                                     class:top-margin={localMods.length === 0}
                                 >
                                     <h4>Disabled Local Mods</h4>
                                     <p>
-                                        {disabledLocalMods.length} mod{disabledLocalMods.length !==
+                                        {filteredDisabledLocalMods.length} mod{filteredDisabledLocalMods.length !==
                                         1
                                             ? "s"
                                             : ""} inactive
@@ -3342,11 +3405,11 @@
                         <!-- Only proceed with catalog enabled/disabled sections if there are mods to show -->
                         {#if paginatedMods.length > 0}
                             <!-- Enabled Catalog Mods -->
-                            {#if enabledMods.length > 0}
+                            {#if filteredEnabledMods.length > 0}
                                 <div class="subsection-header enabled">
                                     <h4>Enabled Catalog Mods</h4>
                                     <p>
-                                        {enabledMods.length} mod{enabledMods.length !==
+                                        {filteredEnabledMods.length} mod{filteredEnabledMods.length !==
                                         1
                                             ? "s"
                                             : ""} active
@@ -3356,7 +3419,7 @@
                                     class="mods-grid"
                                     class:has-local-mods={localMods.length > 0}
                                 >
-                                    {#each visiblePaginatedMods.filter( (m) => enabledMods.some((e) => e.title === m.title), ) as mod, index (mod.title)}
+                                    {#each visiblePaginatedMods.filter( (m) => filteredEnabledMods.some((e) => e.title === m.title), ) as mod, index (mod.title)}
                                         <div class="virtual-cell" style="--card-index: {index}">
                                             <ModCard
                                                 {mod}
@@ -3372,11 +3435,11 @@
                             {/if}
 
                             <!-- Disabled Catalog Mods -->
-                            {#if disabledMods.length > 0}
+                            {#if filteredDisabledMods.length > 0}
                                 <div class="subsection-header disabled">
                                     <h4>Disabled Catalog Mods</h4>
                                     <p>
-                                        {disabledMods.length} mod{disabledMods.length !==
+                                        {filteredDisabledMods.length} mod{filteredDisabledMods.length !==
                                         1
                                             ? "s"
                                             : ""} inactive
@@ -3386,7 +3449,7 @@
                                     class="mods-grid"
                                     class:has-local-mods={localMods.length > 0}
                                 >
-                                    {#each visiblePaginatedMods.filter( (m) => disabledMods.some((e) => e.title === m.title), ) as mod, index (mod.title)}
+                                    {#each visiblePaginatedMods.filter( (m) => filteredDisabledMods.some((e) => e.title === m.title), ) as mod, index (mod.title)}
                                         <div class="virtual-cell" style="--card-index: {index}">
                                             <ModCard
                                                 {mod}
@@ -3401,7 +3464,7 @@
                                 </div>
                             {/if}
 
-                            {#if enabledMods.length === 0 && disabledMods.length === 0}
+                            {#if filteredEnabledMods.length === 0 && filteredDisabledMods.length === 0 && !$installedModsSearchStore}
                                 <!-- Fallback: show installed catalog mods before enabled state resolves -->
                                 <div class="mods-grid">
                                     {#each visiblePaginatedMods as mod, index (mod.title)}
@@ -3766,6 +3829,93 @@
         justify-content: space-between;
         align-items: center;
         margin-bottom: 1rem;
+        z-index: 10;
+    }
+
+    .controls-left {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    .installed-search-wrapper {
+        position: relative;
+        display: flex;
+        align-items: center;
+        margin-right: 0.5rem;
+        transition: all 0.2s ease;
+    }
+
+    .installed-search-wrapper:hover {
+        transform: translateY(-1px);
+    }
+
+    .installed-search-wrapper:hover .installed-search-input {
+        background: var(--ui-mod-chip-hover);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+    }
+
+    .installed-search-wrapper :global(.installed-search-icon) {
+        position: absolute;
+        left: 10px;
+        color: var(--ui-mod-chip-text);
+        pointer-events: none;
+        opacity: 0.7;
+    }
+
+    .installed-search-input {
+        width: 140px;
+        height: 36px;
+        padding: 0 1.75rem 0 2.25rem;
+        background: var(--ui-mod-chip-bg);
+        border: 2px solid var(--ui-mod-chip-border);
+        border-radius: 6px;
+        color: var(--ui-mod-chip-text);
+        font-family: "M6X11", sans-serif;
+        font-size: 1rem;
+        outline: none;
+        box-sizing: border-box;
+        transition: all 0.2s ease;
+        line-height: 1;
+    }
+
+    .installed-search-input::placeholder {
+        color: var(--ui-mod-chip-text);
+        opacity: 0.6;
+    }
+
+    .installed-search-input:focus {
+        background: var(--ui-mod-chip-hover);
+        border-color: var(--ui-mod-chip-border);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+        width: 180px;
+    }
+
+    .installed-search-input::selection {
+        background: var(--ui-accent);
+        color: var(--ui-bg);
+    }
+
+    .installed-search-clear {
+        position: absolute;
+        right: 6px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 20px;
+        height: 20px;
+        padding: 0;
+        background: transparent;
+        border: none;
+        border-radius: 3px;
+        color: var(--ui-mod-chip-text);
+        opacity: 0.6;
+        cursor: pointer;
+        transition: opacity 0.15s ease;
+    }
+
+    .installed-search-clear:hover {
+        opacity: 1;
     }
 
     .categories {
@@ -4279,6 +4429,9 @@
         margin: 0;
         background: transparent;
         box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
         /*transform: translateY(0); /*Reset any transforms*/
     }
     /**/

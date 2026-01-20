@@ -34,7 +34,9 @@ export const lastImportedCollectionId = writable<string | null>(null);
  * Used to restore the previous state when all collections are deactivated.
  * Key: mod name (as returned by enabled_state_map), Value: was enabled before collections
  */
-export const preCollectionSnapshot = writable<Record<string, boolean> | null>(null);
+export const preCollectionSnapshot = writable<Record<string, boolean> | null>(
+  null,
+);
 
 export const collectionImportStore = writable<{
   open: boolean;
@@ -281,7 +283,9 @@ export function hasPreCollectionSnapshot(): boolean {
 }
 
 /** Save a snapshot of current mod states (call when activating first collection) */
-export function savePreCollectionSnapshot(enabledMap: Record<string, boolean>): void {
+export function savePreCollectionSnapshot(
+  enabledMap: Record<string, boolean>,
+): void {
   preCollectionSnapshot.set({ ...enabledMap });
 }
 

@@ -345,7 +345,7 @@ import { isLinuxPlatform } from "$lib/platform";
 		</div>
 	</div>
 
-	{#if currentSection === "mods" && !$currentModView && $currentCategory !== "Search" && $currentCategory !== "Collections" && $paginationWindow.totalPages > 1}
+	{#if currentSection === "mods" && !$currentModView && $currentCategory !== "Search" && $currentCategory !== "Collections" && $currentCategory !== "Installed Mods" && $paginationWindow.totalPages > 1}
 		<div class="pagination-footer" in:fade={{ duration: 150 }} out:fade={{ duration: 120 }}>
 			<div class="pagination-controls">
 				<button onclick={previousPage} disabled={$currentPage === 1}>

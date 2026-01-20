@@ -53,6 +53,9 @@ export const backgroundEnabled = writable(false);
 
 export const currentSort = writable<SortOption>(SortOption.DownloadsDesc);
 
+/** Search/filter query for Installed Mods view */
+export const installedModsSearchStore = writable<string>("");
+
 export const updateAvailableStore = writable<{ [key: string]: boolean }>({});
 
 export const modEnabledStore = writable<Record<string, boolean>>({});
