@@ -454,13 +454,13 @@ pub fn run() {
             app.run(|app_handle, event| {
                 if let tauri::RunEvent::Exit = event {
                     // Checkpoint WAL on shutdown for a clean database state
-                    if let Some(state) = app_handle.try_state::<AppState>() {
-                        if let Ok(db) = state.db.try_lock() {
-                            if let Err(e) = db.checkpoint() {
-                                log::warn!("Failed to checkpoint database on exit: {}", e);
-                            } else {
-                                log::debug!("Database checkpointed on exit");
-                            }
+                    if let Some(state) = app_handle.try_state::<AppState>()
+                        && let Ok(db) = state.db.try_lock()
+                    {
+                        if let Err(e) = db.checkpoint() {
+                            log::warn!("Failed to checkpoint database on exit: {}", e);
+                        } else {
+                            log::debug!("Database checkpointed on exit");
                         }
                     }
                 }
