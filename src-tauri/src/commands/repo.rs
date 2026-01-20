@@ -70,7 +70,7 @@ pub async fn fetch_repo_mods(sort: Option<String>) -> Result<Vec<ArchiveModItem>
     })?;
     let sort_mode = SortMode::from_optional(sort.clone());
     let (cache_dir, cache_file) = bmi_cache_paths(sort.as_deref())?;
-    let cache = load_bmi_cache(&cache_file);
+    let cache = load_bmi_cache(&cache_file).await;
 
     let (mut items, mut latest_updated) = if let Some(existing) = cache.as_ref() {
         (existing.items.clone(), existing.last_updated_at.clone())
@@ -126,9 +126,9 @@ pub async fn fetch_repo_mods(sort: Option<String>) -> Result<Vec<ArchiveModItem>
         last_updated_at: latest_updated,
         items: items.clone(),
     };
-    let _ = std::fs::create_dir_all(&cache_dir);
-    if let Ok(f) = std::fs::File::create(&cache_file) {
-        let _ = serde_json::to_writer_pretty(f, &cache_state);
+    let _ = tokio::fs::create_dir_all(&cache_dir).await;
+    if let Ok(json) = serde_json::to_string_pretty(&cache_state) {
+        let _ = tokio::fs::write(&cache_file, json).await;
     }
 
     Ok(items)
@@ -157,10 +157,11 @@ fn bmi_cache_paths(sort: Option<&str>) -> Result<(PathBuf, PathBuf), String> {
     Ok((cache_dir, cache_file))
 }
 
-fn load_bmi_cache(cache_file: &PathBuf) -> Option<SyncCache> {
-    std::fs::File::open(cache_file)
+async fn load_bmi_cache(cache_file: &PathBuf) -> Option<SyncCache> {
+    tokio::fs::read_to_string(cache_file)
+        .await
         .ok()
-        .and_then(|f| serde_json::from_reader::<_, SyncCache>(f).ok())
+        .and_then(|s| serde_json::from_str::<SyncCache>(&s).ok())
 }
 
 fn sort_archive_items(items: &mut [ArchiveModItem], sort_mode: SortMode) {
@@ -237,21 +238,21 @@ fn safe_slug(input: &str) -> String {
     s.trim_matches('-').to_string()
 }
 
-fn ensure_assets_dirs() -> Result<(std::path::PathBuf, std::path::PathBuf), String> {
+async fn ensure_assets_dirs_async() -> Result<(std::path::PathBuf, std::path::PathBuf), String> {
     let config_dir = dirs::config_dir().ok_or_else(|| {
         AppError::DirNotFound(std::path::PathBuf::from("config directory")).to_string()
     })?;
     let base = config_dir.join("Balatro").join("mod_assets");
     let thumbs = base.join("thumbnails");
     let descs = base.join("descriptions");
-    std::fs::create_dir_all(&thumbs).map_err(|e| {
+    tokio::fs::create_dir_all(&thumbs).await.map_err(|e| {
         AppError::DirCreate {
             path: thumbs.clone(),
             source: e.to_string(),
         }
         .to_string()
     })?;
-    std::fs::create_dir_all(&descs).map_err(|e| {
+    tokio::fs::create_dir_all(&descs).await.map_err(|e| {
         AppError::DirCreate {
             path: descs.clone(),
             source: e.to_string(),
@@ -261,8 +262,8 @@ fn ensure_assets_dirs() -> Result<(std::path::PathBuf, std::path::PathBuf), Stri
     Ok((thumbs, descs))
 }
 
-fn is_thumb_fresh(path: &std::path::Path) -> bool {
-    let modified = match std::fs::metadata(path).and_then(|m| m.modified()) {
+async fn is_thumb_fresh_async(path: &std::path::Path) -> bool {
+    let modified = match tokio::fs::metadata(path).await.and_then(|m| m.modified()) {
         Ok(ts) => ts,
         Err(_) => return false,
     };
@@ -275,14 +276,14 @@ fn is_thumb_fresh(path: &std::path::Path) -> bool {
 
 #[tauri::command]
 pub async fn get_cached_thumbnail_by_title(title: String) -> Result<Option<String>, String> {
-    let (thumbs_dir, _) = ensure_assets_dirs()?;
+    let (thumbs_dir, _) = ensure_assets_dirs_async().await?;
     let slug = safe_slug(&title);
     let path = thumbs_dir.join(format!("{slug}.jpg"));
-    if !path.exists() {
+    if tokio::fs::metadata(&path).await.is_err() {
         return Ok(None);
     }
-    if !is_thumb_fresh(&path) {
-        let _ = std::fs::remove_file(&path);
+    if !is_thumb_fresh_async(&path).await {
+        let _ = tokio::fs::remove_file(&path).await;
         return Ok(None);
     }
     Ok(Some(
@@ -297,17 +298,18 @@ pub async fn get_cached_thumbnail_by_title(title: String) -> Result<Option<Strin
 pub async fn get_cached_thumbnails_map(
     titles: Vec<String>,
 ) -> Result<std::collections::HashMap<String, String>, String> {
-    let (thumbs_dir, _) = ensure_assets_dirs()?;
+    let (thumbs_dir, _) = ensure_assets_dirs_async().await?;
     let mut out = std::collections::HashMap::new();
     for title in titles {
         let slug = safe_slug(&title);
         let path = thumbs_dir.join(format!("{slug}.jpg"));
-        if path.exists() && is_thumb_fresh(&path) {
+        let exists = tokio::fs::metadata(&path).await.is_ok();
+        if exists && is_thumb_fresh_async(&path).await {
             if let Some(s) = path.to_str() {
                 out.insert(title, s.to_string());
             }
-        } else if path.exists() {
-            let _ = std::fs::remove_file(&path);
+        } else if exists {
+            let _ = tokio::fs::remove_file(&path).await;
         }
     }
     Ok(out)
@@ -320,14 +322,14 @@ pub async fn cache_thumbnail_from_url(
     state: tauri::State<'_, crate::state::AppState>,
 ) -> Result<bool, String> {
     // If present, no-op quickly
-    let (thumbs_dir, _) = ensure_assets_dirs()?;
+    let (thumbs_dir, _) = ensure_assets_dirs_async().await?;
     let slug = safe_slug(&title);
     let path = thumbs_dir.join(format!("{slug}.jpg"));
-    if path.exists() {
-        if is_thumb_fresh(&path) {
+    if tokio::fs::metadata(&path).await.is_ok() {
+        if is_thumb_fresh_async(&path).await {
             return Ok(false);
         }
-        let _ = std::fs::remove_file(&path);
+        let _ = tokio::fs::remove_file(&path).await;
     }
 
     // Enqueue background fetch with 429-aware backoff; return immediately
@@ -343,7 +345,7 @@ pub async fn get_cached_installed_thumbnail(
     state: tauri::State<'_, crate::state::AppState>,
 ) -> Result<Option<String>, String> {
     let installed = {
-        let db = state.db.lock().map_err(|e| e.to_string())?;
+        let db = state.db.lock().await;
         db.get_installed_mods()
             .map_err(|e| e.to_string())?
             .into_iter()
@@ -353,12 +355,12 @@ pub async fn get_cached_installed_thumbnail(
         return Ok(None);
     }
 
-    let (thumbs_dir, _) = ensure_assets_dirs()?;
+    let (thumbs_dir, _) = ensure_assets_dirs_async().await?;
     let slug = safe_slug(&title);
     let path = thumbs_dir.join(format!("{slug}.jpg"));
-    if path.exists() {
-        if !is_thumb_fresh(&path) {
-            let _ = std::fs::remove_file(&path);
+    if tokio::fs::metadata(&path).await.is_ok() {
+        if !is_thumb_fresh_async(&path).await {
+            let _ = tokio::fs::remove_file(&path).await;
         } else {
             return Ok(Some(
                 path.to_str()
@@ -382,7 +384,7 @@ pub async fn get_cached_installed_thumbnail(
                 }
                 Err(_) => return Ok(None),
             };
-            std::fs::write(&path, &bytes).map_err(|e| {
+            tokio::fs::write(&path, &bytes).await.map_err(|e| {
                 AppError::FileWrite {
                     path: path.clone(),
                     source: e.to_string(),
@@ -409,13 +411,13 @@ pub async fn get_description_cached_or_remote(
     dir_name: String,
     _state: tauri::State<'_, crate::state::AppState>,
 ) -> Result<String, String> {
-    let (_, descs_dir) = ensure_assets_dirs()?;
+    let (_, descs_dir) = ensure_assets_dirs_async().await?;
     let slug = safe_slug(&title);
     let path = descs_dir.join(format!("{slug}.md"));
 
     // Always prefer cached copy if present
-    if path.exists() {
-        let cached = std::fs::read_to_string(&path).map_err(|e| {
+    if tokio::fs::metadata(&path).await.is_ok() {
+        let cached = tokio::fs::read_to_string(&path).await.map_err(|e| {
             AppError::FileRead {
                 path: path.clone(),
                 source: e.to_string(),
@@ -437,7 +439,7 @@ pub async fn get_description_cached_or_remote(
             _ => detail.summary.clone().unwrap_or_default(),
         },
     };
-    if let Err(e) = std::fs::write(&path, &text) {
+    if let Err(e) = tokio::fs::write(&path, &text).await {
         log::warn!("Failed to cache description for {}: {}", title, e);
     }
     log::info!("Description loaded: title='{}' len={}", title, text.len());
@@ -588,13 +590,13 @@ pub async fn get_mod_repo_url(dir_name: String) -> Result<Option<String>, String
 
 #[tauri::command]
 pub async fn get_cached_description_by_title(title: String) -> Result<Option<String>, String> {
-    let (_, descs_dir) = ensure_assets_dirs()?;
+    let (_, descs_dir) = ensure_assets_dirs_async().await?;
     let slug = safe_slug(&title);
     let path = descs_dir.join(format!("{slug}.md"));
-    if !path.exists() {
+    if tokio::fs::metadata(&path).await.is_err() {
         return Ok(None);
     }
-    let text = std::fs::read_to_string(&path).map_err(|e| {
+    let text = tokio::fs::read_to_string(&path).await.map_err(|e| {
         AppError::FileRead {
             path: path.clone(),
             source: e.to_string(),
@@ -617,16 +619,17 @@ pub async fn batch_fetch_thumbnails_repo(inputs: Vec<ModThumbInput>) -> Result<u
     use futures::{StreamExt, stream};
 
     // Ensure output directory exists early
-    let (thumbs_dir, _) = ensure_assets_dirs()?;
+    let (thumbs_dir, _) = ensure_assets_dirs_async().await?;
 
-    // Filter out inputs already cached
-    let pending: Vec<ModThumbInput> = inputs
-        .into_iter()
-        .filter(|m| {
-            let slug = safe_slug(&m.title);
-            !thumbs_dir.join(format!("{slug}.jpg")).exists()
-        })
-        .collect();
+    // Filter out inputs already cached (async check)
+    let mut pending: Vec<ModThumbInput> = Vec::new();
+    for m in inputs {
+        let slug = safe_slug(&m.title);
+        let path = thumbs_dir.join(format!("{slug}.jpg"));
+        if tokio::fs::metadata(&path).await.is_err() {
+            pending.push(m);
+        }
+    }
     if pending.is_empty() {
         return Ok(0);
     }
@@ -652,7 +655,7 @@ pub async fn batch_fetch_thumbnails_repo(inputs: Vec<ModThumbInput>) -> Result<u
                 {
                     let slug = safe_slug(&m.title);
                     let path = thumbs_dir.join(format!("{slug}.jpg"));
-                    if std::fs::write(&path, &bytes).is_ok() {
+                    if tokio::fs::write(&path, &bytes).await.is_ok() {
                         return 1u32;
                     }
                 }

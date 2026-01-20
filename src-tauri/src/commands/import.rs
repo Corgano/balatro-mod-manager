@@ -11,10 +11,10 @@ use crate::compat_helper;
 use crate::state::AppState;
 use bmm_lib::errors::AppError;
 
-fn sync_compat_helper_after_mod_change(state: &tauri::State<'_, AppState>) {
-    let enabled = match state.db.lock() {
-        Ok(db) => db.is_compat_helper_enabled().unwrap_or(false),
-        Err(_) => false,
+async fn sync_compat_helper_after_mod_change(state: &tauri::State<'_, AppState>) {
+    let enabled = {
+        let db = state.db.lock().await;
+        db.is_compat_helper_enabled().unwrap_or(false)
     };
     if let Err(err) = compat_helper::sync_compat_helper(enabled) {
         log::warn!("Failed to sync compatibility helper after mod change: {err}");
@@ -29,22 +29,30 @@ pub async fn process_dropped_file(
     let config_dir =
         dirs::config_dir().ok_or_else(|| "Could not find config directory".to_string())?;
     let mods_dir = config_dir.join("Balatro").join("Mods");
-    std::fs::create_dir_all(&mods_dir)
+    tokio::fs::create_dir_all(&mods_dir)
+        .await
         .map_err(|e| format!("Failed to create mods directory: {e}"))?;
 
-    let file_path = std::path::Path::new(&path);
-    let file_name = file_path
-        .file_name()
-        .ok_or_else(|| "Invalid file path".to_string())?
-        .to_str()
-        .ok_or_else(|| "Invalid file name".to_string())?;
+    let file_path_str = path.clone();
+    let mods_dir_clone = mods_dir.clone();
 
-    let file = File::open(file_path).map_err(|e| format!("Failed to open file: {e}"))?;
+    let mod_dir = tokio::task::spawn_blocking(move || {
+        let file_path = std::path::Path::new(&file_path_str);
+        let file_name = file_path
+            .file_name()
+            .ok_or_else(|| "Invalid file path".to_string())?
+            .to_str()
+            .ok_or_else(|| "Invalid file name".to_string())?;
 
-    let mod_dir = extract_archive_from_reader(file_name, file, Some(file_path), &mods_dir)
-        .map_err(|e| format!("Failed to extract archive: {e}"))?;
+        let file = File::open(file_path).map_err(|e| format!("Failed to open file: {e}"))?;
 
-    sync_compat_helper_after_mod_change(&state);
+        extract_archive_from_reader(file_name, file, Some(file_path), &mods_dir_clone)
+            .map_err(|e| format!("Failed to extract archive: {e}"))
+    })
+    .await
+    .map_err(|e| format!("Task join error: {e}"))??;
+
+    sync_compat_helper_after_mod_change(&state).await;
     Ok(mod_dir.to_string_lossy().to_string())
 }
 
@@ -57,42 +65,53 @@ pub async fn process_mod_archive(
     let config_dir = dirs::config_dir()
         .ok_or_else(|| AppError::DirNotFound(PathBuf::from("config directory")).to_string())?;
     let mods_dir = config_dir.join("Balatro").join("Mods");
-    std::fs::create_dir_all(&mods_dir)
+    tokio::fs::create_dir_all(&mods_dir)
+        .await
         .map_err(|e| format!("Failed to create mods directory: {e}"))?;
 
-    let cursor = Cursor::new(data);
-    let mod_dir = extract_archive_from_reader(&filename, cursor, None, &mods_dir)?;
+    let mods_dir_clone = mods_dir.clone();
+    let filename_clone = filename.clone();
 
-    if let Ok(entries) = std::fs::read_dir(&mod_dir) {
-        let dirs: Vec<_> = entries
-            .filter_map(Result::ok)
-            .filter(|e| e.file_type().map(|t| t.is_dir()).unwrap_or(false))
-            .collect();
-        if dirs.len() == 1 && std::fs::read_dir(&mod_dir).map(|e| e.count()).unwrap_or(0) == 1 {
-            let nested_dir = dirs[0].path();
-            for entry in std::fs::read_dir(&nested_dir)
-                .map_err(|e| format!("Failed to read nested directory: {e}"))?
-            {
-                let entry = entry.map_err(|e| format!("Failed to read entry: {e}"))?;
-                let target_path = mod_dir.join(entry.file_name());
-                if entry
-                    .file_type()
-                    .map_err(|e| format!("Failed to get file type: {e}"))?
-                    .is_dir()
+    let mod_dir = tokio::task::spawn_blocking(move || {
+        let cursor = Cursor::new(data);
+        let mod_dir = extract_archive_from_reader(&filename_clone, cursor, None, &mods_dir_clone)?;
+
+        // Flatten nested directory if needed
+        if let Ok(entries) = std::fs::read_dir(&mod_dir) {
+            let dirs: Vec<_> = entries
+                .filter_map(Result::ok)
+                .filter(|e| e.file_type().map(|t| t.is_dir()).unwrap_or(false))
+                .collect();
+            if dirs.len() == 1 && std::fs::read_dir(&mod_dir).map(|e| e.count()).unwrap_or(0) == 1 {
+                let nested_dir = dirs[0].path();
+                for entry in std::fs::read_dir(&nested_dir)
+                    .map_err(|e| format!("Failed to read nested directory: {e}"))?
                 {
-                    std::fs::rename(entry.path(), &target_path)
-                        .map_err(|e| format!("Failed to move directory: {e}"))?;
-                } else {
-                    std::fs::rename(entry.path(), &target_path)
-                        .map_err(|e| format!("Failed to move file: {e}"))?;
+                    let entry = entry.map_err(|e| format!("Failed to read entry: {e}"))?;
+                    let target_path = mod_dir.join(entry.file_name());
+                    if entry
+                        .file_type()
+                        .map_err(|e| format!("Failed to get file type: {e}"))?
+                        .is_dir()
+                    {
+                        std::fs::rename(entry.path(), &target_path)
+                            .map_err(|e| format!("Failed to move directory: {e}"))?;
+                    } else {
+                        std::fs::rename(entry.path(), &target_path)
+                            .map_err(|e| format!("Failed to move file: {e}"))?;
+                    }
                 }
+                std::fs::remove_dir_all(&nested_dir)
+                    .map_err(|e| format!("Failed to remove nested directory: {e}"))?;
             }
-            std::fs::remove_dir_all(&nested_dir)
-                .map_err(|e| format!("Failed to remove nested directory: {e}"))?;
         }
-    }
 
-    sync_compat_helper_after_mod_change(&state);
+        Ok::<_, String>(mod_dir)
+    })
+    .await
+    .map_err(|e| format!("Task join error: {e}"))??;
+
+    sync_compat_helper_after_mod_change(&state).await;
     Ok(mod_dir.to_string_lossy().to_string())
 }
 

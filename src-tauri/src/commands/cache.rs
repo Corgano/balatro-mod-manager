@@ -1,4 +1,4 @@
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use bmm_lib::cache;
@@ -8,41 +8,50 @@ use serde::Serialize;
 use crate::state::AppState;
 use crate::util::map_error;
 use once_cell::sync::Lazy;
+use tokio::sync::RwLock;
 
 // Cache the deserialized mods cache to avoid re-reading on every IPC call.
 const MOD_CACHE_TTL: Duration = Duration::from_secs(30);
-static MOD_CACHE: Lazy<Mutex<Option<CachedMods>>> = Lazy::new(|| Mutex::new(None));
+static MOD_CACHE: Lazy<RwLock<Option<CachedMods>>> = Lazy::new(|| RwLock::new(None));
 
 struct CachedMods {
     mods: Arc<Vec<Mod>>,
     loaded_at: Instant,
 }
 
-pub(crate) fn load_mods_cache_shared() -> Result<Option<Arc<Vec<Mod>>>, String> {
-    if let Ok(mut guard) = MOD_CACHE.lock() {
+pub(crate) async fn load_mods_cache_shared() -> Result<Option<Arc<Vec<Mod>>>, String> {
+    // First try to read from cache
+    {
+        let guard = MOD_CACHE.read().await;
         if let Some(cached) = guard.as_ref()
             && cached.loaded_at.elapsed() < MOD_CACHE_TTL
         {
             return Ok(Some(cached.mods.clone()));
         }
-        let fresh = cache::load_cache()
-            .map_err(|e| e.to_string())?
-            .map(|(mods, _)| Arc::new(mods));
-        if let Some(ref mods) = fresh {
-            *guard = Some(CachedMods {
-                mods: mods.clone(),
-                loaded_at: Instant::now(),
-            });
-        } else {
-            *guard = None;
-        }
-        Ok(fresh)
-    } else {
-        // Lock poisoned; fall back to direct load
-        cache::load_cache()
-            .map_err(|e| e.to_string())
-            .map(|opt| opt.map(|(mods, _)| Arc::new(mods)))
     }
+
+    // Cache miss or expired, acquire write lock and refresh
+    let mut guard = MOD_CACHE.write().await;
+
+    // Double-check after acquiring write lock (another task may have refreshed)
+    if let Some(cached) = guard.as_ref()
+        && cached.loaded_at.elapsed() < MOD_CACHE_TTL
+    {
+        return Ok(Some(cached.mods.clone()));
+    }
+
+    let fresh = cache::load_cache()
+        .map_err(|e| e.to_string())?
+        .map(|(mods, _)| Arc::new(mods));
+    if let Some(ref mods) = fresh {
+        *guard = Some(CachedMods {
+            mods: mods.clone(),
+            loaded_at: Instant::now(),
+        });
+    } else {
+        *guard = None;
+    }
+    Ok(fresh)
 }
 
 #[tauri::command]
@@ -129,13 +138,13 @@ pub async fn clear_cache() -> Result<(), String> {
 
 #[tauri::command]
 pub async fn get_last_fetched(state: tauri::State<'_, AppState>) -> Result<u64, String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let db = state.db.lock().await;
     db.get_last_fetched().map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub async fn update_last_fetched(state: tauri::State<'_, AppState>) -> Result<(), String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let db = state.db.lock().await;
     db.set_last_fetched(
         SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -150,7 +159,7 @@ pub async fn mod_update_available(
     mod_name: String,
     state: tauri::State<'_, AppState>,
 ) -> Result<bool, String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let db = state.db.lock().await;
     let last_installed_version = db
         .get_last_installed_version(&mod_name)
         .map_err(|e| e.to_string())?;
@@ -159,7 +168,7 @@ pub async fn mod_update_available(
         return Ok(false);
     }
 
-    let cached_mods = match load_mods_cache_shared()? {
+    let cached_mods = match load_mods_cache_shared().await? {
         Some(mods) => mods,
         None => return Ok(false),
     };
@@ -181,10 +190,10 @@ pub async fn mod_update_available(
 pub async fn mods_updates_map(
     state: tauri::State<'_, AppState>,
 ) -> Result<std::collections::HashMap<String, bool>, String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let db = state.db.lock().await;
     let installed = db.get_installed_mods().map_err(|e| e.to_string())?;
 
-    let cached_mods = match load_mods_cache_shared()? {
+    let cached_mods = match load_mods_cache_shared().await? {
         Some(mods) => mods,
         None => return Ok(std::collections::HashMap::new()),
     };
@@ -245,7 +254,7 @@ pub async fn mods_state_summary(
     use std::collections::HashMap;
     use std::path::PathBuf;
 
-    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let db = state.db.lock().await;
     let installed_mods = db.get_installed_mods().map_err(|e| e.to_string())?;
 
     // Installed list and enabled map (DB mods)
@@ -279,7 +288,9 @@ pub async fn mods_state_summary(
     }
 
     // Updates map (reuse cached remote catalog)
-    let cached_mods = load_mods_cache_shared()?.unwrap_or_else(|| Arc::new(Vec::new()));
+    let cached_mods = load_mods_cache_shared()
+        .await?
+        .unwrap_or_else(|| Arc::new(Vec::new()));
     let mut by_title = HashMap::with_capacity(cached_mods.len());
     let mut by_folder = HashMap::with_capacity(cached_mods.len());
     for m in cached_mods.iter() {
@@ -312,19 +323,19 @@ pub async fn mods_state_summary(
     // Cached thumbnails and descriptions for installed mods and visible catalog mods
     let mut thumbnails: HashMap<String, String> = HashMap::new();
     let mut descriptions: HashMap<String, String> = HashMap::new();
-    if let Ok((thumbs_dir, desc_dir)) = ensure_assets_dirs() {
+    if let Ok((thumbs_dir, desc_dir)) = ensure_assets_dirs_async().await {
         for m in &installed_list {
             let slug = safe_slug(&m.name);
             let path = thumbs_dir.join(format!("{slug}.jpg"));
-            if path.exists()
+            if tokio::fs::metadata(&path).await.is_ok()
                 && let Some(s) = path.to_str()
             {
                 thumbnails.insert(m.name.clone(), s.to_string());
             }
 
             let desc_path = desc_dir.join(format!("{slug}.md"));
-            if desc_path.exists()
-                && let Ok(text) = std::fs::read_to_string(&desc_path)
+            if tokio::fs::metadata(&desc_path).await.is_ok()
+                && let Ok(text) = tokio::fs::read_to_string(&desc_path).await
             {
                 descriptions.insert(m.name.clone(), text);
             }
@@ -335,7 +346,7 @@ pub async fn mods_state_summary(
                 let slug = safe_slug(&title);
                 let thumb_path = thumbs_dir.join(format!("{slug}.jpg"));
                 if !thumbnails.contains_key(&title)
-                    && thumb_path.exists()
+                    && tokio::fs::metadata(&thumb_path).await.is_ok()
                     && let Some(s) = thumb_path.to_str()
                 {
                     thumbnails.insert(title.clone(), s.to_string());
@@ -345,8 +356,8 @@ pub async fn mods_state_summary(
                     continue;
                 }
                 let desc_path = desc_dir.join(format!("{slug}.md"));
-                if desc_path.exists()
-                    && let Ok(text) = std::fs::read_to_string(&desc_path)
+                if tokio::fs::metadata(&desc_path).await.is_ok()
+                    && let Ok(text) = tokio::fs::read_to_string(&desc_path).await
                 {
                     descriptions.insert(title, text);
                 }
@@ -376,12 +387,16 @@ fn safe_slug(input: &str) -> String {
     s.trim_matches('-').to_string()
 }
 
-fn ensure_assets_dirs() -> Result<(std::path::PathBuf, std::path::PathBuf), String> {
+async fn ensure_assets_dirs_async() -> Result<(std::path::PathBuf, std::path::PathBuf), String> {
     let config_dir = dirs::config_dir().ok_or_else(|| "config dir not found".to_string())?;
     let base = config_dir.join("Balatro").join("mod_assets");
     let thumbs = base.join("thumbnails");
     let descs = base.join("descriptions");
-    std::fs::create_dir_all(&thumbs).map_err(|e| e.to_string())?;
-    std::fs::create_dir_all(&descs).map_err(|e| e.to_string())?;
+    tokio::fs::create_dir_all(&thumbs)
+        .await
+        .map_err(|e| e.to_string())?;
+    tokio::fs::create_dir_all(&descs)
+        .await
+        .map_err(|e| e.to_string())?;
     Ok((thumbs, descs))
 }

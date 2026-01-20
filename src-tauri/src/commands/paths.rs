@@ -299,7 +299,7 @@ fn map_flatpak_paths(path_buf: &Path) -> (PathBuf, PathBuf) {
 
 #[tauri::command]
 pub async fn get_balatro_path(state: tauri::State<'_, AppState>) -> Result<Option<String>, String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let db = state.db.lock().await;
     map_error(db.get_installation_path())
 }
 
@@ -322,10 +322,7 @@ pub async fn set_balatro_path(
             log::warn!("Failed to ensure Proton mod dir link: {}", e);
         }
     }
-    let db = match state.db.lock() {
-        Ok(db) => db,
-        Err(e) => return Err(e.to_string()),
-    };
+    let db = state.db.lock().await;
     map_error(db.set_installation_path(&path))
 }
 
@@ -344,7 +341,7 @@ pub async fn find_steam_balatro(state: tauri::State<'_, AppState>) -> Result<Vec
         let steam_balatro = balatros.remove(idx);
         let steam_path = steam_balatro.path.to_string_lossy().into_owned();
         {
-            let db = state.db.lock().map_err(|e| e.to_string())?;
+            let db = state.db.lock().await;
             map_error(db.set_installation_path(&steam_path))?;
         }
 
@@ -372,7 +369,7 @@ pub async fn find_steam_balatro(state: tauri::State<'_, AppState>) -> Result<Vec
             .map(|b| b.path.to_string_lossy().into_owned());
 
         if let Some(ref path_str) = first_path {
-            let db = state.db.lock().map_err(|e| e.to_string())?;
+            let db = state.db.lock().await;
             map_error(db.set_installation_path(path_str))?;
         }
 
@@ -442,7 +439,7 @@ pub async fn check_custom_balatro(
 
     if let Some(balatro) = bmm_lib::balamod::Balatro::from_custom_path(candidate) {
         let canonical = balatro.path.to_string_lossy().into_owned();
-        let db = state.db.lock().map_err(|e| e.to_string())?;
+        let db = state.db.lock().await;
         map_error(db.set_installation_path(&canonical))?;
         Ok(true)
     } else {
@@ -454,10 +451,7 @@ pub async fn check_custom_balatro(
 pub async fn check_existing_installation(
     state: tauri::State<'_, AppState>,
 ) -> Result<Option<String>, String> {
-    let db = state
-        .db
-        .lock()
-        .map_err(|_| AppError::LockPoisoned("Database lock poisoned".to_string()))?;
+    let db = state.db.lock().await;
     if let Some(path) = db.get_installation_path()? {
         let path_buf = PathBuf::from(&path);
         if bmm_lib::balamod::Balatro::from_custom_path(path_buf).is_some() {

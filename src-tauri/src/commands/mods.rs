@@ -1,7 +1,6 @@
 use std::path::{Path, PathBuf};
 
 use crate::state::AppState;
-use bmm_lib::errors::AppError;
 use rayon::prelude::*;
 use std::collections::HashMap;
 use std::fs;
@@ -67,10 +66,7 @@ pub async fn is_mod_enabled(
     state: tauri::State<'_, AppState>,
     mod_name: String,
 ) -> Result<bool, String> {
-    let db = state
-        .db
-        .lock()
-        .map_err(|_| AppError::LockPoisoned("Database lock poisoned".to_string()))?;
+    let db = state.db.lock().await;
     let installed_mods = db.get_installed_mods()?;
     let mod_dir = &installed_mods
         .iter()
@@ -94,10 +90,7 @@ pub async fn toggle_mod_enabled(
     mod_name: String,
     enabled: bool,
 ) -> Result<(), String> {
-    let db = state
-        .db
-        .lock()
-        .map_err(|_| AppError::LockPoisoned("Database lock poisoned".to_string()))?;
+    let db = state.db.lock().await;
     let installed_mods = db.get_installed_mods()?;
     let mod_dir = &installed_mods
         .iter()
@@ -132,10 +125,7 @@ pub async fn toggle_mods_enabled_batch(
     disabled: Vec<String>,
     local_paths: Option<Vec<String>>,
 ) -> Result<(), String> {
-    let db = state
-        .db
-        .lock()
-        .map_err(|_| AppError::LockPoisoned("Database lock poisoned".to_string()))?;
+    let db = state.db.lock().await;
     let installed_mods = db.get_installed_mods()?;
     let path_map: HashMap<String, PathBuf> = installed_mods
         .into_iter()
@@ -186,10 +176,7 @@ pub async fn enabled_state_map(
     let mut out: HashMap<String, bool> = HashMap::new();
 
     // DB-installed mods
-    let db = state
-        .db
-        .lock()
-        .map_err(|_| AppError::LockPoisoned("Database lock poisoned".to_string()))?;
+    let db = state.db.lock().await;
     let installed_mods = db.get_installed_mods().map_err(|e| e.to_string())?;
     for m in installed_mods {
         let p = PathBuf::from(&m.path);

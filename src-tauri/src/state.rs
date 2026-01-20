@@ -1,4 +1,4 @@
-use std::sync::Mutex;
+use tokio::sync::Mutex;
 
 use crate::thumb_queue::ThumbnailManager;
 use bmm_lib::{database::Database, discord_rpc::DiscordRpcManager};

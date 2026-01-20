@@ -8,7 +8,7 @@ mod thumb_queue;
 mod util;
 
 use std::path::PathBuf;
-use std::sync::Mutex;
+use tokio::sync::Mutex;
 
 use tauri::{Emitter, Manager};
 use tauri_plugin_window_state::StateFlags;

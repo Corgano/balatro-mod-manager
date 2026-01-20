@@ -26,7 +26,7 @@ pub async fn is_lovely_installed(_state: tauri::State<'_, AppState>) -> Result<b
     #[cfg(target_os = "windows")]
     {
         // Prefer database install path if present
-        let db = _state.db.lock().map_err(|e| e.to_string())?;
+        let db = _state.db.lock().await;
         if let Some(path) = db.get_installation_path().map_err(|e| e.to_string())? {
             let dll = PathBuf::from(path).join("version.dll");
             return Ok(dll.exists());
@@ -44,7 +44,7 @@ pub async fn is_lovely_installed(_state: tauri::State<'_, AppState>) -> Result<b
     #[cfg(target_os = "linux")]
     {
         // Prefer database install path if present
-        let db = _state.db.lock().map_err(|e| e.to_string())?;
+        let db = _state.db.lock().await;
         if let Some(path) = db.get_installation_path().map_err(|e| e.to_string())? {
             let so = PathBuf::from(path).join("liblovely.so");
             return Ok(so.exists());
@@ -82,7 +82,7 @@ pub async fn check_lovely_update(
         .map_err(|e| e.to_string())?;
 
     // Compare to DB-stored version
-    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let db = state.db.lock().await;
     match db.get_lovely_version() {
         Ok(Some(installed)) => {
             if installed.trim() != latest {
@@ -116,7 +116,7 @@ pub async fn update_lovely_to_latest(state: tauri::State<'_, AppState>) -> Resul
         .map_err(|e| e.to_string())?;
 
     // Persist version
-    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let db = state.db.lock().await;
     db.set_lovely_version(&latest).map_err(|e| e.to_string())?;
 
     Ok(latest)

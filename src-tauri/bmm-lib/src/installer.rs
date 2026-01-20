@@ -13,6 +13,7 @@ use std::path::PathBuf;
 use std::thread;
 use std::time::Duration;
 use tar::Archive;
+use tokio::time::sleep;
 use zip::ZipArchive;
 
 pub async fn install_mod(url: String, folder_name: Option<String>) -> Result<PathBuf, AppError> {
@@ -122,27 +123,37 @@ pub async fn install_mod(url: String, folder_name: Option<String>) -> Result<Pat
 
     // Uninstall old mod folder if it exists
     let target_dir = mod_dir.join(&mod_name);
-    let was_disabled = target_dir.join(".lovelyignore").exists();
-    if target_dir.exists() {
+    let was_disabled = tokio::fs::try_exists(target_dir.join(".lovelyignore"))
+        .await
+        .unwrap_or(false);
+    if tokio::fs::try_exists(&target_dir).await.unwrap_or(false) {
         log::info!("Uninstalling existing mod at: {target_dir:?}");
-        uninstall_mod(target_dir.clone())?;
+        uninstall_mod(target_dir.clone()).await?;
 
         // Give the filesystem a moment to fully release file handles
         // This is especially important on Windows where file locks can persist briefly
-        thread::sleep(Duration::from_millis(100));
+        sleep(Duration::from_millis(100)).await;
     }
 
     log::info!("Installing mod: {url}");
 
-    let installed_path = match archive_kind {
-        ArchiveKind::Zip => handle_zip(file, &mod_dir, &mod_name)?,
-        ArchiveKind::Tar => handle_tar(file, &mod_dir, &mod_name)?,
-        ArchiveKind::TarGz => handle_tar_gz(file, &mod_dir, &mod_name)?,
-    };
+    // Run CPU-bound archive extraction in a blocking task
+    let mod_dir_clone = mod_dir.clone();
+    let mod_name_clone = mod_name.clone();
+    let installed_path = tokio::task::spawn_blocking(move || match archive_kind {
+        ArchiveKind::Zip => handle_zip(file, &mod_dir_clone, &mod_name_clone),
+        ArchiveKind::Tar => handle_tar(file, &mod_dir_clone, &mod_name_clone),
+        ArchiveKind::TarGz => handle_tar_gz(file, &mod_dir_clone, &mod_name_clone),
+    })
+    .await
+    .map_err(|e| AppError::InvalidState(format!("Archive extraction task failed: {e}")))??;
 
     if was_disabled {
         log::info!("Restoring disabled state for {}", installed_path.display());
-        apply_disabled_marker(&installed_path)?;
+        let path = installed_path.clone();
+        tokio::task::spawn_blocking(move || apply_disabled_marker(&path))
+            .await
+            .map_err(|e| AppError::InvalidState(format!("Apply disabled marker failed: {e}")))??;
     }
 
     log::info!("Mod installed successfully at: {installed_path:?}");
@@ -588,7 +599,7 @@ fn remove_dir_with_retry(path: &PathBuf, max_retries: u32) -> Result<(), AppErro
     })
 }
 
-pub fn uninstall_mod(path: PathBuf) -> Result<(), AppError> {
+pub async fn uninstall_mod(path: PathBuf) -> Result<(), AppError> {
     log::info!("Uninstalling mod: {path:?}");
 
     let mods_dir = resolve_mods_dir()?;
@@ -604,9 +615,13 @@ pub fn uninstall_mod(path: PathBuf) -> Result<(), AppError> {
     }
 
     // Use retry logic to handle file locks, especially on Windows
-    let result = remove_dir_with_retry(&path, 5);
+    // Run in blocking task since fs operations are synchronous
+    let result = tokio::task::spawn_blocking(move || remove_dir_with_retry(&path, 5))
+        .await
+        .map_err(|e| AppError::InvalidState(format!("Uninstall task failed: {e}")))?;
+
     if result.is_ok() {
-        log::info!("Successfully uninstalled mod at: {:?}", path);
+        log::info!("Successfully uninstalled mod");
     }
     result
 }

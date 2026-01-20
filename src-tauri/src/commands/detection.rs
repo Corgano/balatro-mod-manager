@@ -27,29 +27,34 @@ pub async fn check_mod_installation(mod_type: String) -> Result<bool, String> {
 
 #[tauri::command]
 pub async fn refresh_mods_folder(state: tauri::State<'_, AppState>) -> Result<(), String> {
-    let db = state
-        .db
-        .lock()
-        .map_err(|_| AppError::LockPoisoned("Database lock poisoned".to_string()))?;
+    let db = state.db.lock().await;
 
     let installed = map_error(db.get_installed_mods())?;
     for m in installed {
         let mod_dir = PathBuf::from(&m.path);
-        if mod_dir.exists() {
-            for entry in std::fs::read_dir(&mod_dir)
-                .map_err(|e| format!("Failed to read mod directory: {e}"))?
+        if tokio::fs::metadata(&mod_dir).await.is_ok() {
+            let mut entries = tokio::fs::read_dir(&mod_dir)
+                .await
+                .map_err(|e| format!("Failed to read mod directory: {e}"))?;
+            while let Some(entry) = entries
+                .next_entry()
+                .await
+                .map_err(|e| format!("Failed to read entry: {e}"))?
             {
-                let entry = entry.map_err(|e| format!("Failed to read entry: {e}"))?;
                 let path = entry.path();
-                if path.is_dir() {
+                if tokio::fs::metadata(&path)
+                    .await
+                    .map(|m| m.is_dir())
+                    .unwrap_or(false)
+                {
                     let ignore_file_path = path.join(".lovelyignore");
-                    if ignore_file_path.exists() {
-                        std::fs::remove_file(&ignore_file_path).map_err(|e| {
-                            AppError::FileWrite {
+                    if tokio::fs::metadata(&ignore_file_path).await.is_ok() {
+                        tokio::fs::remove_file(&ignore_file_path)
+                            .await
+                            .map_err(|e| AppError::FileWrite {
                                 path: path.clone(),
                                 source: e.to_string(),
-                            }
-                        })?;
+                            })?;
                     }
                 }
             }
@@ -77,10 +82,7 @@ pub async fn reindex_mods(
     state: tauri::State<'_, AppState>,
     app_handle: tauri::AppHandle,
 ) -> Result<(usize, usize), String> {
-    let db = state
-        .db
-        .lock()
-        .map_err(|_| AppError::LockPoisoned("Database lock poisoned".to_string()))?;
+    let db = state.db.lock().await;
 
     let result = reindex_db(&db);
     match &result {
@@ -173,7 +175,8 @@ mod tests {
 #[tauri::command]
 pub async fn delete_manual_mod(path: String) -> Result<(), String> {
     let path = PathBuf::from(path);
-    if !path.exists() {
+    let metadata = tokio::fs::metadata(&path).await;
+    if metadata.is_err() {
         return Err(format!(
             "Invalid path '{}': Path doesn't exist",
             path.display()
@@ -183,11 +186,11 @@ pub async fn delete_manual_mod(path: String) -> Result<(), String> {
         dirs::config_dir().ok_or_else(|| "Could not find config directory".to_string())?;
     let mods_dir = config_dir.join("Balatro").join("Mods");
 
-    let canonicalized_path = path
-        .canonicalize()
+    let canonicalized_path = tokio::fs::canonicalize(&path)
+        .await
         .map_err(|e| format!("Failed to canonicalize path {}: {}", path.display(), e))?;
-    let canonicalized_mods_dir = mods_dir
-        .canonicalize()
+    let canonicalized_mods_dir = tokio::fs::canonicalize(&mods_dir)
+        .await
         .map_err(|e| format!("Failed to canonicalize mods directory: {e}"))?;
     if !canonicalized_path.starts_with(&canonicalized_mods_dir) {
         return Err(format!(
@@ -196,10 +199,14 @@ pub async fn delete_manual_mod(path: String) -> Result<(), String> {
         ));
     }
 
-    if path.is_dir() {
-        std::fs::remove_dir_all(&path).map_err(|e| format!("Failed to remove directory: {e}"))?
+    if metadata.unwrap().is_dir() {
+        tokio::fs::remove_dir_all(&path)
+            .await
+            .map_err(|e| format!("Failed to remove directory: {e}"))?
     } else {
-        std::fs::remove_file(&path).map_err(|e| format!("Failed to remove file: {e}"))?
+        tokio::fs::remove_file(&path)
+            .await
+            .map_err(|e| format!("Failed to remove file: {e}"))?
     }
     Ok(())
 }
@@ -207,11 +214,12 @@ pub async fn delete_manual_mod(path: String) -> Result<(), String> {
 #[tauri::command]
 pub async fn backup_local_mod(path: String) -> Result<(), String> {
     let path = PathBuf::from(path);
-    if !path.exists() {
+    let metadata = tokio::fs::metadata(&path).await;
+    if metadata.is_err() {
         return Err(format!("Path doesn't exist: {}", path.display()));
     }
 
-    let backup_dir = get_backup_dir()?;
+    let backup_dir = get_backup_dir_async().await?;
     let backup_id = format!(
         "backup_{}",
         std::time::SystemTime::now()
@@ -221,14 +229,17 @@ pub async fn backup_local_mod(path: String) -> Result<(), String> {
     );
     let backup_path = backup_dir.join(backup_id);
 
-    std::fs::create_dir_all(&backup_path)
+    tokio::fs::create_dir_all(&backup_path)
+        .await
         .map_err(|e| format!("Failed to create backup directory: {e}"))?;
 
-    if path.is_dir() {
-        copy_dir_all(&path, &backup_path.join(path.file_name().unwrap()))
+    if metadata.unwrap().is_dir() {
+        copy_dir_all_async(&path, &backup_path.join(path.file_name().unwrap()))
+            .await
             .map_err(|e| format!("Failed to copy mod to backup: {e}"))?;
     } else {
-        std::fs::copy(&path, backup_path.join(path.file_name().unwrap()))
+        tokio::fs::copy(&path, backup_path.join(path.file_name().unwrap()))
+            .await
             .map_err(|e| format!("Failed to copy mod file to backup: {e}"))?;
     }
 
@@ -240,11 +251,12 @@ pub async fn backup_local_mod(path: String) -> Result<(), String> {
             .as_secs()
     });
 
-    std::fs::write(
+    tokio::fs::write(
         backup_path.join("metadata.json"),
         serde_json::to_string_pretty(&metadata)
             .map_err(|e| format!("Failed to serialize metadata: {e}"))?,
     )
+    .await
     .map_err(|e| format!("Failed to write metadata: {e}"))?;
 
     Ok(())
@@ -253,18 +265,23 @@ pub async fn backup_local_mod(path: String) -> Result<(), String> {
 #[tauri::command]
 pub async fn restore_from_backup(path: String) -> Result<(), String> {
     let path = PathBuf::from(path);
-    let backup_dir = get_backup_dir()?;
+    let backup_dir = get_backup_dir_async().await?;
 
     let mut latest_backup = None;
     let mut latest_time = 0;
-    for entry in std::fs::read_dir(&backup_dir)
-        .map_err(|e| format!("Failed to read backup directory: {e}"))?
+    let mut entries = tokio::fs::read_dir(&backup_dir)
+        .await
+        .map_err(|e| format!("Failed to read backup directory: {e}"))?;
+    while let Some(entry) = entries
+        .next_entry()
+        .await
+        .map_err(|e| format!("Failed to read backup entry: {e}"))?
     {
-        let entry = entry.map_err(|e| format!("Failed to read backup entry: {e}"))?;
         let metadata_path = entry.path().join("metadata.json");
-        if metadata_path.exists() {
+        if tokio::fs::metadata(&metadata_path).await.is_ok() {
             let metadata: serde_json::Value = serde_json::from_str(
-                &std::fs::read_to_string(&metadata_path)
+                &tokio::fs::read_to_string(&metadata_path)
+                    .await
                     .map_err(|e| format!("Failed to read metadata file: {e}"))?,
             )
             .map_err(|e| format!("Failed to parse metadata: {e}"))?;
@@ -281,23 +298,34 @@ pub async fn restore_from_backup(path: String) -> Result<(), String> {
 
     let backup_path = latest_backup.ok_or_else(|| "No backup found for this path".to_string())?;
     if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)
+        tokio::fs::create_dir_all(parent)
+            .await
             .map_err(|e| format!("Failed to create parent directory: {e}"))?;
     }
-    for entry in std::fs::read_dir(&backup_path)
-        .map_err(|e| format!("Failed to read backup directory: {e}"))?
+    let mut backup_entries = tokio::fs::read_dir(&backup_path)
+        .await
+        .map_err(|e| format!("Failed to read backup directory: {e}"))?;
+    while let Some(entry) = backup_entries
+        .next_entry()
+        .await
+        .map_err(|e| format!("Failed to read backup entry: {e}"))?
     {
-        let entry = entry.map_err(|e| format!("Failed to read backup entry: {e}"))?;
         let file_name = entry.file_name();
         if file_name == "metadata.json" {
             continue;
         }
         let dest_path = path.parent().unwrap().join(&file_name);
-        if entry.path().is_dir() {
-            copy_dir_all(&entry.path(), &dest_path)
+        let file_type = entry
+            .file_type()
+            .await
+            .map_err(|e| format!("Failed to get file type: {e}"))?;
+        if file_type.is_dir() {
+            copy_dir_all_async(&entry.path(), &dest_path)
+                .await
                 .map_err(|e| format!("Failed to restore directory from backup: {e}"))?;
         } else {
-            std::fs::copy(entry.path(), &dest_path)
+            tokio::fs::copy(entry.path(), &dest_path)
+                .await
                 .map_err(|e| format!("Failed to restore file from backup: {e}"))?;
         }
     }
@@ -307,22 +335,28 @@ pub async fn restore_from_backup(path: String) -> Result<(), String> {
 #[tauri::command]
 pub async fn remove_backup(path: String) -> Result<(), String> {
     let path = PathBuf::from(path);
-    let backup_dir = get_backup_dir()?;
-    for entry in std::fs::read_dir(&backup_dir)
-        .map_err(|e| format!("Failed to read backup directory: {e}"))?
+    let backup_dir = get_backup_dir_async().await?;
+    let mut entries = tokio::fs::read_dir(&backup_dir)
+        .await
+        .map_err(|e| format!("Failed to read backup directory: {e}"))?;
+    while let Some(entry) = entries
+        .next_entry()
+        .await
+        .map_err(|e| format!("Failed to read backup entry: {e}"))?
     {
-        let entry = entry.map_err(|e| format!("Failed to read backup entry: {e}"))?;
         let metadata_path = entry.path().join("metadata.json");
-        if metadata_path.exists() {
+        if tokio::fs::metadata(&metadata_path).await.is_ok() {
             let metadata: serde_json::Value = serde_json::from_str(
-                &std::fs::read_to_string(&metadata_path)
+                &tokio::fs::read_to_string(&metadata_path)
+                    .await
                     .map_err(|e| format!("Failed to read metadata file: {e}"))?,
             )
             .map_err(|e| format!("Failed to parse metadata: {e}"))?;
             if let Some(original_path) = metadata.get("original_path").and_then(|v| v.as_str())
                 && original_path == path.to_string_lossy()
             {
-                std::fs::remove_dir_all(entry.path())
+                tokio::fs::remove_dir_all(entry.path())
+                    .await
                     .map_err(|e| format!("Failed to remove backup: {e}"))?;
             }
         }
@@ -330,23 +364,28 @@ pub async fn remove_backup(path: String) -> Result<(), String> {
     Ok(())
 }
 
-fn get_backup_dir() -> Result<PathBuf, String> {
+async fn get_backup_dir_async() -> Result<PathBuf, String> {
     let temp_dir = std::env::temp_dir().join("balatro_mod_manager_backups");
-    std::fs::create_dir_all(&temp_dir)
+    tokio::fs::create_dir_all(&temp_dir)
+        .await
         .map_err(|e| format!("Failed to create backup directory: {e}"))?;
     Ok(temp_dir)
 }
 
-fn copy_dir_all(src: &Path, dst: &Path) -> std::io::Result<()> {
-    std::fs::create_dir_all(dst)?;
-    for entry in std::fs::read_dir(src)? {
-        let entry = entry?;
-        let ty = entry.file_type()?;
+async fn copy_dir_all_async(src: &Path, dst: &Path) -> std::io::Result<()> {
+    tokio::fs::create_dir_all(dst).await?;
+    let mut entries = tokio::fs::read_dir(src).await?;
+    while let Some(entry) = entries.next_entry().await? {
+        let ty = entry.file_type().await?;
         let path = entry.path();
         if ty.is_dir() {
-            copy_dir_all(&path, &dst.join(path.file_name().unwrap()))?;
+            Box::pin(copy_dir_all_async(
+                &path,
+                &dst.join(path.file_name().unwrap()),
+            ))
+            .await?;
         } else {
-            std::fs::copy(&path, dst.join(path.file_name().unwrap()))?;
+            tokio::fs::copy(&path, dst.join(path.file_name().unwrap())).await?;
         }
     }
     Ok(())

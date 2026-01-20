@@ -47,7 +47,7 @@ impl ThumbnailManager {
         tauri::async_runtime::spawn(async move {
             while let Some(mut req) = rx.recv().await {
                 // Skip if file already exists or has been de-duped
-                if file_exists_for_title(&req.title) {
+                if file_exists_for_title_async(&req.title).await {
                     // Remove from enqueued set so future explicit requests are allowed
                     if let Ok(mut set) = enq_for_task.lock() {
                         set.remove(&req.title);
@@ -107,7 +107,8 @@ impl ThumbnailManager {
 
     /// Enqueue a single thumbnail request if not already present and not already cached.
     pub fn enqueue(&self, title: String, url: String) {
-        if file_exists_for_title(&title) {
+        // Use sync file check here since we're in a sync context
+        if file_exists_for_title_sync(&title) {
             return;
         }
         if let Ok(mut set) = self.enqueued.lock()
@@ -148,7 +149,7 @@ async fn fetch_and_store(
 ) -> Result<bool, Backoff> {
     log::info!("Thumbnail fetch start: title='{}' url='{}'", title, url);
     // Don't waste network if already cached
-    if file_exists_for_title(title) {
+    if file_exists_for_title_async(title).await {
         return Ok(false);
     }
 
@@ -170,7 +171,7 @@ async fn fetch_and_store(
                 }
                 Err(_) => return Ok(false),
             };
-            if write_thumbnail(title, &bytes).is_err() {
+            if write_thumbnail_async(title, &bytes).await.is_err() {
                 // Disk error; drop silently
                 return Ok(false);
             }
@@ -220,7 +221,7 @@ fn retry_after_delay(headers: &reqwest::header::HeaderMap) -> Option<Duration> {
     None
 }
 
-fn file_exists_for_title(title: &str) -> bool {
+fn file_exists_for_title_sync(title: &str) -> bool {
     let slug = safe_slug(title);
     if let Ok((thumbs, _)) = ensure_assets_dirs() {
         let p = thumbs.join(format!("{slug}.jpg"));
@@ -236,6 +237,25 @@ fn file_exists_for_title(title: &str) -> bool {
     false
 }
 
+async fn file_exists_for_title_async(title: &str) -> bool {
+    let slug = safe_slug(title);
+    if let Ok((thumbs, _)) = ensure_assets_dirs() {
+        let p = thumbs.join(format!("{slug}.jpg"));
+        match tokio::fs::metadata(&p).await {
+            Ok(meta) => {
+                if !is_thumb_fresh_from_metadata(&meta) {
+                    let _ = tokio::fs::remove_file(&p).await;
+                    return false;
+                }
+                true
+            }
+            Err(_) => false,
+        }
+    } else {
+        false
+    }
+}
+
 fn is_thumb_fresh(path: &std::path::Path) -> bool {
     let modified = match std::fs::metadata(path).and_then(|m| m.modified()) {
         Ok(ts) => ts,
@@ -248,11 +268,25 @@ fn is_thumb_fresh(path: &std::path::Path) -> bool {
     age.as_secs() < THUMB_CACHE_TTL_SECS
 }
 
-fn write_thumbnail(title: &str, bytes: &[u8]) -> Result<(), String> {
+fn is_thumb_fresh_from_metadata(meta: &std::fs::Metadata) -> bool {
+    let modified = match meta.modified() {
+        Ok(ts) => ts,
+        Err(_) => return false,
+    };
+    let age = match std::time::SystemTime::now().duration_since(modified) {
+        Ok(d) => d,
+        Err(_) => return false,
+    };
+    age.as_secs() < THUMB_CACHE_TTL_SECS
+}
+
+async fn write_thumbnail_async(title: &str, bytes: &[u8]) -> Result<(), String> {
     let slug = safe_slug(title);
     let (thumbs, _) = ensure_assets_dirs()?;
     let path = thumbs.join(format!("{slug}.jpg"));
-    std::fs::write(&path, bytes).map_err(|e| e.to_string())
+    tokio::fs::write(&path, bytes)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 // Duplicated minimal helpers to avoid broad refactors; keep in sync with repo.rs
