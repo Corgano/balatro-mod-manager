@@ -216,6 +216,15 @@
 		}
 	}
 
+	interface AllSettings {
+		discord_rpc: boolean;
+		lovely_console: boolean;
+		background_enabled: boolean;
+		compat_helper: boolean;
+		linux_prefix: string;
+		launch_mode: string;
+	}
+
 	onMount(() => {
 		const unsubscribeDarkMode = darkMode.subscribe((value) => {
 			isDarkMode = value;
@@ -234,43 +243,25 @@
 			}
 		}
 
+		// Fetch all settings in a single batched IPC call
 		try {
-			isDiscordRpcEnabled = await invoke("get_discord_rpc_status");
-		} catch (error) {
-			console.error("Failed to get Discord RPC status:", error);
-			addMessage("Error fetching Discord Rich Presence status", "error");
-		}
-		try {
-			isConsoleEnabled = await invoke("get_lovely_console_status");
-		} catch (error) {
-			console.error("Failed to get console status:", error);
-			addMessage("Error fetching Lovely Console status", "error");
-		}
-		try {
-			isBackgroundAnimationEnabled = await invoke("get_background_state");
+			const settings = await invoke<AllSettings>("get_all_settings");
+			isDiscordRpcEnabled = settings.discord_rpc;
+			isConsoleEnabled = settings.lovely_console;
+			isBackgroundAnimationEnabled = settings.background_enabled;
 			backgroundEnabled.set(isBackgroundAnimationEnabled);
-		} catch (error) {
-			console.error("Failed to get background status:", error);
-			addMessage("Error fetching background animation status", "error");
-		}
-		try {
-			isCompatHelperEnabled = await invoke("get_compat_helper_status");
-		} catch (error) {
-			console.error("Failed to get compatibility helper status:", error);
-			addMessage("Error fetching compatibility helper status", "error");
-		}
-		if (isLinux) {
-			try {
-				linuxPrefix = await invoke("get_linux_prefix");
+			isCompatHelperEnabled = settings.compat_helper;
+			if (isLinux) {
+				linuxPrefix = settings.linux_prefix;
 				if (!linuxPrefix) {
 					linuxPrefix = "steam -applaunch 2379780";
 					await invoke("set_linux_prefix", { value: linuxPrefix });
 					addMessage("Linux prefix defaulted to steam -applaunch 2379780", "info");
 				}
-			} catch (error) {
-				console.error("Failed to get Linux prefix:", error);
-				addMessage("Error fetching Linux prefix", "error");
 			}
+		} catch (error) {
+			console.error("Failed to load settings:", error);
+			addMessage("Error loading settings", "error");
 		}
 		})();
 

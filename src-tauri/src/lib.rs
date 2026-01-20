@@ -393,6 +393,8 @@ pub fn run() {
             commands::detection::restore_from_backup,
             commands::detection::remove_backup,
             commands::external::open_external_url,
+            commands::init::get_app_init_data,
+            commands::init::get_all_settings,
             exit_application
         ])
         .run(tauri::generate_context!());

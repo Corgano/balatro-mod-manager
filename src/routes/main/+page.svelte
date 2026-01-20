@@ -204,68 +204,65 @@ import { isLinuxPlatform } from "$lib/platform";
 		showUninstallDialog = true;
 	}
 
+	interface AppInitData {
+		version: string;
+		existing_installation: string | null;
+		security_acknowledged: boolean;
+		lovely_installed: boolean;
+		lovely_update_available: string | null;
+		launch_mode: string;
+	}
+
 	onMount(async () => {
 		isLinux = await isLinuxPlatform();
 		hasMounted = true;
 		handleRefresh();
 
-		// Fetch app version for display
+		// Fetch all init data in a single batched IPC call
 		try {
-			appVersion = await invoke<string>("get_app_version");
-		} catch (_) {
-			appVersion = "";
-		}
+			const initData = await invoke<AppInitData>("get_app_init_data");
+			appVersion = initData.version;
 
-		// Check if we need to show the security popup on first launch
-		const isFirstLaunch = await invoke<boolean>(
-			"is_security_warning_acknowledged",
-		);
-		if (!isFirstLaunch) {
-			// It's the first launch, check if security is already acknowledged
-			const isSecurityAcknowledged = await checkSecurityAcknowledgment();
-			if (!isSecurityAcknowledged) {
+			// Check if we need to show the security popup
+			if (!initData.security_acknowledged) {
 				showSecurityPopup = true;
 			}
-		}
 
-		if (!isLinux) {
-			// Check for Lovely update on every launch (skip on Linux)
-			try {
-				const present = await invoke<boolean>("is_lovely_installed");
-				if (!present) {
-					// Not installed: show install prompt and skip update prompt to avoid double popups.
+			// Check Lovely status (skip on Linux)
+			if (!isLinux) {
+				if (!initData.lovely_installed) {
+					// Not installed: show install prompt
 					lovelyPopupStore.set({ visible: true });
-				} else {
-					// Only check for updates when Lovely is already present.
-					try {
-						const latest = await invoke<string | null>("check_lovely_update");
-						if (latest) {
-							showWarningPopup.set({
-								visible: true,
-								message: `An update for Lovely (v${latest}) is available. Do you want to update?`,
-								onConfirm: async () => {
-									try {
-										const updated = await invoke<string>("update_lovely_to_latest");
-										addMessage(`Lovely updated to v${updated}`, "success");
-									} catch (e) {
-										addMessage(
-											`Failed to update Lovely: ${e instanceof Error ? e.message : String(e)}`,
-											"error",
-										);
-									}
-									showWarningPopup.update((p) => ({ ...p, visible: false }));
-								},
-								onCancel: () => {
-									showWarningPopup.update((p) => ({ ...p, visible: false }));
-								},
-							});
-						}
-					} catch (e) {
-						console.warn("Lovely update check failed:", e);
-					}
+				} else if (initData.lovely_update_available) {
+					// Lovely is installed but update available
+					showWarningPopup.set({
+						visible: true,
+						message: `An update for Lovely (v${initData.lovely_update_available}) is available. Do you want to update?`,
+						onConfirm: async () => {
+							try {
+								const updated = await invoke<string>("update_lovely_to_latest");
+								addMessage(`Lovely updated to v${updated}`, "success");
+							} catch (e) {
+								addMessage(
+									`Failed to update Lovely: ${e instanceof Error ? e.message : String(e)}`,
+									"error",
+								);
+							}
+							showWarningPopup.update((p) => ({ ...p, visible: false }));
+						},
+						onCancel: () => {
+							showWarningPopup.update((p) => ({ ...p, visible: false }));
+						},
+					});
 				}
+			}
+		} catch (error) {
+			console.error("Failed to load init data:", error);
+			// Fallback to individual calls if batch fails
+			try {
+				appVersion = await invoke<string>("get_app_version");
 			} catch (_) {
-				// ignore detection errors
+				appVersion = "";
 			}
 		}
 	});

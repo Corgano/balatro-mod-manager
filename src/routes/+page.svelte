@@ -4,25 +4,29 @@
 	import { Menu, MenuItem } from "@tauri-apps/api/menu";
 	import { invoke } from "@tauri-apps/api/core";
 	import { onMount, onDestroy } from "svelte";
-	import { invokeWithTimeout } from "../utils/tauriInvoke";
 	import { goto } from "$app/navigation";
 	import { fade } from "svelte/transition";
+
+	interface AppInitData {
+		version: string;
+		existing_installation: string | null;
+		security_acknowledged: boolean;
+		lovely_installed: boolean;
+		lovely_update_available: string | null;
+		launch_mode: string;
+	}
 
 	let appVersion = $state("");
 	let isLoading = $state(true);
 
 	onMount(() => {
 		const init = async () => {
-			// Fetch app version for display
+			// Use batched init data call to reduce IPC overhead
 			try {
-				appVersion = await invoke<string>("get_app_version");
-			} catch (_) {
-				appVersion = "";
-			}
+				const initData = await invoke<AppInitData>("get_app_init_data");
+				appVersion = initData.version;
 
-			try {
-				const existingPath = await invokeWithTimeout("check_existing_installation");
-				if (existingPath) {
+				if (initData.existing_installation) {
 					try {
 						const nav = goto("/main/", { replaceState: true });
 						await Promise.race([
@@ -38,7 +42,7 @@
 					return; // Don't show picker if navigating away
 				}
 			} catch (error) {
-				console.error("Error checking existing installation:", error);
+				console.error("Error loading init data:", error);
 			}
 
 			// Only show picker if no existing installation found
