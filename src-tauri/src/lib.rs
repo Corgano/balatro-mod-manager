@@ -1,3 +1,4 @@
+mod assets;
 mod bmi;
 pub mod commands;
 mod compat_helper;

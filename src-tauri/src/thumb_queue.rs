@@ -3,6 +3,7 @@ use std::sync::{Arc, Mutex};
 
 use reqwest::StatusCode;
 
+use crate::assets::{ensure_assets_dirs, safe_slug};
 use crate::lfs::{LfsError, resolve_lfs_pointer_bytes};
 use tokio::sync::{Semaphore, mpsc};
 use tokio::time::{Duration, sleep};
@@ -287,55 +288,4 @@ async fn write_thumbnail_async(title: &str, bytes: &[u8]) -> Result<(), String> 
     tokio::fs::write(&path, bytes)
         .await
         .map_err(|e| e.to_string())
-}
-
-// Duplicated minimal helpers to avoid broad refactors; keep in sync with repo.rs
-fn is_legal_char(c: char) -> bool {
-    c.is_ascii_alphanumeric()
-        || matches!(
-            c,
-            '!' | '#'
-                | '$'
-                | '%'
-                | '&'
-                | '\''
-                | '('
-                | ')'
-                | '+'
-                | ','
-                | '-'
-                | '='
-                | ';'
-                | '@'
-                | '['
-                | ']'
-                | '_'
-                | '^'
-                | '`'
-                | '{'
-                | '}'
-                | '~'
-        )
-}
-
-fn safe_slug(input: &str) -> String {
-    let mut s = input.trim().to_lowercase();
-    s = s
-        .chars()
-        .map(|c| if is_legal_char(c) { c } else { '-' })
-        .collect();
-    while s.contains("--") {
-        s = s.replace("--", "-");
-    }
-    s.trim_matches('-').to_string()
-}
-
-fn ensure_assets_dirs() -> Result<(std::path::PathBuf, std::path::PathBuf), String> {
-    let config_dir = dirs::config_dir().ok_or_else(|| "config dir not found".to_string())?;
-    let base = config_dir.join("Balatro").join("mod_assets");
-    let thumbs = base.join("thumbnails");
-    let descs = base.join("descriptions");
-    std::fs::create_dir_all(&thumbs).map_err(|e| e.to_string())?;
-    std::fs::create_dir_all(&descs).map_err(|e| e.to_string())?;
-    Ok((thumbs, descs))
 }

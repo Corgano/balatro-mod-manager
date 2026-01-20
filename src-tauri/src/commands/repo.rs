@@ -1,6 +1,7 @@
 use std::cmp::Ordering;
 use std::path::PathBuf;
 
+use crate::assets::{ensure_assets_dirs_async, safe_slug};
 use crate::bmi::{self, BmiClient, SortMode, SyncCache};
 use crate::lfs::{LfsError, resolve_lfs_pointer_bytes};
 use crate::models::{ModDownloads, ModMeta};
@@ -196,70 +197,6 @@ fn sort_archive_items(items: &mut [ArchiveModItem], sort_mode: SortMode) {
         }
         SortMode::DownloadsAsc | SortMode::DownloadsDesc => {}
     }
-}
-
-fn is_legal_char(c: char) -> bool {
-    c.is_ascii_alphanumeric()
-        || matches!(
-            c,
-            '!' | '#'
-                | '$'
-                | '%'
-                | '&'
-                | '\''
-                | '('
-                | ')'
-                | '+'
-                | ','
-                | '-'
-                | '='
-                | ';'
-                | '@'
-                | '['
-                | ']'
-                | '^'
-                | '_'
-                | '`'
-                | '{'
-                | '}'
-                | '~'
-        )
-}
-
-fn safe_slug(input: &str) -> String {
-    let mut s = input.trim().to_lowercase();
-    s = s
-        .chars()
-        .map(|c| if is_legal_char(c) { c } else { '-' })
-        .collect();
-    while s.contains("--") {
-        s = s.replace("--", "-");
-    }
-    s.trim_matches('-').to_string()
-}
-
-async fn ensure_assets_dirs_async() -> Result<(std::path::PathBuf, std::path::PathBuf), String> {
-    let config_dir = dirs::config_dir().ok_or_else(|| {
-        AppError::DirNotFound(std::path::PathBuf::from("config directory")).to_string()
-    })?;
-    let base = config_dir.join("Balatro").join("mod_assets");
-    let thumbs = base.join("thumbnails");
-    let descs = base.join("descriptions");
-    tokio::fs::create_dir_all(&thumbs).await.map_err(|e| {
-        AppError::DirCreate {
-            path: thumbs.clone(),
-            source: e.to_string(),
-        }
-        .to_string()
-    })?;
-    tokio::fs::create_dir_all(&descs).await.map_err(|e| {
-        AppError::DirCreate {
-            path: descs.clone(),
-            source: e.to_string(),
-        }
-        .to_string()
-    })?;
-    Ok((thumbs, descs))
 }
 
 async fn is_thumb_fresh_async(path: &std::path::Path) -> bool {

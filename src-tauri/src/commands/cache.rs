@@ -5,6 +5,7 @@ use bmm_lib::cache;
 use bmm_lib::cache::Mod;
 use serde::Serialize;
 
+use crate::assets::{ensure_assets_dirs_async, safe_slug};
 use crate::state::AppState;
 use crate::util::map_error;
 use once_cell::sync::Lazy;
@@ -372,31 +373,4 @@ pub async fn mods_state_summary(
         thumbnails,
         descriptions,
     })
-}
-
-// Minimal helpers duplicated from repo.rs; keep in sync if changed there.
-fn safe_slug(input: &str) -> String {
-    let mut s = input.trim().to_lowercase();
-    s = s
-        .chars()
-        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
-        .collect();
-    while s.contains("--") {
-        s = s.replace("--", "-");
-    }
-    s.trim_matches('-').to_string()
-}
-
-async fn ensure_assets_dirs_async() -> Result<(std::path::PathBuf, std::path::PathBuf), String> {
-    let config_dir = dirs::config_dir().ok_or_else(|| "config dir not found".to_string())?;
-    let base = config_dir.join("Balatro").join("mod_assets");
-    let thumbs = base.join("thumbnails");
-    let descs = base.join("descriptions");
-    tokio::fs::create_dir_all(&thumbs)
-        .await
-        .map_err(|e| e.to_string())?;
-    tokio::fs::create_dir_all(&descs)
-        .await
-        .map_err(|e| e.to_string())?;
-    Ok((thumbs, descs))
 }
