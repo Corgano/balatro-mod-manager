@@ -512,44 +512,44 @@ impl BmiClient {
             _ = tokio::time::sleep(FAST_TIMEOUT) => {
                 // Request took too long - immediately switch to fallback
                 log::info!("BMI request slow (>3s), hot-switching to direct IP fallback");
-                if let Some(fallback) = &self.fallback_url {
-                    if let Ok(original_req) = make_req().build() {
-                        let method = original_req.method().clone();
-                        let url = original_req.url();
-                        let path_and_query = url.path().to_string()
-                            + url.query().map(|q| format!("?{}", q)).as_deref().unwrap_or("");
-                        if let Ok(fallback_url) =
-                            fallback.join(path_and_query.trim_start_matches('/'))
-                        {
-                            let fallback_result = self
-                                .fast_client
-                                .request(method, fallback_url)
-                                .header("Host", "api-bmi.dasguney.com")
-                                .send()
-                                .await;
-                            match fallback_result {
-                                Ok(resp) if resp.status().is_success() => {
-                                    log::info!(
-                                        "BMI fallback successful, using direct IP for future requests"
-                                    );
-                                    self.use_fallback
-                                        .store(true, std::sync::atomic::Ordering::Relaxed);
-                                    return resp.error_for_status().map_err(|e| e.to_string());
-                                }
-                                Ok(resp) if resp.status().as_u16() == 429 => {
-                                    log::info!(
-                                        "BMI fallback connected (rate limited), using direct IP for future requests"
-                                    );
-                                    self.use_fallback
-                                        .store(true, std::sync::atomic::Ordering::Relaxed);
-                                    // Fall through to retry logic
-                                }
-                                Ok(resp) => {
-                                    log::debug!("BMI fallback returned status: {}", resp.status());
-                                }
-                                Err(e) => {
-                                    log::debug!("BMI fallback failed: {}", e);
-                                }
+                if let Some(fallback) = &self.fallback_url
+                    && let Ok(original_req) = make_req().build()
+                {
+                    let method = original_req.method().clone();
+                    let url = original_req.url();
+                    let path_and_query = url.path().to_string()
+                        + url.query().map(|q| format!("?{}", q)).as_deref().unwrap_or("");
+                    if let Ok(fallback_url) =
+                        fallback.join(path_and_query.trim_start_matches('/'))
+                    {
+                        let fallback_result = self
+                            .fast_client
+                            .request(method, fallback_url)
+                            .header("Host", "api-bmi.dasguney.com")
+                            .send()
+                            .await;
+                        match fallback_result {
+                            Ok(resp) if resp.status().is_success() => {
+                                log::info!(
+                                    "BMI fallback successful, using direct IP for future requests"
+                                );
+                                self.use_fallback
+                                    .store(true, std::sync::atomic::Ordering::Relaxed);
+                                return resp.error_for_status().map_err(|e| e.to_string());
+                            }
+                            Ok(resp) if resp.status().as_u16() == 429 => {
+                                log::info!(
+                                    "BMI fallback connected (rate limited), using direct IP for future requests"
+                                );
+                                self.use_fallback
+                                    .store(true, std::sync::atomic::Ordering::Relaxed);
+                                // Fall through to retry logic
+                            }
+                            Ok(resp) => {
+                                log::debug!("BMI fallback returned status: {}", resp.status());
+                            }
+                            Err(e) => {
+                                log::debug!("BMI fallback failed: {}", e);
                             }
                         }
                     }

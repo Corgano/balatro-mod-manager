@@ -49,7 +49,7 @@ pub fn init_logger() -> Result<(), AppError> {
         .format(|buf, record| {
             writeln!(
                 buf,
-                "[{}] {} [{}] {}",
+                "[{}] {:<5} [{}] {}",
                 Local::now().format("%Y-%m-%d %H:%M:%S"),
                 record.level(),
                 record.target(),
@@ -75,20 +75,84 @@ struct CustomWriter {
     file: fs::File,
 }
 
+// ANSI color codes
+const RED: &str = "\x1b[31m";
+const YELLOW: &str = "\x1b[33m";
+const GREEN: &str = "\x1b[32m";
+const CYAN: &str = "\x1b[36m";
+const MAGENTA: &str = "\x1b[35m";
+const DIM: &str = "\x1b[2m";
+const RESET: &str = "\x1b[0m";
+
+/// Add ANSI color codes to a log line based on the log level
+fn colorize_log_line(line: &str) -> String {
+    // Find the log level in the line and colorize accordingly
+    // Format: [timestamp] LEVEL [target] message
+    if let Some(level_start) = line.find("] ") {
+        let after_timestamp = &line[level_start + 2..];
+        let (level_color, level_end) = if after_timestamp.starts_with("ERROR") {
+            (RED, 5)
+        } else if after_timestamp.starts_with("WARN ") {
+            (YELLOW, 5)
+        } else if after_timestamp.starts_with("INFO ") {
+            (GREEN, 5)
+        } else if after_timestamp.starts_with("DEBUG") {
+            (CYAN, 5)
+        } else if after_timestamp.starts_with("TRACE") {
+            (MAGENTA, 5)
+        } else {
+            return line.to_string();
+        };
+
+        // Find the target section [target]
+        let timestamp_end = level_start + 2;
+        let level_section_end = timestamp_end + level_end;
+
+        if let Some(target_start) = line[level_section_end..].find('[') {
+            let target_abs_start = level_section_end + target_start;
+            if let Some(target_end) = line[target_abs_start..].find(']') {
+                let target_abs_end = target_abs_start + target_end + 1;
+
+                // Build colorized string:
+                // DIM[timestamp]RESET LEVEL_COLOR LEVEL RESET DIM[target]RESET message
+                return format!(
+                    "{}{}{}{}{}{}{}{}{}{}",
+                    DIM,
+                    &line[..timestamp_end], // [timestamp]
+                    RESET,
+                    level_color,
+                    &line[timestamp_end..level_section_end], // LEVEL
+                    RESET,
+                    DIM,
+                    &line[level_section_end..target_abs_end], // [target]
+                    RESET,
+                    &line[target_abs_end..] // message
+                );
+            }
+        }
+    }
+    line.to_string()
+}
+
 impl Write for CustomWriter {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        // Print to stdout
-        let stdout_result = io::stdout().write(buf);
+        // Convert to string for colorization
+        let text = String::from_utf8_lossy(buf);
+        let colored = colorize_log_line(&text);
 
-        // Write to file
-        match self.file.write(buf) {
-            Ok(bytes_written) => {
+        // Print colored output to stdout
+        let _ = io::stdout().write_all(colored.as_bytes());
+        let _ = io::stdout().flush();
+
+        // Write plain text to file
+        match self.file.write_all(buf) {
+            Ok(()) => {
                 let _ = self.file.flush();
-                Ok(bytes_written)
+                Ok(buf.len())
             }
             Err(e) => {
                 eprintln!("Failed to write to log file: {e}");
-                stdout_result // Return stdout result if file write fails
+                Ok(buf.len())
             }
         }
     }
