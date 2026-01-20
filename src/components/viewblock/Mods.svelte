@@ -4033,6 +4033,8 @@
 
     .categories {
         width: 190px;
+        min-width: 190px;
+        flex-shrink: 0;
         display: flex;
         flex-direction: column;
         gap: 0.5rem;
