@@ -173,6 +173,12 @@
     let renderLimitLocal = $state(60);
     const renderChunkLocal = 24;
     let localSentinel: HTMLDivElement | null = $state(null);
+
+    // Virtual scrolling for catalog mods in Installed Mods view
+    let renderLimitCatalog = $state(36); // Start with 36 cards (3 rows of 12 or 6 rows of 6)
+    const renderChunkCatalog = 24;
+    let catalogSentinel: HTMLDivElement | null = $state(null);
+    let observerCatalog: IntersectionObserver | null = null;
     let thumbRefreshTimer: number | null = null;
     let thumbRefreshAttempts = 0;
     let selectedCollectionId = $state<string | null>(null);
@@ -294,6 +300,9 @@
 
     let localMods: LocalMod[] = $state([]);
     let isLoadingLocalMods = $state(false);
+    // Delayed loading indicator - only shows after 150ms to prevent flash for quick loads
+    let showLoadingLocalMods = $state(false);
+    let loadingLocalModsTimer: number | null = null;
     let catalogLoadError = $state<string | null>(null);
 
     async function handleModToggled(): Promise<void> {
@@ -366,6 +375,13 @@
     async function getLocalMods() {
         if ($currentCategory === "Installed Mods") {
             isLoadingLocalMods = true;
+            // Delay showing the loading indicator to prevent flash for quick loads
+            if (loadingLocalModsTimer) clearTimeout(loadingLocalModsTimer);
+            loadingLocalModsTimer = window.setTimeout(() => {
+                if (isLoadingLocalMods) {
+                    showLoadingLocalMods = true;
+                }
+            }, 150);
             try {
                 localMods = await invoke("get_detected_local_mods");
                 await refreshStateSummary();
@@ -375,6 +391,11 @@
                 localMods = [];
             } finally {
                 isLoadingLocalMods = false;
+                showLoadingLocalMods = false;
+                if (loadingLocalModsTimer) {
+                    clearTimeout(loadingLocalModsTimer);
+                    loadingLocalModsTimer = null;
+                }
             }
         }
     }
@@ -674,9 +695,10 @@
             }
             return installedModsRefresh;
         };
-        // Intersection observers to extend render window for local mods
+        // Intersection observers to extend render window for local mods and catalog mods
         onMount(() => {
             if (typeof IntersectionObserver !== "undefined") {
+                // Local mods observer
                 if (localSentinel) {
                     observerLocal = new IntersectionObserver(
                         (entries) => {
@@ -697,6 +719,22 @@
                     );
                     observerLocal.observe(localSentinel);
                 }
+
+                // Catalog mods observer for Installed Mods view
+                observerCatalog = new IntersectionObserver(
+                    (entries) => {
+                        for (const entry of entries) {
+                            if (entry.isIntersecting) {
+                                const catalogMax = paginatedMods.length;
+                                renderLimitCatalog = Math.min(
+                                    renderLimitCatalog + renderChunkCatalog,
+                                    catalogMax,
+                                );
+                            }
+                        }
+                    },
+                    { root: modsScrollContainer, rootMargin: "200px" },
+                );
             }
         });
 
@@ -737,6 +775,11 @@
             }
             try {
                 observerLocal?.disconnect();
+            } catch (_) {
+                /* ignore */
+            }
+            try {
+                observerCatalog?.disconnect();
             } catch (_) {
                 /* ignore */
             }
@@ -2714,7 +2757,12 @@
     let visiblePaginatedMods: Mod[] = $state([]);
 
     function updateVirtualWindow() {
-        visiblePaginatedMods = paginatedMods;
+        // For Installed Mods view, apply renderLimitCatalog for virtual scrolling
+        if (isInstalledMods) {
+            visiblePaginatedMods = paginatedMods.slice(0, renderLimitCatalog);
+        } else {
+            visiblePaginatedMods = paginatedMods;
+        }
     }
 
     // Whenever the visible page changes, try to quickly hydrate from cache and recalc window
@@ -2728,6 +2776,15 @@
         renderLimitLocal = Math.min(60, localMax || 60);
         if (observerLocal && localSentinel)
             observerLocal.observe(localSentinel);
+
+        // Reset catalog render limit and attach observer for Installed Mods
+        if (isInstalledMods) {
+            renderLimitCatalog = Math.min(36, paginatedMods.length || 36);
+            if (observerCatalog && catalogSentinel) {
+                observerCatalog.observe(catalogSentinel);
+            }
+        }
+
         updateVirtualWindow();
         scheduleHydration();
     });
@@ -2897,7 +2954,8 @@
             cat === "Installed Mods" &&
             prevCategory !== "Installed Mods"
         ) {
-            // Category just switched to Installed Mods
+            // Category just switched to Installed Mods - reset virtual scroll limit
+            renderLimitCatalog = 36;
             refreshInstalledMods();
             if (sortedAndFilteredMods.length === 0) {
                 seedInstalledPlaceholders();
@@ -3300,7 +3358,7 @@
                     onscroll={handleModsScroll}
                 >
                     {#if $currentCategory === "Installed Mods"}
-                        {#if isLoadingLocalMods}
+                        {#if showLoadingLocalMods}
                             <div class="section-header">
                                 <h3>Local Mods</h3>
                                 <p>
@@ -3487,6 +3545,15 @@
                                         </div>
                                     {/each}
                                 </div>
+                            {/if}
+
+                            <!-- Virtual scroll sentinel for catalog mods - triggers loading more when visible -->
+                            {#if visiblePaginatedMods.length < paginatedMods.length}
+                                <div
+                                    bind:this={catalogSentinel}
+                                    class="virtual-scroll-sentinel"
+                                    aria-hidden="true"
+                                ></div>
                             {/if}
                         {/if}
                     {:else}
@@ -3714,6 +3781,11 @@
     }
 
     .render-sentinel {
+        width: 100%;
+        height: 1px;
+    }
+
+    .virtual-scroll-sentinel {
         width: 100%;
         height: 1px;
     }
