@@ -17,6 +17,7 @@ use std::path::PathBuf;
 use std::process::Command;
 #[cfg(target_os = "linux")]
 use std::process::Stdio;
+use std::time::Duration;
 
 use crate::bmi::BmiClient;
 use crate::compat_helper;
@@ -35,6 +36,9 @@ use bmm_lib::{cache, database::InstalledMod};
 #[cfg(target_os = "linux")]
 use shell_words::split as split_shell_words;
 use tauri::Emitter;
+
+/// Maximum number of retry attempts for mod installation when rate limited.
+const INSTALL_MAX_RETRIES: u32 = 3;
 
 async fn sync_compat_helper_after_mod_change(state: &tauri::State<'_, AppState>) {
     let enabled = {
@@ -978,23 +982,83 @@ pub async fn install_mod(
     url: String,
     folder_name: String,
 ) -> Result<PathBuf, String> {
-    let folder_name = if folder_name.is_empty() {
+    let folder_name_opt = if folder_name.is_empty() {
         None
     } else {
-        Some(folder_name)
+        Some(folder_name.clone())
     };
-    let resolved_url = if let Some(id) = url.strip_prefix("bmi://") {
-        if id.trim().is_empty() {
-            return Err("BMI download missing mod id".to_string());
+
+    let mut last_error: Option<String> = None;
+    let mut delay = Duration::from_millis(500);
+
+    for attempt in 1..=INSTALL_MAX_RETRIES {
+        // Resolve BMI URL on each attempt (in case the download URL expires or changes)
+        let resolved_url = if let Some(id) = url.strip_prefix("bmi://") {
+            if id.trim().is_empty() {
+                return Err("BMI download missing mod id".to_string());
+            }
+            let client = BmiClient::new()?;
+            match client.post_download(id).await {
+                Ok(url) => url,
+                Err(e) => {
+                    // Check if it's a rate limit error
+                    if is_rate_limit_error(&e) && attempt < INSTALL_MAX_RETRIES {
+                        log::warn!(
+                            "Mod install rate limited (attempt {}/{}), retrying in {:?}",
+                            attempt,
+                            INSTALL_MAX_RETRIES,
+                            delay
+                        );
+                        last_error = Some(e);
+                        tokio::time::sleep(delay).await;
+                        delay = delay.saturating_mul(2);
+                        continue;
+                    }
+                    return Err(e);
+                }
+            }
+        } else {
+            url.clone()
+        };
+
+        // Attempt to install the mod
+        match bmm_lib::installer::install_mod(resolved_url, folder_name_opt.clone()).await {
+            Ok(path) => {
+                sync_compat_helper_after_mod_change(&state).await;
+                return Ok(path);
+            }
+            Err(e) => {
+                let error_str = e.to_string();
+                // Check if it's a rate limit error (HTTP 429)
+                if is_rate_limit_error(&error_str) && attempt < INSTALL_MAX_RETRIES {
+                    log::warn!(
+                        "Mod install rate limited (attempt {}/{}), retrying in {:?}",
+                        attempt,
+                        INSTALL_MAX_RETRIES,
+                        delay
+                    );
+                    last_error = Some(error_str);
+                    tokio::time::sleep(delay).await;
+                    delay = delay.saturating_mul(2);
+                    continue;
+                }
+                return Err(error_str);
+            }
         }
-        let client = BmiClient::new()?;
-        client.post_download(id).await?
-    } else {
-        url
-    };
-    let path = map_error(bmm_lib::installer::install_mod(resolved_url, folder_name).await)?;
-    sync_compat_helper_after_mod_change(&state).await;
-    Ok(path)
+    }
+
+    // All retries exhausted
+    Err(last_error.unwrap_or_else(|| "Mod installation failed after retries".to_string()))
+}
+
+/// Check if an error message indicates a rate limit (HTTP 429) error.
+fn is_rate_limit_error(error: &str) -> bool {
+    let lower = error.to_lowercase();
+    lower.contains("429")
+        || lower.contains("rate limit")
+        || lower.contains("rate-limit")
+        || lower.contains("ratelimit")
+        || lower.contains("too many requests")
 }
 
 #[tauri::command]
@@ -1030,8 +1094,30 @@ pub async fn add_installed_mod(
 
 #[cfg(test)]
 mod tests {
-    #[cfg(target_os = "linux")]
     use super::*;
+
+    #[test]
+    fn test_is_rate_limit_error_429() {
+        assert!(is_rate_limit_error("HTTP 429 Too Many Requests"));
+        assert!(is_rate_limit_error("Download URL not reachable (HTTP 429)"));
+        assert!(is_rate_limit_error("Error 429"));
+    }
+
+    #[test]
+    fn test_is_rate_limit_error_phrases() {
+        assert!(is_rate_limit_error("Rate limit exceeded"));
+        assert!(is_rate_limit_error("rate-limit error"));
+        assert!(is_rate_limit_error("ratelimited"));
+        assert!(is_rate_limit_error("Too many requests, please wait"));
+    }
+
+    #[test]
+    fn test_is_rate_limit_error_false() {
+        assert!(!is_rate_limit_error("Connection timeout"));
+        assert!(!is_rate_limit_error("HTTP 404 Not Found"));
+        assert!(!is_rate_limit_error("Network error"));
+        assert!(!is_rate_limit_error(""));
+    }
 
     #[cfg(target_os = "linux")]
     #[test]
