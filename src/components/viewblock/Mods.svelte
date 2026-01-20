@@ -54,6 +54,9 @@
         openCollectionImport,
         setCollectionImportCode,
         lastImportedCollectionId,
+        hasPreCollectionSnapshot,
+        savePreCollectionSnapshot,
+        popPreCollectionSnapshot,
     } from "../../stores/collections";
     import {
         catalogLastRefreshed,
@@ -2463,37 +2466,51 @@
                 "enabled_state_map",
                 { localPaths },
             );
+
+            // Check if this is the first collection being activated
+            const isFirstCollection = $activeCollectionIds.length === 0;
+
+            // If activating the first collection, save the current state as snapshot
+            if (isFirstCollection && !hasPreCollectionSnapshot()) {
+                savePreCollectionSnapshot(enabledMap);
+            }
+
             const wanted = new Set(desiredTitles.map((t) => normalizeName(t)));
             const toEnable: string[] = [];
-            // Multi-collection mode: only enable mods from this collection, don't disable others
+            const toDisable: string[] = [];
             const installedNames = Object.keys(enabledMap);
             let installedInCollection = 0;
             for (const name of installedNames) {
                 const shouldEnable = wanted.has(normalizeName(name));
                 if (shouldEnable) installedInCollection += 1;
                 const current = enabledMap[name];
-                // Only enable mods that are in this collection and currently disabled
+                // Enable mods that are in this collection and currently disabled
                 if (shouldEnable && !current) {
                     toEnable.push(name);
+                }
+                // If this is the first collection, disable mods NOT in the collection
+                if (isFirstCollection && !shouldEnable && current) {
+                    toDisable.push(name);
                 }
             }
             if (installedNames.length === 0) {
                 addMessage("No installed mods found to activate.", "info");
                 return;
             }
-            if (toEnable.length === 0) {
+            if (toEnable.length === 0 && toDisable.length === 0) {
                 addActiveCollection(id);
                 addMessage("Collection already active.", "info");
                 return;
             }
             await invoke("toggle_mods_enabled_batch", {
                 enabled: toEnable,
-                disabled: [],
+                disabled: toDisable,
                 localPaths,
             });
             modEnabledStore.update((map) => {
                 const next = { ...map };
                 for (const name of toEnable) next[name] = true;
+                for (const name of toDisable) next[name] = false;
                 return next;
             });
             addActiveCollection(id);
@@ -2530,48 +2547,83 @@
                 { localPaths },
             );
 
-            // Get mods in this collection
-            const thisCollectionMods = new Set(
-                collection.modTitles.map((t) => normalizeName(t)),
-            );
-            for (const modId of collection.modIds ?? []) {
-                const match = get(modsStore).find((m) => m.id === modId);
-                if (match) {
-                    thisCollectionMods.add(normalizeName(match.title));
-                } else {
-                    thisCollectionMods.add(normalizeName(modId));
+            // Check if this is the last collection being deactivated
+            const isLastCollection = $activeCollectionIds.length === 1;
+
+            if (isLastCollection && hasPreCollectionSnapshot()) {
+                // Restore the pre-collection snapshot
+                const snapshot = popPreCollectionSnapshot();
+                if (snapshot) {
+                    const toEnable: string[] = [];
+                    const toDisable: string[] = [];
+
+                    for (const [name, current] of Object.entries(enabledMap)) {
+                        const wasEnabled = snapshot[name] ?? false;
+                        if (wasEnabled && !current) {
+                            toEnable.push(name);
+                        } else if (!wasEnabled && current) {
+                            toDisable.push(name);
+                        }
+                    }
+
+                    if (toEnable.length > 0 || toDisable.length > 0) {
+                        await invoke("toggle_mods_enabled_batch", {
+                            enabled: toEnable,
+                            disabled: toDisable,
+                            localPaths,
+                        });
+                        modEnabledStore.update((map) => {
+                            const next = { ...map };
+                            for (const name of toEnable) next[name] = true;
+                            for (const name of toDisable) next[name] = false;
+                            return next;
+                        });
+                    }
                 }
-            }
+            } else {
+                // Get mods in this collection
+                const thisCollectionMods = new Set(
+                    collection.modTitles.map((t) => normalizeName(t)),
+                );
+                for (const modId of collection.modIds ?? []) {
+                    const match = get(modsStore).find((m) => m.id === modId);
+                    if (match) {
+                        thisCollectionMods.add(normalizeName(match.title));
+                    } else {
+                        thisCollectionMods.add(normalizeName(modId));
+                    }
+                }
 
-            // Get mods that should stay enabled because they're in other active collections
-            const modsInOtherCollections = getModsFromOtherActiveCollections(id);
-            const normalizedOtherMods = new Set(
-                Array.from(modsInOtherCollections).map((t) => normalizeName(t)),
-            );
+                // Get mods that should stay enabled because they're in other active collections
+                const modsInOtherCollections = getModsFromOtherActiveCollections(id);
+                const normalizedOtherMods = new Set(
+                    Array.from(modsInOtherCollections).map((t) => normalizeName(t)),
+                );
 
-            // Only disable mods that are in this collection but NOT in any other active collection
-            const toDisable = Object.entries(enabledMap)
-                .filter(([name, enabled]) => {
-                    const normalized = normalizeName(name);
-                    return (
-                        enabled &&
-                        thisCollectionMods.has(normalized) &&
-                        !normalizedOtherMods.has(normalized)
-                    );
-                })
-                .map(([name]) => name);
+                // Only disable mods that are in this collection but NOT in any other active collection
+                const toDisable = Object.entries(enabledMap)
+                    .filter(([name, enabled]) => {
+                        const normalized = normalizeName(name);
+                        return (
+                            enabled &&
+                            thisCollectionMods.has(normalized) &&
+                            !normalizedOtherMods.has(normalized)
+                        );
+                    })
+                    .map(([name]) => name);
 
-            if (toDisable.length > 0) {
-                await invoke("toggle_mods_enabled_batch", {
-                    enabled: [],
-                    disabled: toDisable,
-                    localPaths,
-                });
-                modEnabledStore.update((map) => {
-                    const next = { ...map };
-                    for (const name of toDisable) next[name] = false;
-                    return next;
-                });
+                if (toDisable.length > 0) {
+                    await invoke("toggle_mods_enabled_batch", {
+                        enabled: [],
+                        disabled: toDisable,
+                        localPaths,
+                    });
+                    modEnabledStore.update((map) => {
+                        const next = { ...map };
+                        for (const name of toDisable) next[name] = false;
+                        return next;
+                    });
+                }
             }
             removeActiveCollection(id);
             addMessage(`Deactivated "${collection.name}".`, "info");

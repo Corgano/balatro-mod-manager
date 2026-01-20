@@ -28,6 +28,14 @@ function generateId(): string {
 export const collectionsStore: Writable<ModCollection[]> = writable([]);
 export const activeCollectionIds = writable<string[]>([]);
 export const lastImportedCollectionId = writable<string | null>(null);
+
+/**
+ * Snapshot of mod enabled/disabled states taken before the first collection was activated.
+ * Used to restore the previous state when all collections are deactivated.
+ * Key: mod name (as returned by enabled_state_map), Value: was enabled before collections
+ */
+export const preCollectionSnapshot = writable<Record<string, boolean> | null>(null);
+
 export const collectionImportStore = writable<{
   open: boolean;
   code: string;
@@ -265,6 +273,28 @@ export function getModsFromOtherActiveCollections(
     }
   }
   return modTitles;
+}
+
+/** Check if we currently have a pre-collection snapshot saved */
+export function hasPreCollectionSnapshot(): boolean {
+  return get(preCollectionSnapshot) !== null;
+}
+
+/** Save a snapshot of current mod states (call when activating first collection) */
+export function savePreCollectionSnapshot(enabledMap: Record<string, boolean>): void {
+  preCollectionSnapshot.set({ ...enabledMap });
+}
+
+/** Get and clear the pre-collection snapshot (call when deactivating last collection) */
+export function popPreCollectionSnapshot(): Record<string, boolean> | null {
+  const snapshot = get(preCollectionSnapshot);
+  preCollectionSnapshot.set(null);
+  return snapshot;
+}
+
+/** Clear the snapshot without returning it */
+export function clearPreCollectionSnapshot(): void {
+  preCollectionSnapshot.set(null);
 }
 
 export function exportCollectionCode(id: string): {
