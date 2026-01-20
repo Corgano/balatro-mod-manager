@@ -181,6 +181,9 @@
     let renameValue = $state("");
     let collectionBusy = $state<string | null>(null);
 
+    // Animation nonce - increments on mount to trigger entrance animation
+    let animationNonce = $state(0);
+
     const normalizeCollectionTitle = (name: string) =>
         name
             .toLowerCase()
@@ -631,6 +634,10 @@
                 }
             } finally {
                 isLoading = false;
+                // Trigger entrance animation after a brief delay
+                requestAnimationFrame(() => {
+                    animationNonce += 1;
+                });
             }
         };
 
@@ -3327,7 +3334,7 @@
                                     </p>
                                 </div>
                                 <div class="mods-grid local-mods-grid">
-                                    {#each visibleEnabledLocal as mod, index (`local-enabled-${mod.name}`)}
+                                    {#each visibleEnabledLocal as mod, index (`${animationNonce}-local-enabled-${mod.name}`)}
                                         <div class="virtual-cell" style="--card-index: {index}">
                                         <LocalModCard
                                             {mod}
@@ -3359,7 +3366,7 @@
                                     </p>
                                 </div>
                                 <div class="mods-grid local-mods-grid">
-                                    {#each visibleDisabledLocal as mod, index (`local-disabled-${mod.name}`)}
+                                    {#each visibleDisabledLocal as mod, index (`${animationNonce}-local-disabled-${mod.name}`)}
                                         <div class="virtual-cell" style="--card-index: {index}">
                                         <LocalModCard
                                             {mod}
@@ -3419,7 +3426,7 @@
                                     class="mods-grid"
                                     class:has-local-mods={localMods.length > 0}
                                 >
-                                    {#each visiblePaginatedMods.filter( (m) => filteredEnabledMods.some((e) => e.title === m.title), ) as mod, index (`${$currentCategory}-enabled-${mod.title}`)}
+                                    {#each visiblePaginatedMods.filter( (m) => filteredEnabledMods.some((e) => e.title === m.title), ) as mod, index (`${animationNonce}-${$currentCategory}-enabled-${mod.title}`)}
                                         <div class="virtual-cell" style="--card-index: {index}">
                                             <ModCard
                                                 {mod}
@@ -3449,7 +3456,7 @@
                                     class="mods-grid"
                                     class:has-local-mods={localMods.length > 0}
                                 >
-                                    {#each visiblePaginatedMods.filter( (m) => filteredDisabledMods.some((e) => e.title === m.title), ) as mod, index (`${$currentCategory}-disabled-${mod.title}`)}
+                                    {#each visiblePaginatedMods.filter( (m) => filteredDisabledMods.some((e) => e.title === m.title), ) as mod, index (`${animationNonce}-${$currentCategory}-disabled-${mod.title}`)}
                                         <div class="virtual-cell" style="--card-index: {index}">
                                             <ModCard
                                                 {mod}
@@ -3467,7 +3474,7 @@
                             {#if filteredEnabledMods.length === 0 && filteredDisabledMods.length === 0 && !$installedModsSearchStore}
                                 <!-- Fallback: show installed catalog mods before enabled state resolves -->
                                 <div class="mods-grid">
-                                    {#each visiblePaginatedMods as mod, index (`${$currentCategory}-fallback-${mod.title}`)}
+                                    {#each visiblePaginatedMods as mod, index (`${animationNonce}-${$currentCategory}-fallback-${mod.title}`)}
                                         <div class="virtual-cell" style="--card-index: {index}">
                                             <ModCard
                                                 {mod}
@@ -3485,7 +3492,7 @@
                     {:else}
                         <!-- Original non-InstalledMods categories -->
                         <div class="mods-grid">
-                            {#each visiblePaginatedMods as mod, index (`${$currentCategory}-${mod.title}`)}
+                            {#each visiblePaginatedMods as mod, index (`${animationNonce}-${$currentCategory}-${mod.title}`)}
                                 <div class="virtual-cell" style="--card-index: {index}">
                                     <ModCard
                                         {mod}
