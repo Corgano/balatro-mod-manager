@@ -1060,16 +1060,24 @@
 
     const installMod = async (mod: Mod) => {
         if (!mod?.title || !mod?.downloadURL) return;
+        // Guard: don't allow re-entrancy while already loading
+        if ($loadingStates2[mod.title]) return;
+        // Set loading immediately to prevent double-clicks
+        loadingStates2.update((s: Record<string, boolean>) => ({
+            ...s,
+            [mod.title]: true,
+        }));
+
         const modToInstall = await hydrateRequirements(mod);
 
         // Define the actual download function that will be stored and executed later if needed
         const performDownload = async () => {
+            // Re-set loading state (may be called later from dependency popup)
+            loadingStates2.update((s: Record<string, boolean>) => ({
+                ...s,
+                [mod.title]: true,
+            }));
             try {
-                loadingStates2.update((s: Record<string, boolean>) => ({
-                    ...s,
-                    [modToInstall.title]: true,
-                }));
-
                 // Create dependencies array for the database
                 const dependencies = [];
                 if (modToInstall.requires_steamodded)
@@ -1111,7 +1119,7 @@
             } finally {
                 loadingStates2.update((s: Record<string, boolean>) => ({
                     ...s,
-                    [modToInstall.title]: false,
+                    [mod.title]: false,
                 }));
             }
         };
@@ -1142,6 +1150,11 @@
                         !steamoddedInstalled) ||
                     (modToInstall.requires_talisman && !talismanInstalled)
                 ) {
+                    // Clear loading state - performDownload will set it again when/if called
+                    loadingStates2.update((s: Record<string, boolean>) => ({
+                        ...s,
+                        [mod.title]: false,
+                    }));
                     // Call the handler with the appropriate requirements and download action
                     handleDependencyCheck(
                         {

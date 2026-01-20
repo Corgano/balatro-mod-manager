@@ -106,17 +106,19 @@ import ModCard from "./ModCard.svelte";
     };
 
 	const installMod = async (mod: Mod) => {
+		// Guard: don't allow re-entrancy while already loading
+		if ($loadingStates[mod.title]) return;
+		// Set loading immediately to prevent double-clicks
+		loadingStates.update((s) => ({ ...s, [mod.title]: true }));
+
 		// Create a closure-safe reference to the mod
 		const modToInstall = { ...mod };
 
 		// Define the actual download function
 		const performDownload = async () => {
+			// Re-set loading state (may be called later from dependency popup)
+			loadingStates.update((s) => ({ ...s, [mod.title]: true }));
 			try {
-				loadingStates.update((s) => ({
-					...s,
-					[modToInstall.title]: true,
-				}));
-
 				// Create dependencies list
 				const dependencies = [];
 				if (modToInstall.requires_steamodded)
@@ -179,6 +181,9 @@ import ModCard from "./ModCard.svelte";
 				(modToInstall.requires_steamodded && !steamoddedInstalled) ||
 				(modToInstall.requires_talisman && !talismanInstalled)
 			) {
+				// Clear loading state before showing dependency popup
+				// performDownload() will re-set it if user confirms
+				loadingStates.update((s) => ({ ...s, [mod.title]: false }));
 				// Key change: pass both requirements AND download function
 				onCheckDependencies?.(
 					{

@@ -9,7 +9,34 @@ use serde::{Deserialize, Deserializer, Serialize};
 use crate::models::{ModDownloads, ModMeta};
 
 pub const DEFAULT_BMI_SERVER_URL: &str = "https://api-bmi.dasguney.com";
+
+/// Direct origin server IP for the BMI API.
+///
+/// # Why this exists
+/// Some users experience extreme latency (10-20+ seconds) when connecting through
+/// Cloudflare due to DNS resolution issues, regional blocking, or proxy slowness.
+/// Connecting directly to the origin IP bypasses these issues.
+///
+/// # How it works
+/// - The app first tries the primary domain (`api-bmi.dasguney.com`)
+/// - If any request takes longer than `FAST_TIMEOUT` (3 seconds), the app
+///   "hot-swaps" to the direct IP for the remainder of the session
+/// - The `Host: api-bmi.dasguney.com` header is sent so the server routes correctly
+///
+/// # When to update
+/// Update this IP if:
+/// - The BMI API server migrates to a new host
+/// - The hosting provider changes
+/// - You see "connection refused" errors when falling back to IP
+///
+/// To find the current IP: `dig +short api-bmi.dasguney.com` (look for the non-Cloudflare IP)
+/// or check the server's hosting dashboard.
+pub const BMI_FALLBACK_IP: &str = "45.136.18.191";
+
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
+/// Timeout before switching to fallback IP. If a request takes longer than this,
+/// we cancel it and retry with the direct IP connection.
+const FAST_TIMEOUT: Duration = Duration::from_secs(3);
 const MAX_RETRIES: u32 = 3;
 const PAGE_LIMIT: usize = 200;
 
@@ -47,10 +74,22 @@ impl SortMode {
     }
 }
 
+/// HTTP client for the Balatro Mod Index (BMI) API.
+///
+/// Handles connection to the mod repository with automatic fallback to direct IP
+/// if the primary domain is slow or unreachable. See [`BMI_FALLBACK_IP`] for details.
 #[derive(Clone)]
 pub struct BmiClient {
+    /// Primary API URL (the domain)
     base_url: Url,
+    /// Direct IP fallback URL, used when primary is slow
+    fallback_url: Option<Url>,
+    /// Standard HTTP client with normal timeout
     client: reqwest::Client,
+    /// Fast HTTP client used for timeout racing
+    fast_client: reqwest::Client,
+    /// Flag indicating whether we've switched to fallback mode for this session
+    use_fallback: std::sync::Arc<std::sync::atomic::AtomicBool>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -148,14 +187,31 @@ impl BmiClient {
             .user_agent("balatro-mod-manager/1.0")
             .build()
             .map_err(|e| e.to_string())?;
-        Ok(Self { base_url, client })
+        let fast_client = reqwest::Client::builder()
+            .timeout(FAST_TIMEOUT)
+            .connect_timeout(FAST_TIMEOUT)
+            .user_agent("balatro-mod-manager/1.0")
+            .danger_accept_invalid_certs(true)
+            .build()
+            .map_err(|e| e.to_string())?;
+        let fallback_url = Url::parse(&format!("https://{BMI_FALLBACK_IP}/")).ok();
+        Ok(Self {
+            base_url,
+            fallback_url,
+            client,
+            fast_client,
+            use_fallback: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        })
     }
 
     pub async fn check_health(&self) -> Result<(), String> {
-        let url = self.base_url.join("healthz").map_err(|e| e.to_string())?;
+        let url = self
+            .effective_base_url()
+            .join("healthz")
+            .map_err(|e| e.to_string())?;
         log::debug!("Checking BMI health at: {}", url);
         let resp = self
-            .send_with_backoff(|| self.client.get(url.clone()))
+            .send_request(|| self.http_client().get(url.clone()))
             .await?;
         if resp.status().is_success() {
             log::debug!("BMI health check passed");
@@ -177,20 +233,36 @@ impl BmiClient {
 
     pub fn thumbnail_url(&self, id: &str) -> Result<String, String> {
         let encoded = encode_path(id);
-        let url = self
-            .base_url
+        let base = self.effective_base_url();
+        let url = base
             .join(&format!("thumbnails/{encoded}.webp"))
             .map_err(|e| e.to_string())?;
         Ok(url.to_string())
     }
 
     pub fn http_client(&self) -> &reqwest::Client {
-        &self.client
+        if self.use_fallback.load(std::sync::atomic::Ordering::Relaxed) {
+            &self.fast_client
+        } else {
+            &self.client
+        }
+    }
+
+    fn effective_base_url(&self) -> &Url {
+        if self.use_fallback.load(std::sync::atomic::Ordering::Relaxed) {
+            self.fallback_url.as_ref().unwrap_or(&self.base_url)
+        } else {
+            &self.base_url
+        }
+    }
+
+    fn is_using_fallback(&self) -> bool {
+        self.use_fallback.load(std::sync::atomic::Ordering::Relaxed)
     }
 
     pub async fn get_bytes(&self, url: Url) -> Result<Vec<u8>, String> {
         let resp = self
-            .send_with_backoff(|| self.client.get(url.clone()))
+            .send_request(|| self.http_client().get(url.clone()))
             .await?;
         resp.bytes()
             .await
@@ -295,11 +367,11 @@ impl BmiClient {
     pub async fn fetch_mod(&self, id: &str) -> Result<BmiMod, String> {
         let encoded = encode_path(id);
         let url = self
-            .base_url
+            .effective_base_url()
             .join(&format!("mods/{encoded}"))
             .map_err(|e| e.to_string())?;
         let resp = self
-            .send_with_backoff(|| self.client.get(url.clone()))
+            .send_request(|| self.http_client().get(url.clone()))
             .await?;
         decode_json(resp, "mod detail").await
     }
@@ -313,11 +385,11 @@ impl BmiClient {
 
         let encoded = encode_path(id);
         let url = self
-            .base_url
+            .effective_base_url()
             .join(&format!("mods/{encoded}/download"))
             .map_err(|e| e.to_string())?;
         let resp = self
-            .send_with_backoff(|| self.client.post(url.clone()))
+            .send_request(|| self.http_client().post(url.clone()))
             .await?;
 
         let status = resp.status();
@@ -359,7 +431,10 @@ impl BmiClient {
         cursor: Option<&str>,
         sort: SortMode,
     ) -> Result<ModsPage, String> {
-        let mut url = self.base_url.join("mods").map_err(|e| e.to_string())?;
+        let mut url = self
+            .effective_base_url()
+            .join("mods")
+            .map_err(|e| e.to_string())?;
         {
             let mut pairs = url.query_pairs_mut();
             pairs.append_pair("limit", &PAGE_LIMIT.to_string());
@@ -370,7 +445,7 @@ impl BmiClient {
         }
         log::debug!("Fetching mods page: {}", url);
         let resp = self
-            .send_with_backoff(|| self.client.get(url.clone()))
+            .send_request(|| self.http_client().get(url.clone()))
             .await?;
         decode_json(resp, "mods page").await
     }
@@ -382,7 +457,7 @@ impl BmiClient {
         sort: SortMode,
     ) -> Result<ModsPage, String> {
         let mut url = self
-            .base_url
+            .effective_base_url()
             .join("mods/changed")
             .map_err(|e| e.to_string())?;
         {
@@ -395,14 +470,109 @@ impl BmiClient {
             }
         }
         let resp = self
-            .send_with_backoff(|| self.client.get(url.clone()))
+            .send_request(|| self.http_client().get(url.clone()))
             .await?;
         decode_json(resp, "mods changed page").await
     }
 
-    async fn send_with_backoff<F>(&self, mut make_req: F) -> Result<reqwest::Response, String>
+    async fn send_request<F>(&self, make_req: F) -> Result<reqwest::Response, String>
     where
-        F: FnMut() -> reqwest::RequestBuilder,
+        F: Fn() -> reqwest::RequestBuilder,
+    {
+        // If already using fallback, go straight to it
+        if self.is_using_fallback() {
+            return self
+                .send_with_backoff(|| make_req().header("Host", "api-bmi.dasguney.com"))
+                .await;
+        }
+
+        // Race the request against a 3s timer
+        let request_fut = self
+            .client
+            .execute(make_req().build().map_err(|e| e.to_string())?);
+
+        tokio::select! {
+            result = request_fut => {
+                match result {
+                    Ok(resp) if resp.status().as_u16() != 429 => {
+                        return resp.error_for_status().map_err(|e| {
+                            log::error!("BMI request failed with HTTP error: {}", e);
+                            e.to_string()
+                        });
+                    }
+                    Ok(_) => {
+                        // 429 rate limited, fall through to retry logic
+                    }
+                    Err(e) => {
+                        log::debug!("BMI request failed: {}", e);
+                        // Fall through to try fallback
+                    }
+                }
+            }
+            _ = tokio::time::sleep(FAST_TIMEOUT) => {
+                // Request took too long - immediately switch to fallback
+                log::info!("BMI request slow (>3s), hot-switching to direct IP fallback");
+                if let Some(fallback) = &self.fallback_url {
+                    if let Ok(original_req) = make_req().build() {
+                        let method = original_req.method().clone();
+                        let url = original_req.url();
+                        let path_and_query = url.path().to_string()
+                            + url.query().map(|q| format!("?{}", q)).as_deref().unwrap_or("");
+                        if let Ok(fallback_url) =
+                            fallback.join(path_and_query.trim_start_matches('/'))
+                        {
+                            let fallback_result = self
+                                .fast_client
+                                .request(method, fallback_url)
+                                .header("Host", "api-bmi.dasguney.com")
+                                .send()
+                                .await;
+                            match fallback_result {
+                                Ok(resp) if resp.status().is_success() => {
+                                    log::info!(
+                                        "BMI fallback successful, using direct IP for future requests"
+                                    );
+                                    self.use_fallback
+                                        .store(true, std::sync::atomic::Ordering::Relaxed);
+                                    return resp.error_for_status().map_err(|e| e.to_string());
+                                }
+                                Ok(resp) if resp.status().as_u16() == 429 => {
+                                    log::info!(
+                                        "BMI fallback connected (rate limited), using direct IP for future requests"
+                                    );
+                                    self.use_fallback
+                                        .store(true, std::sync::atomic::Ordering::Relaxed);
+                                    // Fall through to retry logic
+                                }
+                                Ok(resp) => {
+                                    log::debug!("BMI fallback returned status: {}", resp.status());
+                                }
+                                Err(e) => {
+                                    log::debug!("BMI fallback failed: {}", e);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Fall back to normal retry with current effective URL
+        let using_fallback = self.is_using_fallback();
+        self.send_with_backoff(|| {
+            let req = make_req();
+            if using_fallback {
+                req.header("Host", "api-bmi.dasguney.com")
+            } else {
+                req
+            }
+        })
+        .await
+    }
+
+    async fn send_with_backoff<F>(&self, make_req: F) -> Result<reqwest::Response, String>
+    where
+        F: Fn() -> reqwest::RequestBuilder,
     {
         let mut delay = Duration::from_millis(250);
         let mut last_error: Option<String> = None;

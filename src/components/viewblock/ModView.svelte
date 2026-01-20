@@ -477,6 +477,11 @@ let modView: HTMLDivElement;
 	};
 
 	const installMod = async (mod: Mod, isUpdate = false) => {
+		// Guard: don't allow re-entrancy while already loading
+		if ($loadingStates[mod.title]) return;
+		// Set loading immediately to prevent double-clicks
+		loadingStates.update((s) => ({ ...s, [mod.title]: true }));
+
 		if (!isLinux) {
 			isLinux = await isLinuxPlatform();
 		}
@@ -484,9 +489,9 @@ let modView: HTMLDivElement;
 
 		// Extract the download functionality into a separate async function
 		const performDownload = async () => {
+			// Set loading state (may be called later from dependency popup)
+			loadingStates.update((s) => ({ ...s, [mod.title]: true }));
 			try {
-				loadingStates.update((s) => ({ ...s, [modToInstall.title]: true }));
-
 				// Show a warning if Lovely injector is missing (do not block installation)
 				if (!isLinux) {
 					try {
@@ -597,7 +602,7 @@ let modView: HTMLDivElement;
 					: `Failed to ${isUpdate ? "update" : "install"} ${modToInstall.title}: ${raw}`;
 				addMessage(onlyUrlMsg, "error");
 			} finally {
-				loadingStates.update((s) => ({ ...s, [modToInstall.title]: false }));
+				loadingStates.update((s) => ({ ...s, [mod.title]: false }));
 				void forceRefreshCache();
 			}
 		};
@@ -625,6 +630,8 @@ let modView: HTMLDivElement;
 				((modToInstall.requires_steamodded && !steamoddedInstalled) ||
 					(modToInstall.requires_talisman && !talismanInstalled))
 			) {
+				// Clear loading state - performDownload will set it again when/if called
+				loadingStates.update((s) => ({ ...s, [mod.title]: false }));
 				// Call the handler with the appropriate requirements AND the download action
 				onCheckDependencies?.(
 					{

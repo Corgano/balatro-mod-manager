@@ -182,9 +182,16 @@
 
     function updateMod(e: Event) {
         e.stopPropagation();
+        // Guard: don't allow re-entrancy while loading
+        if ($loadingStates[mod.title]) {
+            return;
+        }
         // Reuse the install logic but for updating
         if (mod.title.toLowerCase() === "steamodded") {
-            fetchAndInstallLatestSteamodded();
+            loadingStates.update((s) => ({ ...s, [mod.title]: true }));
+            fetchAndInstallLatestSteamodded().catch(() => {
+                loadingStates.update((s) => ({ ...s, [mod.title]: false }));
+            });
         } else if (oninstallclick) {
             oninstallclick(mod);
         }
