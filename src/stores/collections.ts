@@ -49,6 +49,44 @@ export const collectionPickerStore = writable<{
   modId: string | null;
 }>({ open: false, modTitle: null, modId: null });
 
+/** Store for dependency prompt - shown when a mod requires missing dependencies */
+export interface DepPromptState {
+  open: boolean;
+  collectionId: string;
+  collectionName: string;
+  modTitle: string;
+  modId: string | null;
+  missing: string[];
+  /** If true, this is a pre-add check; user must confirm before mod is added */
+  isPreAddCheck: boolean;
+}
+
+export const depPromptStore = writable<DepPromptState>({
+  open: false,
+  collectionId: "",
+  collectionName: "",
+  modTitle: "",
+  modId: null,
+  missing: [],
+  isPreAddCheck: false,
+});
+
+export function openDepPrompt(state: Omit<DepPromptState, "open">) {
+  depPromptStore.set({ ...state, open: true });
+}
+
+export function closeDepPrompt() {
+  depPromptStore.set({
+    open: false,
+    collectionId: "",
+    collectionName: "",
+    modTitle: "",
+    modId: null,
+    missing: [],
+    isPreAddCheck: false,
+  });
+}
+
 export function openCollectionPicker(modTitle: string, modId?: string | null) {
   collectionPickerStore.set({ open: true, modTitle, modId: modId ?? null });
 }

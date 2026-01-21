@@ -336,3 +336,59 @@ export interface LovelyPopupState {
 export const lovelyPopupStore = writable<LovelyPopupState>({
   visible: false,
 });
+
+// RequiresPopup state - shown when a mod has missing dependencies
+export interface RequiresPopupState {
+  visible: boolean;
+  requiresSteamodded: boolean;
+  requiresTalisman: boolean;
+  onProceed: () => void;
+  onDependencyClick: (dependency: string) => void;
+}
+
+export const requiresPopupStore = writable<RequiresPopupState>({
+  visible: false,
+  requiresSteamodded: false,
+  requiresTalisman: false,
+  onProceed: () => {},
+  onDependencyClick: () => {},
+});
+
+// SecurityPopup state - shown on first launch to warn about mods
+export interface SecurityPopupState {
+  visible: boolean;
+  onAcknowledge: () => void;
+  onCancel: () => void;
+}
+
+export const securityPopupStore = writable<SecurityPopupState>({
+  visible: false,
+  onAcknowledge: () => {},
+  onCancel: () => {},
+});
+
+// UpdateAvailablePopup state
+export interface UpdatePopupState {
+  visible: boolean;
+  currentVersion: string;
+  latestVersion: string;
+  onClose: () => void;
+  onDontShow: () => void;
+}
+
+export const updatePopupStore = writable<UpdatePopupState>({
+  visible: false,
+  currentVersion: "",
+  latestVersion: "",
+  onClose: () => {},
+  onDontShow: () => {},
+});
+
+// ReportIssue popup state
+export interface ReportIssueState {
+  visible: boolean;
+}
+
+export const reportIssueStore = writable<ReportIssueState>({
+  visible: false,
+});

@@ -148,7 +148,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    z-index: 999;
+    z-index: 2000;
   }
   .modal {
     background: #2d2d2d;

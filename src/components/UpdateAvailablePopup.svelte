@@ -2,12 +2,7 @@
   import { fade, scale } from "svelte/transition";
   import { onMount, onDestroy } from "svelte";
   import { openExternal } from "$lib/opener";
-
-  export let visible: boolean = false;
-  export let currentVersion: string = "";
-  export let latestVersion: string = "";
-  export let onClose: () => void;
-  export let onDontShow: () => void;
+  import { updatePopupStore } from "../stores/modStore";
 
   async function handleDownload() {
     try {
@@ -15,15 +10,26 @@
     } catch (e) {
       console.error("Failed to open download page:", e);
     }
-    onClose();
+    $updatePopupStore.onClose();
+    updatePopupStore.update((s) => ({ ...s, visible: false }));
+  }
+
+  function handleClose() {
+    $updatePopupStore.onClose();
+    updatePopupStore.update((s) => ({ ...s, visible: false }));
+  }
+
+  function handleDontShow() {
+    $updatePopupStore.onDontShow();
+    updatePopupStore.update((s) => ({ ...s, visible: false }));
   }
 
   let keyHandler: ((e: KeyboardEvent) => void) | null = null;
   onMount(() => {
     keyHandler = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && visible) {
+      if (e.key === "Escape" && $updatePopupStore.visible) {
         e.preventDefault();
-        onClose();
+        handleClose();
       }
     };
     window.addEventListener("keydown", keyHandler);
@@ -33,7 +39,7 @@
   });
 </script>
 
-{#if visible}
+{#if $updatePopupStore.visible}
   <div class="modal-background" transition:fade={{ duration: 160 }}>
     <div class="modal" transition:scale={{ duration: 160, start: 0.95, opacity: 1 }}>
       <h2>Update Available</h2>
@@ -41,14 +47,14 @@
         A newer version of Balatro Mod Manager is available.
       </p>
       <p class="ver">
-        Current: <span class="version">v{currentVersion}</span> •
-        Latest: <span class="version">v{latestVersion}</span>
+        Current: <span class="version">v{$updatePopupStore.currentVersion}</span> •
+        Latest: <span class="version">v{$updatePopupStore.latestVersion}</span>
       </p>
 
       <div class="buttons">
-        <button class="download-button" on:click={handleDownload}>Download</button>
-        <button class="close-button" on:click={onClose}>Close</button>
-        <button class="dontshow-button" on:click={onDontShow}>Don't show anymore</button>
+        <button class="download-button" onclick={handleDownload}>Download</button>
+        <button class="close-button" onclick={handleClose}>Close</button>
+        <button class="dontshow-button" onclick={handleDontShow}>Don't show anymore</button>
       </div>
     </div>
   </div>
@@ -65,7 +71,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    z-index: 999;
+    z-index: 2000;
   }
   .modal {
     background: #2d2d2d;

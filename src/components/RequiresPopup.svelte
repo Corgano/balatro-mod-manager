@@ -2,31 +2,18 @@
 	import { CircleAlert } from "lucide-svelte";
 	import { fade, scale } from "svelte/transition";
 	import { invoke } from "@tauri-apps/api/core";
-
-	let {
-		show = $bindable(false),
-		requiresSteamodded = false,
-		requiresTalisman = false,
-		onProceed = () => {},
-		onDependencyClick = () => {}, // New prop to handle dependency clicks
-	}: {
-		show?: boolean;
-		requiresSteamodded?: boolean;
-		requiresTalisman?: boolean;
-		onProceed?: () => void;
-		onDependencyClick?: (dependency: string) => void; // New type
-	} = $props();
+	import { requiresPopupStore } from "../stores/modStore";
 
 	let steamoddedInstalled = $state(false);
 	let talismanInstalled = $state(false);
 
 	async function checkInstallations() {
-		if (requiresSteamodded) {
+		if ($requiresPopupStore.requiresSteamodded) {
 			steamoddedInstalled = await invoke("check_mod_installation", {
 				modType: "Steamodded",
 			});
 		}
-		if (requiresTalisman) {
+		if ($requiresPopupStore.requiresTalisman) {
 			talismanInstalled = await invoke("check_mod_installation", {
 				modType: "Talisman",
 			});
@@ -34,33 +21,40 @@
 	}
 
 	function handleProceedClick() {
-		if (onProceed) {
-			onProceed();
-		}
-		show = false;
+		$requiresPopupStore.onProceed();
+		requiresPopupStore.update((s) => ({ ...s, visible: false }));
+	}
+
+	function handleClose() {
+		requiresPopupStore.update((s) => ({ ...s, visible: false }));
+	}
+
+	function handleDependencyClick(dependency: string) {
+		$requiresPopupStore.onDependencyClick(dependency);
+		requiresPopupStore.update((s) => ({ ...s, visible: false }));
 	}
 
 	$effect(() => {
-		if (show) {
+		if ($requiresPopupStore.visible) {
 			checkInstallations();
 		}
 	});
 </script>
 
-{#if show}
-	<div class="popup-overlay" transition:fade={{ duration: 160 }}>
+{#if $requiresPopupStore.visible}
+	<div class="popup-overlay" transition:fade={{ duration: 200 }}>
 		<div
 			class="popup-content"
-			transition:scale={{ duration: 160, start: 0.95, opacity: 1 }}
+			transition:scale={{ duration: 200, start: 0.9, opacity: 0 }}
 		>
 			<div class="popup-header">
-				<CircleAlert size={32} color="#fdcf51" />
+				<CircleAlert size={26} color="#fdcf51" />
 				<h2>Required Dependencies</h2>
 			</div>
 			<div class="popup-body">
 				<p>This mod requires the following missing dependencies:</p>
 				<ul>
-					{#if requiresSteamodded && !steamoddedInstalled}
+					{#if $requiresPopupStore.requiresSteamodded && !steamoddedInstalled}
 						<li>
 							<!-- Accessible clickable Steamodded link -->
 							<span
@@ -69,14 +63,12 @@
 								tabindex="0"
 								onclick={(e) => {
 									e.stopPropagation();
-									onDependencyClick("Steamodded");
-									show = false;
+									handleDependencyClick("Steamodded");
 								}}
 								onkeydown={(e) => {
 									if (e.key === "Enter" || e.key === " ") {
 										e.preventDefault();
-										onDependencyClick("Steamodded");
-										show = false;
+										handleDependencyClick("Steamodded");
 									}
 								}}
 							>
@@ -85,7 +77,7 @@
 							- Core modding framework
 						</li>
 					{/if}
-					{#if requiresTalisman && !talismanInstalled}
+					{#if $requiresPopupStore.requiresTalisman && !talismanInstalled}
 						<li>
 							<!-- Accessible clickable Talisman link -->
 							<span
@@ -94,14 +86,12 @@
 								tabindex="0"
 								onclick={(e) => {
 									e.stopPropagation();
-									onDependencyClick("Talisman");
-									show = false;
+									handleDependencyClick("Talisman");
 								}}
 								onkeydown={(e) => {
 									if (e.key === "Enter" || e.key === " ") {
 										e.preventDefault();
-										onDependencyClick("Talisman");
-										show = false;
+										handleDependencyClick("Talisman");
 									}
 								}}
 							>
@@ -112,7 +102,7 @@
 					{/if}
 				</ul>
 
-				{#if (requiresSteamodded && !steamoddedInstalled) || (requiresTalisman && !talismanInstalled)}
+				{#if ($requiresPopupStore.requiresSteamodded && !steamoddedInstalled) || ($requiresPopupStore.requiresTalisman && !talismanInstalled)}
 					<p>It's recommended to install these first.</p>
 				{:else}
 					<p>All required dependencies seem to be installed.</p>
@@ -124,7 +114,7 @@
 					</button>
 					<button
 						class="cancel-button"
-						onclick={() => (show = false)}
+						onclick={handleClose}
 					>
 						Close
 					</button>
@@ -181,9 +171,9 @@
 	.popup-content {
 		background: #393646;
 		border: 2px solid #f4eee0;
-		border-radius: 12px;
-		padding: 2rem;
-		width: 500px;
+		border-radius: 10px;
+		padding: 1.5rem;
+		width: 420px;
 		max-width: 90%;
 	}
 
@@ -191,58 +181,58 @@
 		display: flex;
 		align-items: center;
 		gap: 0.75rem;
-		margin-bottom: 1.5rem;
+		margin-bottom: 1rem;
 	}
 
 	.popup-header h2 {
 		color: #fdcf51;
-		font-size: 2rem;
+		font-size: 1.5rem;
 		margin: 0;
 	}
 
 	.popup-body {
 		color: #f4eee0;
-		font-size: 1.2rem;
+		font-size: 1.05rem;
 	}
 
 	.popup-body p {
-		margin-bottom: 1.5rem;
+		margin-bottom: 1rem;
 	}
 
 	.popup-body ul {
 		list-style: none;
 		padding: 0;
-		margin-bottom: 2rem;
+		margin-bottom: 1.25rem;
 	}
 
 	.popup-body li {
-		margin-bottom: 1rem;
+		margin-bottom: 0.75rem;
 		display: flex;
 		align-items: center;
-		gap: 0.75rem;
-		font-size: 1.2rem;
+		gap: 0.5rem;
+		font-size: 1.05rem;
 	}
 
 	.dependency {
 		color: #fdcf51;
 		font-weight: bold;
-		font-size: 1.3rem;
+		font-size: 1.1rem;
 	}
 
 	.button-container {
 		display: flex;
-		gap: 1rem;
+		gap: 0.75rem;
 		justify-content: flex-end;
 	}
 
 	.cancel-button,
 	.proceed-button {
-		padding: 1rem 1.5rem;
+		padding: 0.6rem 1.2rem;
 		color: #f4eee0;
 		border: none;
-		border-radius: 6px;
+		border-radius: 5px;
 		font-family: "M6X11", sans-serif;
-		font-size: 1.2rem;
+		font-size: 1rem;
 		cursor: pointer;
 		transition: all 0.2s ease;
 	}

@@ -1,11 +1,14 @@
 <script lang="ts">
 	import { blur } from "svelte/transition";
 	import MessageStack from "../components/MessageStack.svelte";
-	import { backgroundEnabled } from "../stores/modStore";
+	import { backgroundEnabled, updatePopupStore } from "../stores/modStore";
 	import { darkMode } from "../stores/ui";
 	import { onMount } from "svelte";
 	import DragDropOverlay from "../components/DragDropOverlay.svelte";
+	import DepPrompt from "../components/DepPrompt.svelte";
 	import { Window } from "@tauri-apps/api/window";
+	// Initialize popup manager subscriptions
+	import { isPopupTransitioning } from "../stores/popupManager";
 
     import "../app.css";
     import UpdateAvailablePopup from "../components/UpdateAvailablePopup.svelte";
@@ -16,9 +19,6 @@
 
 	let isWindows = $state(false);
 	let detectedPlatform: string | null = null;
-    let showUpdatePopup = $state(false);
-    let currentVersion = $state("");
-    let latestVersion = $state("");
 
     function normalize(v: string): string {
         // strip leading 'v' and any pre-release metadata
@@ -45,7 +45,6 @@
         try {
             if ($updatePromptDisabled) return;
             const cur = await invoke<string>("get_app_version");
-            currentVersion = cur;
             let tag = "";
             // Prefer tags API to avoid 404s when no releases exist
             const tagRes = await fetch(
@@ -72,9 +71,15 @@
                 }
             }
             if (!tag) return;
-            latestVersion = tag.replace(/^v/i, "");
-            if (cmp(cur, latestVersion) < 0) {
-                showUpdatePopup = true;
+            const latest = tag.replace(/^v/i, "");
+            if (cmp(cur, latest) < 0) {
+                updatePopupStore.set({
+                    visible: true,
+                    currentVersion: cur,
+                    latestVersion: latest,
+                    onClose: () => {},
+                    onDontShow: () => { updatePromptDisabled.set(true); },
+                });
             }
         } catch (e) {
             console.warn("Update check failed:", e);
@@ -128,6 +133,10 @@
 
 <MessageStack />
 <DragDropOverlay />
+<DepPrompt />
+{#if $isPopupTransitioning}
+	<div class="popup-transition-blocker"></div>
+{/if}
 <div
 	class="layout-container app-body"
 	style:--gradient-opacity={$backgroundEnabled ? 0 : 1}
@@ -145,13 +154,7 @@
 	{/key}
 </div>
 
-<UpdateAvailablePopup
-    visible={showUpdatePopup}
-    {currentVersion}
-    {latestVersion}
-    onClose={() => (showUpdatePopup = false)}
-    onDontShow={() => { updatePromptDisabled.set(true); showUpdatePopup = false; }}
-/>
+<UpdateAvailablePopup />
 
 <style>
 	.layout-container {
@@ -205,5 +208,12 @@
 				0 0,
 				12px 12px;
 		}
+	}
+
+	.popup-transition-blocker {
+		position: fixed;
+		inset: 0;
+		z-index: 2500;
+		pointer-events: auto;
 	}
 </style>

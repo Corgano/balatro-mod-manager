@@ -1,10 +1,7 @@
 <script lang="ts">
 	import { fade, scale } from "svelte/transition";
 	import { invoke } from "@tauri-apps/api/core";
-
-	export let visible: boolean = false;
-	export let onAcknowledge: () => void;
-	export let onCancel: () => void;
+	import { securityPopupStore } from "../stores/modStore";
 
 	let isLoading: boolean = false;
 	let errorMessage: string | null = null;
@@ -20,7 +17,8 @@
 			});
 
 			// Then call the parent component's callback
-			onAcknowledge();
+			$securityPopupStore.onAcknowledge();
+			securityPopupStore.update((s) => ({ ...s, visible: false }));
 		} catch (error) {
 			console.error("Failed to save security acknowledgment:", error);
 			errorMessage = "Failed to save your preference. Please try again.";
@@ -32,11 +30,12 @@
 	function handleQuit() {
 		// Close the application
 		invoke("exit_application");
-		onCancel();
+		$securityPopupStore.onCancel();
+		securityPopupStore.update((s) => ({ ...s, visible: false }));
 	}
 </script>
 
-{#if visible}
+{#if $securityPopupStore.visible}
 	<div class="modal-background" transition:fade={{ duration: 160 }}>
 		<div
 			class="modal"
@@ -86,7 +85,7 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		z-index: 999;
+		z-index: 2000;
 	}
 	.modal {
 		background: #2d2d2d;

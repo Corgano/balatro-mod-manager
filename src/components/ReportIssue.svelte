@@ -4,8 +4,7 @@
   import { addMessage } from "$lib/stores";
   import { invoke } from "@tauri-apps/api/core";
   import DiscordFab from "./DiscordFab.svelte";
-
-  let { visible = $bindable(false) }: { visible?: boolean } = $props();
+  import { reportIssueStore } from "../stores/modStore";
 
   let title = $state("");
   let description = $state("");
@@ -26,8 +25,12 @@
   }
 
   function close() {
-    visible = false;
+    reportIssueStore.set({ visible: false });
     submitting = false;
+  }
+
+  function open() {
+    reportIssueStore.set({ visible: true });
   }
 
   async function handleSubmit() {
@@ -98,7 +101,7 @@
         e.preventDefault();
         return;
       }
-      if (visible) {
+      if ($reportIssueStore.visible) {
         close();
         e.preventDefault();
       }
@@ -106,17 +109,17 @@
   }
 </script>
 
-<svelte:window on:keydown={handleWindowKeydown} />
+<svelte:window onkeydown={handleWindowKeydown} />
 
 <!-- Floating report button + Discord link -->
 <div class="fab-group">
-  <button class="report-fab" aria-label="Report an issue" onclick={() => (visible = true)}>
+  <button class="report-fab" aria-label="Report an issue" onclick={open}>
     <Bug size={16} />
   </button>
   <DiscordFab />
 </div>
 
-{#if visible}
+{#if $reportIssueStore.visible}
   <div class="modal-background" transition:fade={{ duration: 160 }}>
     <div class="modal" transition:scale={{ duration: 160, start: 0.95, opacity: 1 }}>
       <div class="header">

@@ -9,6 +9,7 @@
     createCollection,
     setModInCollection,
     isModInCollection,
+    openDepPrompt,
   } from "../stores/collections";
   import {
     modsStore,
@@ -22,13 +23,6 @@
 
   let newName = $state("");
   let creating = $state(false);
-  let depPrompt = $state<{
-    collectionId: string;
-    collectionName: string;
-    modTitle: string;
-    modId: string | null;
-    missing: string[];
-  } | null>(null);
 
   const normalizeName = (name: string): string =>
     name.trim().toLowerCase().replace(/[^a-z0-9]/g, "");
@@ -152,13 +146,14 @@
               .filter((req) => !hasCollectionMod(collection, req.title, req.id))
               .map((req) => req.title);
             if (missing.length > 0) {
-              depPrompt = {
+              openDepPrompt({
                 collectionId: result.id,
                 collectionName: collection.name,
                 modTitle,
                 modId,
                 missing,
-              };
+                isPreAddCheck: false,
+              });
             }
           }
         }
@@ -175,34 +170,86 @@
     const collection = $collectionsStore.find((c) => c.id === id);
     if (!collection) return;
     const isMember = hasCollectionMod(collection, modTitle, modId);
+
+    // If already a member, just remove it
     if (isMember) {
       setModInCollection(id, modTitle, false, modId);
       return;
     }
-    setModInCollection(id, modTitle, true, modId);
 
+    // Check if mod has missing dependencies BEFORE adding
     const mod = get(modsStore).find((m) => m.title === modTitle);
+    if (mod) {
+      const required: string[] = [];
+      if (mod.requires_steamodded) required.push("Steamodded");
+      if (mod.requires_talisman) required.push("Talisman");
+
+      if (required.length > 0) {
+        // Check which dependencies are actually missing (not installed)
+        const missingDeps: string[] = [];
+        for (const dep of required) {
+          const isInstalled = await invoke<boolean>("check_mod_installation", {
+            modType: dep,
+          });
+          if (!isInstalled) {
+            missingDeps.push(dep);
+          }
+        }
+
+        if (missingDeps.length > 0) {
+          // Show dependency prompt BEFORE adding to collection (uses popup manager)
+          openDepPrompt({
+            collectionId: id,
+            collectionName: collection.name,
+            modTitle,
+            modId,
+            missing: missingDeps,
+            isPreAddCheck: true,
+          });
+          return;
+        }
+      }
+    }
+
+    // No missing dependencies, proceed with adding
+    await addModToCollection(id, modTitle, modId, mod);
+  }
+
+  /** Actually add the mod to collection and install if needed */
+  async function addModToCollection(
+    collectionId: string,
+    modTitle: string,
+    modId: string | null,
+    mod: Mod | undefined,
+  ) {
+    const collection = $collectionsStore.find((c) => c.id === collectionId);
+    if (!collection) return;
+
+    setModInCollection(collectionId, modTitle, true, modId);
     await installIfNeeded(mod);
+
+    // Check if dependencies should also be added to the collection
     if (!mod) return;
     const required: string[] = [];
     if (mod.requires_steamodded) required.push("Steamodded");
     if (mod.requires_talisman) required.push("Talisman");
-    const normalizeName = (name: string) =>
+
+    const normalizeNameLocal = (name: string) =>
       name.toLowerCase().replace(/[^a-z0-9+]+/g, "").trim();
     const resolveTitle = (name: string) => {
-      const normalized = normalizeName(name);
+      const normalized = normalizeNameLocal(name);
       const match = get(modsStore).find(
-        (m) => normalizeName(m.title) === normalized,
+        (m) => normalizeNameLocal(m.title) === normalized,
       );
       return match?.title ?? name;
     };
     const resolveMod = (name: string) => {
-      const normalized = normalizeName(name);
+      const normalized = normalizeNameLocal(name);
       return get(modsStore).find(
-        (m) => normalizeName(m.title) === normalized,
+        (m) => normalizeNameLocal(m.title) === normalized,
       );
     };
-    const missing = required
+    const missingFromCollection = required
       .map((req) => {
         const modMatch = resolveMod(req);
         return {
@@ -212,29 +259,19 @@
       })
       .filter((req) => !hasCollectionMod(collection, req.title, req.id))
       .map((req) => req.title);
-    if (missing.length === 0) return;
-    depPrompt = {
-      collectionId: id,
-      collectionName: collection.name,
-      modTitle,
-      modId,
-      missing,
-    };
-  }
 
-  function dismissDepPrompt() {
-    depPrompt = null;
-  }
-
-  async function acceptDepPrompt() {
-    if (!depPrompt) return;
-    for (const dep of depPrompt.missing) {
-      const depMod = get(modsStore).find((m) => m.title === dep);
-      setModInCollection(depPrompt.collectionId, dep, true, depMod?.id ?? null);
-      await installIfNeeded(depMod);
+    if (missingFromCollection.length > 0) {
+      openDepPrompt({
+        collectionId,
+        collectionName: collection.name,
+        modTitle,
+        modId,
+        missing: missingFromCollection,
+        isPreAddCheck: false,
+      });
     }
-    depPrompt = null;
   }
+
 </script>
 
 <svelte:window
@@ -320,20 +357,6 @@
         <button class="ghost" onclick={close}>Done</button>
       </div>
 
-      {#if depPrompt}
-        <div class="dep-backdrop">
-          <div class="dep-modal" role="dialog" aria-modal="true">
-            <h4>{depPrompt.modTitle} requires {depPrompt.missing.join(" and ")}</h4>
-            <p>
-              Add {depPrompt.missing.join(" and ")} to "{depPrompt.collectionName}"?
-            </p>
-            <div class="dep-actions">
-              <button class="ghost" onclick={dismissDepPrompt}>No</button>
-              <button class="primary" onclick={acceptDepPrompt}>Yes</button>
-            </div>
-          </div>
-        </div>
-      {/if}
     </div>
   </div>
 {/if}
@@ -477,41 +500,6 @@
     display: flex;
     justify-content: flex-end;
     margin-top: 1rem;
-  }
-
-  .dep-backdrop {
-    position: absolute;
-    inset: 0;
-    background: rgba(0, 0, 0, 0.55);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    border-radius: 10px;
-  }
-
-  .dep-modal {
-    background: #2b2b2b;
-    border: 2px solid #f4eee0;
-    border-radius: 8px;
-    padding: 1.25rem;
-    width: 420px;
-    max-width: 90%;
-    text-align: center;
-  }
-
-  .dep-modal h4 {
-    margin: 0 0 0.5rem;
-    font-family: "M6X11", sans-serif;
-  }
-
-  .dep-modal p {
-    margin: 0 0 1rem;
-  }
-
-  .dep-actions {
-    display: flex;
-    justify-content: center;
-    gap: 0.75rem;
   }
 
   .primary,

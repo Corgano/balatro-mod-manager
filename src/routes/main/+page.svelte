@@ -19,6 +19,8 @@ let ShaderBackgroundComp = $state<Component | null>(null);
 	import {
 		installationStatus,
 		showWarningPopup,
+		requiresPopupStore,
+		securityPopupStore,
 	} from "../../stores/modStore";
 	import { invoke } from "@tauri-apps/api/core";
     import { fetchCachedMods, forceRefreshCache } from "../../stores/modCache";
@@ -34,13 +36,10 @@ import { fade } from "svelte/transition";
 import { isLinuxPlatform } from "$lib/platform";
 
 	let currentSection = $state("mods");
-	let showSecurityPopup = $state(false); // Control visibility of the security popup
 	let isLinux = $state(false);
 	let hasMounted = $state(false);
 	let appVersion = $state("");
 
-	// Add these for the RequiresPopup
-	let showRequiresPopup = $state(false);
 	let requiresPopupDismissedAt = 0;
 	let wasRequiresPopupVisible = false;
 
@@ -78,11 +77,21 @@ import { isLinuxPlatform } from "$lib/platform";
 			if (!isSecurityAcknowledged) {
 				// Store the action but don't execute it yet - show security popup first
 				storedDownloadAction = null;
-				showSecurityPopup = true;
+				securityPopupStore.set({
+					visible: true,
+					onAcknowledge: handleSecurityAcknowledge,
+					onCancel: handleSecurityCancel,
+				});
 			} else {
 				// Security already acknowledged, proceed with dependency check
 				storedDownloadAction = downloadAction;
-				showRequiresPopup = true;
+				requiresPopupStore.set({
+					visible: true,
+					requiresSteamodded: requirements.steamodded,
+					requiresTalisman: requirements.talisman,
+					onProceed: handleProceedDownload,
+					onDependencyClick: handleDependencyClick,
+				});
 			}
 		} else {
 			console.warn(
@@ -95,18 +104,24 @@ import { isLinuxPlatform } from "$lib/platform";
 
 	// Handle security acknowledgment
 	async function handleSecurityAcknowledge() {
-		showSecurityPopup = false;
+		securityPopupStore.update((s) => ({ ...s, visible: false }));
 
 		// Now proceed with dependency check if there was an action
 		if (originalDownloadAction) {
 			storedDownloadAction = originalDownloadAction;
-			showRequiresPopup = true;
+			requiresPopupStore.set({
+				visible: true,
+				requiresSteamodded: modRequirements.steamodded,
+				requiresTalisman: modRequirements.talisman,
+				onProceed: handleProceedDownload,
+				onDependencyClick: handleDependencyClick,
+			});
 		}
 	}
 
 	// Handle security cancellation
 	function handleSecurityCancel() {
-		showSecurityPopup = false;
+		securityPopupStore.update((s) => ({ ...s, visible: false }));
 		storedDownloadAction = null;
 		originalDownloadAction = null;
 	}
@@ -225,36 +240,38 @@ import { isLinuxPlatform } from "$lib/platform";
 
 			// Check if we need to show the security popup
 			if (!initData.security_acknowledged) {
-				showSecurityPopup = true;
+				securityPopupStore.set({
+					visible: true,
+					onAcknowledge: handleSecurityAcknowledge,
+					onCancel: handleSecurityCancel,
+				});
 			}
 
-			// Check Lovely status (skip on Linux)
-			if (!isLinux) {
-				if (!initData.lovely_installed) {
-					// Not installed: show install prompt
-					lovelyPopupStore.set({ visible: true });
-				} else if (initData.lovely_update_available) {
-					// Lovely is installed but update available
-					showWarningPopup.set({
-						visible: true,
-						message: `An update for Lovely (v${initData.lovely_update_available}) is available. Do you want to update?`,
-						onConfirm: async () => {
-							try {
-								const updated = await invoke<string>("update_lovely_to_latest");
-								addMessage(`Lovely updated to v${updated}`, "success");
-							} catch (e) {
-								addMessage(
-									`Failed to update Lovely: ${e instanceof Error ? e.message : String(e)}`,
-									"error",
-								);
-							}
-							showWarningPopup.update((p) => ({ ...p, visible: false }));
-						},
-						onCancel: () => {
-							showWarningPopup.update((p) => ({ ...p, visible: false }));
-						},
-					});
-				}
+			// Check Lovely status
+			if (!initData.lovely_installed) {
+				// Not installed: show install prompt
+				lovelyPopupStore.set({ visible: true });
+			} else if (initData.lovely_update_available) {
+				// Lovely is installed but update available
+				showWarningPopup.set({
+					visible: true,
+					message: `An update for Lovely (v${initData.lovely_update_available}) is available. Do you want to update?`,
+					onConfirm: async () => {
+						try {
+							const updated = await invoke<string>("update_lovely_to_latest");
+							addMessage(`Lovely updated to v${updated}`, "success");
+						} catch (e) {
+							addMessage(
+								`Failed to update Lovely: ${e instanceof Error ? e.message : String(e)}`,
+								"error",
+							);
+						}
+						showWarningPopup.update((p) => ({ ...p, visible: false }));
+					},
+					onCancel: () => {
+						showWarningPopup.update((p) => ({ ...p, visible: false }));
+					},
+				});
 			}
 		} catch (error) {
 			console.error("Failed to load init data:", error);
@@ -268,12 +285,12 @@ import { isLinuxPlatform } from "$lib/platform";
 	});
 
 	$effect(() => {
-		if (wasRequiresPopupVisible && !showRequiresPopup) {
+		if (wasRequiresPopupVisible && !$requiresPopupStore.visible) {
 			storedDownloadAction = null;
 			originalDownloadAction = null;
 			requiresPopupDismissedAt = Date.now();
 		}
-		wasRequiresPopupVisible = showRequiresPopup;
+		wasRequiresPopupVisible = $requiresPopupStore.visible;
 	});
 
 	$effect(() => {
@@ -371,13 +388,7 @@ import { isLinuxPlatform } from "$lib/platform";
 		</div>
 	{/if}
 
-	<RequiresPopup
-		bind:show={showRequiresPopup}
-		requiresSteamodded={modRequirements.steamodded}
-		requiresTalisman={modRequirements.talisman}
-		onProceed={handleProceedDownload}
-		onDependencyClick={handleDependencyClick}
-	/>
+	<RequiresPopup />
 
 	<WarningPopup
 		visible={$showWarningPopup.visible}
@@ -386,12 +397,7 @@ import { isLinuxPlatform } from "$lib/platform";
 		onCancel={$showWarningPopup.onCancel}
 	/>
 
-	<!-- Add the SecurityPopup component -->
-	<SecurityPopup
-		visible={showSecurityPopup}
-		onAcknowledge={handleSecurityAcknowledge}
-		onCancel={handleSecurityCancel}
-	/>
+	<SecurityPopup />
 
 	<UninstallDialog
 		bind:show={showUninstallDialog}
