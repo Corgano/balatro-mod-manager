@@ -46,6 +46,7 @@
         collectionsStore,
         activeCollectionIds,
         createCollection,
+        createCollectionFromActive,
         renameCollection,
         deleteCollection,
         setActiveCollection,
@@ -2305,6 +2306,59 @@
         }
     }
 
+    function handleCreateCollectionFromActive() {
+        // Get all installed and enabled mods
+        const installed = $installationStatus;
+        const enabled = $modEnabledStore;
+        const mods = $modsStore;
+
+        // Filter to only mods that are both installed AND enabled
+        const activeTitles: string[] = [];
+        const activeIds: string[] = [];
+
+        for (const [title, isInstalled] of Object.entries(installed)) {
+            if (isInstalled && enabled[title] === true) {
+                activeTitles.push(title);
+                // Try to find the mod ID from modsStore
+                const mod = mods.find((m) => m.title === title);
+                if (mod?.id) {
+                    activeIds.push(mod.id);
+                }
+            }
+        }
+
+        if (activeTitles.length === 0) {
+            addMessage("No active mods to create a collection from.", "error");
+            return;
+        }
+
+        // Use the input name or generate a unique default
+        let name = newCollectionName.trim();
+        if (!name) {
+            const baseName = `Active Mods ${new Date().toLocaleDateString()}`;
+            const existingNames = new Set(
+                $collectionsStore.map((c) => c.name.toLowerCase()),
+            );
+            name = baseName;
+            let counter = 1;
+            while (existingNames.has(name.toLowerCase())) {
+                counter++;
+                name = `${baseName} (${counter})`;
+            }
+        }
+
+        const result = createCollectionFromActive(name, activeTitles, activeIds);
+        if (!result.ok) {
+            addMessage(result.error || "Failed to create collection.", "error");
+            return;
+        }
+        newCollectionName = "";
+        if (result.id) {
+            selectedCollectionId = result.id;
+        }
+        addMessage(`Created collection "${name}" with ${activeTitles.length} mod${activeTitles.length === 1 ? "" : "s"}.`, "success");
+    }
+
     function startRenameCollection(id: string, name: string) {
         renamingId = id;
         renameValue = name;
@@ -3068,6 +3122,13 @@
                                 onclick={() => openCollectionImport()}
                             >
                                 Import code
+                            </button>
+                            <button
+                                class="ghost create-from-active"
+                                type="button"
+                                onclick={handleCreateCollectionFromActive}
+                            >
+                                Create from active
                             </button>
                         </div>
 
@@ -4175,11 +4236,13 @@
     }
 
     .collections-import {
+        display: flex;
+        gap: 0.5rem;
         margin-bottom: 1rem;
     }
 
     .collections-import .ghost.import {
-        width: 100%;
+        flex: 1;
         background: var(--ui-mod-import-bg);
         border: 2px solid var(--ui-mod-chip-border);
         color: var(--ui-text);
@@ -4201,6 +4264,33 @@
     }
 
     .collections-import .ghost.import:active {
+        transform: translateY(1px);
+        box-shadow: none;
+    }
+
+    .collections-import .ghost.create-from-active {
+        flex: 1;
+        background: #4a90d9;
+        border: 2px solid var(--ui-mod-chip-border);
+        color: var(--ui-text);
+        padding: 0.7rem 0.9rem;
+        border-radius: 6px;
+        font-family: "M6X11", sans-serif;
+        font-size: 1.05rem;
+        cursor: pointer;
+        transition:
+            transform 0.15s ease,
+            box-shadow 0.15s ease,
+            background 0.15s ease;
+    }
+
+    .collections-import .ghost.create-from-active:hover {
+        transform: translateY(-2px);
+        background: #5a9fe8;
+        box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2);
+    }
+
+    .collections-import .ghost.create-from-active:active {
         transform: translateY(1px);
         box-shadow: none;
     }

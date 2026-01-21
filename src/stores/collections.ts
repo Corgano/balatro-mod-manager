@@ -194,6 +194,50 @@ export function createCollection(name: string): {
   return { ok: true, id: newId };
 }
 
+export function createCollectionFromActive(
+  name: string,
+  modTitles: string[],
+  modIds: string[],
+): {
+  ok: boolean;
+  id?: string;
+  error?: string;
+} {
+  const trimmed = name.trim();
+  if (!trimmed) {
+    return { ok: false, error: "Collection name can't be empty." };
+  }
+  if (modTitles.length === 0) {
+    return { ok: false, error: "No active mods to add to collection." };
+  }
+  let newId = "";
+  collectionsStore.update((list) => {
+    const exists = list.some(
+      (c) => normalizeName(c.name) === normalizeName(trimmed),
+    );
+    if (exists) {
+      return list;
+    }
+    newId = generateId();
+    const now = Date.now();
+    return [
+      ...list,
+      {
+        id: newId,
+        name: trimmed,
+        modTitles: [...modTitles],
+        modIds: [...modIds],
+        createdAt: now,
+        updatedAt: now,
+      },
+    ];
+  });
+  if (!newId) {
+    return { ok: false, error: "A collection with that name already exists." };
+  }
+  return { ok: true, id: newId };
+}
+
 export function renameCollection(
   id: string,
   name: string,
