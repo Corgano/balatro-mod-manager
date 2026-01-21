@@ -44,6 +44,7 @@ import { isLinuxPlatform } from "$lib/platform";
 import { openExternal } from "$lib/opener";
 import { openCollectionPicker, collectionsStore, activeCollectionIds, removeActiveCollection } from "../../stores/collections";
 import { get } from "svelte/store";
+import CustomDropdown from "../CustomDropdown.svelte";
 
 	// Configure marked options
 	marked.use({
@@ -99,6 +100,16 @@ import { get } from "svelte/store";
 	let talismanVersions = $state<string[]>([]);
 	let selectedVersion = $state("newest");
 	let loadingVersions = $state(false);
+
+	// Computed options for custom dropdowns
+	const steamoddedOptions = $derived([
+		{ value: "newest", label: "latest (could be unstable)" },
+		...steamoddedVersions.map((v) => ({ value: v, label: v })),
+	]);
+	const talismanOptions = $derived([
+		{ value: "newest", label: "latest (could be unstable)" },
+		...talismanVersions.map((v) => ({ value: v, label: v })),
+	]);
 	let repoLoading = $state(false);
 let renderedDescription = $state("");
 let descLoading = $state(false);
@@ -1206,17 +1217,12 @@ let modView: HTMLDivElement;
 								No versions available
 							</div>
 						{:else}
-							<select
+							<CustomDropdown
+								options={talismanOptions}
 								bind:value={selectedVersion}
 								disabled={$loadingStates[mod.title]}
-							>
-								<option value="newest" selected
-									>latest (could be unstable)</option
-								>
-								{#each talismanVersions as version}
-									<option value={version}>{version}</option>
-								{/each}
-							</select>
+								placeholder="Select version"
+							/>
 						{/if}
 					</div>
 				{/if}
@@ -1229,17 +1235,12 @@ let modView: HTMLDivElement;
 								No versions available
 							</div>
 						{:else}
-							<select
+							<CustomDropdown
+								options={steamoddedOptions}
 								bind:value={selectedVersion}
 								disabled={$loadingStates[mod.title]}
-							>
-								<option value="newest" selected
-									>latest (could be unstable)</option
-								>
-								{#each steamoddedVersions as version}
-									<option value={version}>{version}</option>
-								{/each}
-							</select>
+								placeholder="Select version"
+							/>
 						{/if}
 					</div>
 				{/if}
@@ -1925,38 +1926,6 @@ let modView: HTMLDivElement;
 		text-align: center;
 	}
 
-	.version-selector select {
-		width: 100%;
-		padding: 0.75rem;
-		background: var(--ui-danger-overlay);
-		color: var(--ui-text);
-		border: 1px solid var(--ui-danger-overlay-border);
-		border-radius: 6px;
-		font-family: "M6X11", sans-serif;
-		cursor: pointer;
-		font-size: 1rem;
-		transition: all 0.2s ease;
-		-webkit-appearance: none;
-		-moz-appearance: none;
-		appearance: none;
-		background-image: url("data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%23F4EEE0%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.4-12.8z%22%2F%3E%3C%2Fsvg%3E");
-		background-repeat: no-repeat;
-		background-position: right 0.7em top 50%;
-		background-size: 0.65em auto;
-		padding-right: 2.5em;
-	}
-
-	.version-selector select:hover:not(:disabled) {
-		background-color: var(--ui-danger-overlay-stronger);
-		border-color: var(--ui-danger-overlay-border-strong);
-		transform: translateY(-2px);
-	}
-
-	.version-selector select:disabled {
-		opacity: 0.7;
-		cursor: not-allowed;
-	}
-
 	.repo-button {
 		display: flex;
 		align-items: center;
@@ -1981,11 +1950,6 @@ let modView: HTMLDivElement;
 	.repo-button:hover {
 		background: var(--ui-code-bg-hover);
 		transform: translateY(-2px);
-	}
-	.version-selector select option {
-		background: var(--ui-danger-overlay-stronger);
-		color: var(--ui-text);
-		padding: 0.75rem;
 	}
 
 	.description :global(a) {
