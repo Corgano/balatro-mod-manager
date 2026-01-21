@@ -30,12 +30,16 @@ use std::io::Read;
 use std::io::{self, BufReader};
 use std::path::Path;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread;
 use std::time::Duration;
 use tar::Archive;
 use tokio::io::AsyncWriteExt;
 use tokio::time::sleep;
 use zip::ZipArchive;
+
+/// Atomic counter to generate unique temp file names for concurrent downloads.
+static DOWNLOAD_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 /// Downloads and installs a mod from the given URL.
 ///
@@ -105,8 +109,14 @@ pub async fn install_mod(url: String, folder_name: Option<String>) -> Result<Pat
 
     // Stream download to a temporary file to avoid loading entire archive into memory
     // This reduces peak memory usage from "archive size" to ~64KB chunk size
+    // Use atomic counter to ensure unique temp file per concurrent download
     let temp_dir = std::env::temp_dir();
-    let temp_file_path = temp_dir.join(format!("bmm_download_{}.tmp", std::process::id()));
+    let unique_id = DOWNLOAD_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let temp_file_path = temp_dir.join(format!(
+        "bmm_download_{}_{}.tmp",
+        std::process::id(),
+        unique_id
+    ));
 
     let mut temp_file = tokio::fs::File::create(&temp_file_path)
         .await
