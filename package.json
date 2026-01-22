@@ -36,7 +36,7 @@
     "eslint-plugin-svelte": "^2.46.1",
     "lucide-svelte": "^0.483.0",
     "marked": "^17.0.1",
-    "svelte": "^5.47.1",
+    "svelte": "^5.48.0",
     "svelte-eslint-parser": "^0.41.1",
     "svelte-check": "^4.3.5",
     "svelte-confetti": "^2.3.2",
