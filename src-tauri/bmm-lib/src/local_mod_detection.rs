@@ -1837,7 +1837,8 @@ mod tests {
                 is_duplicate: false,
             };
 
-            let m = super::find_catalog_match(&local, &catalog).expect("should match steamodded");
+            let index = super::CatalogIndex::new(&catalog);
+            let m = super::find_catalog_match_indexed(&local, &index).expect("should match steamodded");
             assert_eq!(m.title, "Steamodded");
             assert_eq!(m.catalog_id, "Steamodded");
             assert_eq!(m.download_url, "https://example/steamodded.zip");
@@ -1867,8 +1868,9 @@ mod tests {
                 is_duplicate: false,
             };
 
+            let index = super::CatalogIndex::new(&catalog);
             assert!(
-                super::find_catalog_match(&local, &catalog).is_none(),
+                super::find_catalog_match_indexed(&local, &index).is_none(),
                 "{name} should not match catalog entry"
             );
         }
