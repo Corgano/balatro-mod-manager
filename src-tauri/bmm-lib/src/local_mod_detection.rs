@@ -1838,7 +1838,8 @@ mod tests {
             };
 
             let index = super::CatalogIndex::new(&catalog);
-            let m = super::find_catalog_match_indexed(&local, &index).expect("should match steamodded");
+            let m =
+                super::find_catalog_match_indexed(&local, &index).expect("should match steamodded");
             assert_eq!(m.title, "Steamodded");
             assert_eq!(m.catalog_id, "Steamodded");
             assert_eq!(m.download_url, "https://example/steamodded.zip");
