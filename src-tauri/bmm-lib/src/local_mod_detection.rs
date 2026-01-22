@@ -117,6 +117,25 @@ fn find_steamapps_root(game_path: &Path) -> Option<PathBuf> {
     Some(steamapps_dir.to_path_buf())
 }
 
+/// Finds the Steam library where Balatro is actually installed.
+/// This queries the cached Balatro paths and returns the steamapps directory
+/// for the first valid installation found.
+#[cfg(target_os = "linux")]
+fn find_balatro_steam_library() -> Option<PathBuf> {
+    let balatro_paths = crate::finder::get_balatro_paths_cached();
+    for path in balatro_paths {
+        if let Some(steamapps) = find_steamapps_root(&path) {
+            info!(
+                "Found Balatro in Steam library: {} (from game path: {})",
+                steamapps.display(),
+                path.display()
+            );
+            return Some(steamapps);
+        }
+    }
+    None
+}
+
 /// Syncs individual mod folders from host mods directory to Proton's compat mods directory
 /// when the compat directory already exists as a real directory (not a symlink).
 #[cfg(target_os = "linux")]
@@ -197,20 +216,32 @@ pub fn ensure_proton_mod_dir_link(game_path: Option<&Path>) -> Result<(), String
     let host_mods =
         resolve_mods_dir_path().map_err(|e| format!("Could not resolve mods directory: {e}"))?;
 
-    // Try to find steamapps from game_path, otherwise use default Steam location
-    let steamapps_dir = game_path.and_then(find_steamapps_root).or_else(|| {
-        dirs::home_dir()
-            .map(|h| h.join(".local/share/Steam/steamapps"))
-            .filter(|p| p.exists())
-    });
+    // Find the correct Steam library where Balatro is installed
+    let steamapps_dir = if let Some(game_path) = game_path {
+        // When game_path is provided, derive from it only
+        find_steamapps_root(game_path)
+    } else {
+        // When not provided, find where Balatro is actually installed
+        find_balatro_steam_library()
+    };
 
     let Some(steamapps_dir) = steamapps_dir else {
-        // No Steam installation found, nothing to do
+        info!("No Steam library found, skipping Proton symlink creation");
         return Ok(());
     };
 
     let compat_mods = steamapps_dir
         .join("compatdata/2379780/pfx/drive_c/users/steamuser/AppData/Roaming/Balatro/Mods");
+
+    // Verify the Steam library actually contains Balatro
+    let balatro_game_path = steamapps_dir.join("common/Balatro");
+    if !balatro_game_path.exists() {
+        warn!(
+            "Steam library {} does not contain Balatro, skipping symlink",
+            steamapps_dir.display()
+        );
+        return Ok(());
+    }
 
     // If the paths are the same, nothing to do
     if compat_mods == host_mods {
@@ -1928,5 +1959,57 @@ mod tests {
         assert_eq!(lua_detected.author, vec!["Charlie"]);
         assert_eq!(lua_detected.prefix, "lua");
         assert_eq!(lua_detected.version.as_deref(), Some("1.2.3"));
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn test_find_steamapps_root_valid_paths() {
+        // Standard Steam library path
+        let standard_path = Path::new("/home/user/.local/share/Steam/steamapps/common/Balatro");
+        let result = super::find_steamapps_root(standard_path);
+        assert!(result.is_some());
+        assert_eq!(
+            result.unwrap(),
+            PathBuf::from("/home/user/.local/share/Steam/steamapps")
+        );
+
+        // External drive / SD card path
+        let external_path =
+            Path::new("/run/media/user/SD512/SteamLibrary/steamapps/common/Balatro");
+        let result = super::find_steamapps_root(external_path);
+        assert!(result.is_some());
+        assert_eq!(
+            result.unwrap(),
+            PathBuf::from("/run/media/user/SD512/SteamLibrary/steamapps")
+        );
+
+        // Flatpak Steam path
+        let flatpak_path = Path::new(
+            "/home/user/.var/app/com.valvesoftware.Steam/.local/share/Steam/steamapps/common/Balatro",
+        );
+        let result = super::find_steamapps_root(flatpak_path);
+        assert!(result.is_some());
+        assert_eq!(
+            result.unwrap(),
+            PathBuf::from(
+                "/home/user/.var/app/com.valvesoftware.Steam/.local/share/Steam/steamapps"
+            )
+        );
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn test_find_steamapps_root_invalid_paths() {
+        // Path not in common directory
+        let invalid_path = Path::new("/home/user/Games/Balatro");
+        assert!(super::find_steamapps_root(invalid_path).is_none());
+
+        // Path with wrong parent directory name
+        let wrong_parent = Path::new("/home/user/.local/share/Steam/steamapps/games/Balatro");
+        assert!(super::find_steamapps_root(wrong_parent).is_none());
+
+        // Path without steamapps
+        let no_steamapps = Path::new("/home/user/.local/share/Steam/common/Balatro");
+        assert!(super::find_steamapps_root(no_steamapps).is_none());
     }
 }
