@@ -30,8 +30,29 @@ use bmm_lib::local_mod_detection;
 use bmm_lib::lovely;
 #[cfg(target_os = "linux")]
 use bmm_lib::lovely::ensure_version_dll_exists;
+#[cfg(target_os = "windows")]
+use bmm_lib::lovely::ensure_version_dll_exists;
 #[cfg(target_os = "linux")]
 use bmm_lib::lovely::{ensure_love_binary, ensure_lovely_so_exists, get_latest_lovely_version};
+
+/// Check if the installed Lovely version supports the --vanilla flag (0.9.0+)
+#[cfg(any(target_os = "windows", target_os = "linux"))]
+fn supports_vanilla_flag(version: Option<&str>) -> bool {
+    let Some(version) = version else {
+        return false;
+    };
+    // Strip 'v' prefix if present
+    let version = version.strip_prefix('v').unwrap_or(version);
+    // Parse major.minor.patch
+    let parts: Vec<&str> = version.split('.').collect();
+    if parts.is_empty() {
+        return false;
+    }
+    let major: u32 = parts.first().and_then(|s| s.parse().ok()).unwrap_or(0);
+    let minor: u32 = parts.get(1).and_then(|s| s.parse().ok()).unwrap_or(0);
+    // --vanilla flag was added in 0.9.0
+    major > 0 || (major == 0 && minor >= 9)
+}
 use bmm_lib::smods_installer::{ModInstaller, ModType};
 use bmm_lib::{cache, database::InstalledMod};
 #[cfg(target_os = "linux")]
@@ -405,8 +426,33 @@ pub async fn launch_balatro(state: tauri::State<'_, AppState>) -> Result<(), Str
     use std::os::windows::process::CommandExt;
     const CREATE_NO_WINDOW: u32 = 0x08000000;
 
-    let (path_str, lovely_console_enabled) = get_installation_and_console(&state).await?;
+    let (path_str, lovely_console_enabled, launch_mode, db_lovely_version) = {
+        let db = state.db.lock().await;
+        let install_path = db
+            .get_installation_path()
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| "No installation path set".to_string())?;
+        let lovely_console = db.is_lovely_console_enabled().map_err(|e| e.to_string())?;
+        let mode = db
+            .get_launch_mode()
+            .unwrap_or_else(|_| "modded".to_string());
+        let version = db.get_lovely_version().ok().flatten();
+        (install_path, lovely_console, mode, version)
+    };
+
+    // Get stored version, or fall back to latest from GitHub (outside mutex lock)
+    let lovely_version = match db_lovely_version {
+        Some(v) => Some(v),
+        None => bmm_lib::lovely::get_latest_lovely_version().await.ok(),
+    };
+
     let path = PathBuf::from(path_str);
+    let is_vanilla = launch_mode == "vanilla";
+
+    // Always ensure version.dll exists so modded mode works after vanilla launch
+    ensure_version_dll_exists(&path)
+        .await
+        .map_err(|e| format!("Failed to ensure version.dll: {e}"))?;
 
     let mut cmd = Command::new(path.join("Balatro.exe"));
 
@@ -420,6 +466,12 @@ pub async fn launch_balatro(state: tauri::State<'_, AppState>) -> Result<(), Str
         cmd.env("LOVELY_NO_CONSOLE", "1");
         cmd.env("LOVELY_CONSOLE", "0");
         cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+
+    // Use Lovely's --vanilla flag to skip mod loading while keeping DLL in place
+    // Only available in Lovely 0.9.0+
+    if is_vanilla && supports_vanilla_flag(lovely_version.as_deref()) {
+        cmd.arg("--vanilla");
     }
 
     cmd.spawn().map_err(|e| e.to_string())?;
@@ -452,7 +504,7 @@ pub async fn launch_balatro(state: tauri::State<'_, AppState>) -> Result<(), Str
         })
         .ok_or_else(|| "No Balatro installation path is configured or detected".to_string())?;
 
-    let (lovely_console_enabled, linux_prefix, launch_mode) = {
+    let (lovely_console_enabled, linux_prefix, launch_mode, db_lovely_version) = {
         let db = state.db.lock().await;
         let lovely = db.is_lovely_console_enabled().map_err(|e| e.to_string())?;
         let prefix = db
@@ -462,7 +514,14 @@ pub async fn launch_balatro(state: tauri::State<'_, AppState>) -> Result<(), Str
         let mode = db
             .get_launch_mode()
             .unwrap_or_else(|_| "modded".to_string());
-        (lovely, prefix, mode)
+        let version = db.get_lovely_version().ok().flatten();
+        (lovely, prefix, mode, version)
+    };
+
+    // Get stored version, or fall back to latest from GitHub (outside mutex lock)
+    let lovely_version = match db_lovely_version {
+        Some(v) => Some(v),
+        None => get_latest_lovely_version().await.ok(),
     };
 
     let is_vanilla = launch_mode == "vanilla";
@@ -485,12 +544,10 @@ pub async fn launch_balatro(state: tauri::State<'_, AppState>) -> Result<(), Str
         validate_prefix_executable(&cmd_parts[0])?;
         ensure_prefix_log_dir(&envs)?;
 
-        // Only ensure version.dll exists if launching in modded mode
-        if !is_vanilla {
-            ensure_version_dll_exists(&path)
-                .await
-                .map_err(|e| format!("Failed to ensure version.dll: {e}"))?;
-        }
+        // Always ensure version.dll exists so modded mode works after vanilla launch
+        ensure_version_dll_exists(&path)
+            .await
+            .map_err(|e| format!("Failed to ensure version.dll: {e}"))?;
 
         bmm_lib::local_mod_detection::ensure_proton_mod_dir_link(Some(&path))?;
 
@@ -614,6 +671,20 @@ pub async fn launch_balatro(state: tauri::State<'_, AppState>) -> Result<(), Str
         }
         if !lovely_console_enabled {
             cmd.arg("--disable-console");
+        }
+        // Use Lovely's --vanilla flag to skip mod loading while keeping DLL in place
+        // Only available in Lovely 0.9.0+
+        if is_vanilla && supports_vanilla_flag(lovely_version.as_deref()) {
+            cmd.arg("--vanilla");
+            info!(
+                "Adding --vanilla flag (Lovely version: {:?})",
+                lovely_version
+            );
+        } else if is_vanilla {
+            warn!(
+                "Vanilla mode requested but Lovely version {:?} doesn't support --vanilla flag",
+                lovely_version
+            );
         }
         if let Ok(log_file) = open_prefix_log_file() {
             let stderr_file = match log_file.try_clone() {

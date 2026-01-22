@@ -60,6 +60,19 @@ pub fn run() {
                 }
             }
 
+            // One-time migration for Lovely 0.9.0: move mods from ~/.config/Balatro/Mods
+            // to ~/.local/share/Balatro/Mods (Linux only)
+            #[cfg(target_os = "linux")]
+            {
+                match local_mod_detection::migrate_legacy_mods_dir() {
+                    Ok(true) => {
+                        log::info!("Successfully migrated mods to new Lovely 0.9.0 location")
+                    }
+                    Ok(false) => {} // No migration needed
+                    Err(e) => log::warn!("Failed to migrate legacy mods directory: {}", e),
+                }
+            }
+
             let compat_enabled = db.is_compat_helper_enabled().unwrap_or(false);
             let discord_rpc = DiscordRpcManager::new();
             let discord_rpc_enabled = db.is_discord_rpc_enabled().unwrap_or(true);

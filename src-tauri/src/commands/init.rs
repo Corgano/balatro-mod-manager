@@ -151,24 +151,72 @@ fn check_lovely_installed_inner(
 
     #[cfg(target_os = "linux")]
     {
+        use log::{debug, info};
+
+        // Also check the cached locations (survive Steam file verification)
+        let cached_dll = dirs::config_dir()
+            .map(|c| c.join("Balatro/bins/version.dll"))
+            .filter(|p| p.exists());
+        let cached_so = dirs::config_dir()
+            .map(|c| c.join("Balatro/bins/liblovely.so"))
+            .filter(|p| p.exists());
+
+        if cached_dll.is_some() || cached_so.is_some() {
+            debug!(
+                "Found cached Lovely: version.dll={}, liblovely.so={}",
+                cached_dll.is_some(),
+                cached_so.is_some()
+            );
+            return Ok(true);
+        }
+
         // Use existing installation if already validated
         if let Some(path) = existing_installation {
-            let so = PathBuf::from(path).join("liblovely.so");
-            return Ok(so.exists());
+            let path = PathBuf::from(path);
+            // Check for both native (liblovely.so) and Proton (version.dll)
+            let so = path.join("liblovely.so");
+            let dll = path.join("version.dll");
+            debug!("Checking Lovely at existing_installation: {:?}", path);
+            debug!(
+                "  liblovely.so exists: {}, version.dll exists: {}",
+                so.exists(),
+                dll.exists()
+            );
+            return Ok(so.exists() || dll.exists());
         }
 
         // Fall back to DB-stored path
         if let Some(path) = db.get_installation_path().map_err(|e| e.to_string())? {
-            let so = PathBuf::from(path).join("liblovely.so");
-            return Ok(so.exists());
+            let path = PathBuf::from(path);
+            let so = path.join("liblovely.so");
+            let dll = path.join("version.dll");
+            debug!("Checking Lovely at DB path: {:?}", path);
+            debug!(
+                "  liblovely.so exists: {}, version.dll exists: {}",
+                so.exists(),
+                dll.exists()
+            );
+            return Ok(so.exists() || dll.exists());
         }
 
         // Fallback to first detected Balatro path
         let candidates = bmm_lib::finder::get_balatro_paths_cached();
+        debug!(
+            "No existing/DB path, checking {} candidates",
+            candidates.len()
+        );
         if let Some(p) = candidates.first() {
             let so = p.join("liblovely.so");
-            return Ok(so.exists());
+            let dll = p.join("version.dll");
+            debug!("Checking Lovely at candidate: {:?}", p);
+            debug!(
+                "  liblovely.so exists: {}, version.dll exists: {}",
+                so.exists(),
+                dll.exists()
+            );
+            return Ok(so.exists() || dll.exists());
         }
+        info!("No Balatro paths found for Lovely detection");
         Ok(false)
     }
 

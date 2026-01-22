@@ -46,15 +46,19 @@ pub async fn is_lovely_installed(_state: tauri::State<'_, AppState>) -> Result<b
         // Prefer database install path if present
         let db = _state.db.lock().await;
         if let Some(path) = db.get_installation_path().map_err(|e| e.to_string())? {
-            let so = PathBuf::from(path).join("liblovely.so");
-            return Ok(so.exists());
+            let path = PathBuf::from(path);
+            // Check for both native (liblovely.so) and Proton (version.dll)
+            let so = path.join("liblovely.so");
+            let dll = path.join("version.dll");
+            return Ok(so.exists() || dll.exists());
         }
 
         // Fallback to first detected Balatro path
         let candidates = bmm_lib::finder::get_balatro_paths_cached();
         if let Some(p) = candidates.first() {
             let so = p.join("liblovely.so");
-            return Ok(so.exists());
+            let dll = p.join("version.dll");
+            return Ok(so.exists() || dll.exists());
         }
         Ok(false)
     }

@@ -28,16 +28,53 @@ use std::process::Command;
 /// Ensures the Lovely version.dll exists in the game directory (Windows/Linux).
 ///
 /// Downloads the DLL from GitHub releases if not present.
+/// On Linux, caches the DLL in ~/.config/Balatro/bins/ and copies to game directory
+/// each launch, since Steam may verify/restore game files.
 #[cfg(any(target_os = "windows", target_os = "linux"))]
 pub async fn ensure_version_dll_exists(game_path: &Path) -> Result<PathBuf, AppError> {
     let dll_path = game_path.join("version.dll");
 
-    // If the DLL doesn't exist, download it
-    if !dll_path.exists() {
-        download_version_dll(&dll_path).await?;
+    #[cfg(target_os = "linux")]
+    {
+        // On Linux, cache the DLL and copy on each launch to survive Steam file verification
+        let config_dir = dirs::config_dir()
+            .ok_or_else(|| AppError::DirNotFound(PathBuf::from("config directory")))?;
+        let bins_dir = config_dir.join("Balatro/bins");
+        fs::create_dir_all(&bins_dir).map_err(|e| AppError::DirCreate {
+            path: bins_dir.clone(),
+            source: e.to_string(),
+        })?;
+
+        let cached_dll = bins_dir.join("version.dll");
+        if !cached_dll.exists() {
+            download_version_dll(&cached_dll).await?;
+        }
+
+        // Always copy to game directory (may have been removed by Steam)
+        if let Err(e) = fs::copy(&cached_dll, &dll_path) {
+            return Err(AppError::FileCopy {
+                source: cached_dll.display().to_string(),
+                dest: dll_path.display().to_string(),
+                source_error: e.to_string(),
+            });
+        }
+        log::debug!(
+            "Copied version.dll from cache {} to {}",
+            cached_dll.display(),
+            dll_path.display()
+        );
+
+        Ok(dll_path)
     }
 
-    Ok(dll_path)
+    #[cfg(target_os = "windows")]
+    {
+        // On Windows, download directly to game directory
+        if !dll_path.exists() {
+            download_version_dll(&dll_path).await?;
+        }
+        Ok(dll_path)
+    }
 }
 
 #[cfg(target_os = "macos")]

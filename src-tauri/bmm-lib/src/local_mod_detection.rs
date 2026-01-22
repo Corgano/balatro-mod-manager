@@ -174,12 +174,12 @@ fn sync_proton_mods(host_mods: &Path, compat_mods: &Path) -> Result<(), String> 
     Ok(())
 }
 
-/// Ensures symlinks exist so that mods installed to the host config directory
+/// Ensures symlinks exist so that mods installed to the host data directory
 /// are visible to Proton/Wine when running Balatro via Steam.
 ///
 /// This creates a symlink from the Proton prefix mods directory to the host mods directory:
 /// `~/.local/share/Steam/steamapps/compatdata/2379780/pfx/drive_c/users/steamuser/AppData/Roaming/Balatro/Mods`
-/// -> `~/.config/Balatro/Mods`
+/// -> `~/.local/share/Balatro/Mods`
 ///
 /// If the Proton directory already exists as a real directory (not a symlink),
 /// it syncs individual mod folders instead.
@@ -277,10 +277,156 @@ pub fn ensure_proton_mod_dir_link(_game_path: Option<&Path>) -> Result<(), Strin
     Ok(())
 }
 
+/// Migrates mods from the legacy ~/.config/Balatro/Mods location to the new
+/// ~/.local/share/Balatro/Mods location used by Lovely 0.9.0+.
+///
+/// Returns Ok(true) if migration was performed, Ok(false) if no migration needed.
+#[cfg(target_os = "linux")]
+pub fn migrate_legacy_mods_dir() -> Result<bool, String> {
+    let Some(home) = dirs::home_dir() else {
+        return Ok(false);
+    };
+
+    let legacy_mods = home.join(".config/Balatro/Mods");
+    let new_mods = home.join(".local/share/Balatro/Mods");
+
+    // No migration needed if legacy doesn't exist or is a symlink
+    if !legacy_mods.exists() || legacy_mods.is_symlink() {
+        return Ok(false);
+    }
+
+    // Check if legacy has any mods
+    let legacy_entries: Vec<_> = fs::read_dir(&legacy_mods)
+        .map_err(|e| format!("Failed to read legacy mods dir: {e}"))?
+        .filter_map(Result::ok)
+        .filter(|e| e.path().is_dir())
+        .collect();
+
+    if legacy_entries.is_empty() {
+        return Ok(false);
+    }
+
+    info!(
+        "Found {} mods in legacy location {}, migrating to {}",
+        legacy_entries.len(),
+        legacy_mods.display(),
+        new_mods.display()
+    );
+
+    // Create new mods directory
+    fs::create_dir_all(&new_mods)
+        .map_err(|e| format!("Failed to create new mods dir {}: {e}", new_mods.display()))?;
+
+    // Move each mod folder to new location
+    let mut migrated = 0;
+    for entry in legacy_entries {
+        let src = entry.path();
+        let name = match src.file_name() {
+            Some(n) => n,
+            None => continue,
+        };
+        let dest = new_mods.join(name);
+
+        // Skip if destination already exists
+        if dest.exists() {
+            warn!(
+                "Skipping migration of {}: already exists in new location",
+                name.to_string_lossy()
+            );
+            continue;
+        }
+
+        // Try rename first (fast, same filesystem)
+        if fs::rename(&src, &dest).is_ok() {
+            info!("Migrated mod: {}", name.to_string_lossy());
+            migrated += 1;
+            continue;
+        }
+
+        // Fall back to copy + delete for cross-filesystem
+        if let Err(e) = copy_dir_recursive(&src, &dest) {
+            warn!("Failed to migrate {}: {e}", name.to_string_lossy());
+            continue;
+        }
+        if let Err(e) = fs::remove_dir_all(&src) {
+            warn!(
+                "Failed to remove old mod dir after copy {}: {e}",
+                src.display()
+            );
+        }
+        info!("Migrated mod (copy): {}", name.to_string_lossy());
+        migrated += 1;
+    }
+
+    // Create symlink from old location to new for backwards compatibility
+    // (in case user has other tools pointing to old location)
+    if migrated > 0 {
+        // Remove empty legacy dir and replace with symlink
+        let legacy_is_empty = fs::read_dir(&legacy_mods)
+            .map(|mut d| d.next().is_none())
+            .unwrap_or(false);
+
+        if legacy_is_empty {
+            if let Err(e) = fs::remove_dir(&legacy_mods) {
+                warn!("Failed to remove empty legacy mods dir: {e}");
+            } else if let Err(e) = symlink(&new_mods, &legacy_mods) {
+                warn!("Failed to create backwards-compat symlink: {e}");
+            } else {
+                info!(
+                    "Created symlink for backwards compatibility: {} -> {}",
+                    legacy_mods.display(),
+                    new_mods.display()
+                );
+            }
+        }
+    }
+
+    info!("Migration complete: {} mods moved", migrated);
+    Ok(migrated > 0)
+}
+
+/// Recursively copy a directory.
+#[cfg(target_os = "linux")]
+fn copy_dir_recursive(src: &Path, dest: &Path) -> Result<(), String> {
+    fs::create_dir_all(dest)
+        .map_err(|e| format!("Failed to create dir {}: {e}", dest.display()))?;
+
+    for entry in
+        fs::read_dir(src).map_err(|e| format!("Failed to read dir {}: {e}", src.display()))?
+    {
+        let entry = entry.map_err(|e| format!("Failed to read entry: {e}"))?;
+        let src_path = entry.path();
+        let dest_path = dest.join(entry.file_name());
+
+        if src_path.is_dir() {
+            copy_dir_recursive(&src_path, &dest_path)?;
+        } else {
+            fs::copy(&src_path, &dest_path)
+                .map_err(|e| format!("Failed to copy {}: {e}", src_path.display()))?;
+        }
+    }
+    Ok(())
+}
+
+/// No-op on non-Linux platforms.
+#[cfg(not(target_os = "linux"))]
+pub fn migrate_legacy_mods_dir() -> Result<bool, String> {
+    Ok(false)
+}
+
 pub fn mod_dir_candidates() -> Result<Vec<PathBuf>, String> {
-    let config_dir =
-        dirs::config_dir().ok_or_else(|| "Could not find config directory".to_string())?;
-    let primary = config_dir.join("Balatro").join("Mods");
+    // Lovely 0.9.0+ uses XDG data directory (~/.local/share/Balatro/Mods) on Linux native
+    #[cfg(target_os = "linux")]
+    let primary = dirs::data_dir()
+        .ok_or_else(|| "Could not find data directory".to_string())?
+        .join("Balatro")
+        .join("Mods");
+
+    #[cfg(not(target_os = "linux"))]
+    let primary = dirs::config_dir()
+        .ok_or_else(|| "Could not find config directory".to_string())?
+        .join("Balatro")
+        .join("Mods");
 
     let mut candidates = Vec::new();
     let is_flatpak = std::env::var_os("FLATPAK_ID").is_some();
@@ -311,14 +457,30 @@ pub fn mod_dir_candidates() -> Result<Vec<PathBuf>, String> {
         }
     }
 
-    // In Flatpak, prefer the host config path first so we open the real mods folder.
+    // In Flatpak, prefer the host data path first so we open the real mods folder.
     if is_flatpak && let Some(home) = dirs::home_dir() {
+        // New Lovely 0.9.0+ location (XDG data dir)
+        candidates.push(
+            home.join(".local")
+                .join("share")
+                .join("Balatro")
+                .join("Mods"),
+        );
+        // Legacy location for migration (Lovely < 0.9.0)
         candidates.push(home.join(".config").join("Balatro").join("Mods"));
     }
 
     candidates.push(primary.clone());
 
-    // Host XDG_CONFIG_HOME
+    // Host XDG_DATA_HOME (Lovely 0.9.0+ location)
+    if let Some(xdg) = env::var_os("XDG_DATA_HOME") {
+        let xdg_path = PathBuf::from(xdg).join("Balatro").join("Mods");
+        if xdg_path != primary {
+            candidates.push(xdg_path);
+        }
+    }
+
+    // Legacy: Host XDG_CONFIG_HOME (Lovely < 0.9.0)
     if let Some(xdg) = env::var_os("XDG_CONFIG_HOME") {
         let xdg_path = PathBuf::from(xdg).join("Balatro").join("Mods");
         if xdg_path != primary {
@@ -326,7 +488,7 @@ pub fn mod_dir_candidates() -> Result<Vec<PathBuf>, String> {
         }
     }
 
-    // Host ~/.config
+    // Legacy: Host ~/.config (Lovely < 0.9.0)
     if let Some(home) = dirs::home_dir() {
         let host_config = home.join(".config").join("Balatro").join("Mods");
         if host_config != primary {
@@ -345,11 +507,15 @@ pub fn resolve_mods_dir_path() -> Result<PathBuf, String> {
         let is_flatpak = std::env::var_os("FLATPAK_ID").is_some();
 
         if is_flatpak {
-            // In Flatpak, always prefer the host config path (~/.config/Balatro/Mods).
+            // In Flatpak, prefer the host data path (~/.local/share/Balatro/Mods) for Lovely 0.9.0+.
             // Create it if it doesn't exist so mods are installed where Balatro
             // (running via Steam/Proton outside the sandbox) can find them.
             if let Some(home) = dirs::home_dir() {
-                let host_mods = home.join(".config").join("Balatro").join("Mods");
+                let host_mods = home
+                    .join(".local")
+                    .join("share")
+                    .join("Balatro")
+                    .join("Mods");
                 if !host_mods.exists()
                     && let Err(e) = fs::create_dir_all(&host_mods)
                 {
