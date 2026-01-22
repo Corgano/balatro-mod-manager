@@ -21,7 +21,7 @@ use flate2::write::GzEncoder;
 use serde::{Deserialize, Serialize};
 use serde_repr::*;
 use std::fs::File;
-use std::io::{Read, Write};
+use std::io::{BufReader, Read, Write};
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -223,19 +223,13 @@ pub fn load_versions_cache(mod_type: &str) -> Result<Option<Vec<String>>, AppErr
         .join("balatro-mod-manager")
         .join(format!("versions-{mod_type}.cache.bin.gz"));
 
-    let mut file = match File::open(&path) {
+    let file = match File::open(&path) {
         Ok(f) => f,
         Err(_) => return Ok(None),
     };
 
-    let mut buffer = Vec::new();
-    file.read_to_end(&mut buffer)
-        .map_err(|e| AppError::FileRead {
-            path: path.clone(),
-            source: e.to_string(),
-        })?;
-
-    let mut decoder = GzDecoder::new(buffer.as_slice());
+    // Stream decompress directly from file instead of loading entire file to memory
+    let mut decoder = GzDecoder::new(BufReader::new(file));
     let mut decompressed = Vec::new();
 
     // Decompress the data
@@ -354,7 +348,7 @@ pub fn save_cache(mods: &[Mod]) -> Result<(), AppError> {
 
 pub fn load_cache() -> Result<Option<(Vec<Mod>, u64)>, AppError> {
     let path = select_cache_path_for_read()?;
-    let mut file = match File::open(&path) {
+    let file = match File::open(&path) {
         Ok(f) => f,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(e) => {
@@ -365,14 +359,8 @@ pub fn load_cache() -> Result<Option<(Vec<Mod>, u64)>, AppError> {
         }
     };
 
-    let mut buffer = Vec::new();
-    file.read_to_end(&mut buffer)
-        .map_err(|e| AppError::FileRead {
-            path: path.clone(),
-            source: e.to_string(),
-        })?;
-
-    let mut decoder = GzDecoder::new(buffer.as_slice());
+    // Stream decompress directly from file instead of loading entire file to memory
+    let mut decoder = GzDecoder::new(BufReader::new(file));
     let mut decompressed = Vec::new();
 
     // Decompress the data

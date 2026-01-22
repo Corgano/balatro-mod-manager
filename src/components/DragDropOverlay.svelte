@@ -18,36 +18,27 @@
 
 			// Listen for file drop events
 			unlisten = await webview.onDragDropEvent(async (event) => {
-				// console.log("Drag drop event received:", event);
-
 				// Handle different event types per Tauri v2 API
 				if (event.payload.type === "over" || event.payload.type === "enter") {
 					isDragging = true;
 				} else if (event.payload.type === "leave") {
 					isDragging = false;
 				} else if (event.payload.type === "drop") {
-					// FIXED: The correct event name!
-					// console.log("Drop event detected:", JSON.stringify(event));
 					// Always hide the drag overlay on drop
 					isDragging = false;
 
 					// Paths are provided in event.payload.paths per Tauri v2
 					const paths = event.payload.paths;
-					// console.log("Extracted paths:", paths);
 
 					if (!paths || paths.length === 0) {
-						// console.log("No valid paths found in drop event");
 						return;
 					}
 
 					isProcessing = true;
-					// console.log("Processing files:", paths);
 
 					// Process each dropped file
 					for (const filePath of paths) {
 						try {
-							// console.log("Processing file:", filePath);
-
 							// Check if it's a supported file type
 							if (
 								!filePath.endsWith(".zip") &&
@@ -56,7 +47,6 @@
 								!filePath.endsWith(".tgz") &&
 								!filePath.endsWith(".rar")
 							) {
-								// console.log("Unsupported file type:", filePath);
 								addMessage(
 									`Skipped ${filePath}: Only ZIP, TAR, TAR.GZ, and RAR archives are supported`,
 									"warning",
@@ -65,19 +55,11 @@
 							}
 
 							// Process the file
-							// console.log(
-							// 	"Invoking process_dropped_file for:",
-							// 	filePath,
-							// );
 							try {
 								await invoke("process_dropped_file", {
 									path: filePath,
 								});
 
-								// console.log(
-								// 	"Successfully processed file:",
-								// 	filePath,
-								// );
 								addMessage(
 									`Successfully installed mod from: ${filePath}`,
 									"success",
@@ -109,8 +91,6 @@
 					isProcessing = false;
 				}
 			});
-
-			// console.log("Drag-drop event listener set up successfully");
 		} catch (error) {
 			console.error("Error setting up drag-drop handler:", error);
 			addMessage(`Error setting up drag-drop handler: ${error}`, "error");

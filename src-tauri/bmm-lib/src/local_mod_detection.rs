@@ -25,7 +25,7 @@ use lazy_static::lazy_static;
 #[cfg(target_os = "linux")]
 use log::{info, warn};
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::env;
 use std::fs::{self, File};
 use std::io::{BufRead, BufReader};
@@ -591,10 +591,13 @@ pub fn detect_manual_mods(
                 talisman.is_duplicate = true;
                 talisman.name = format!("{} (Manual)", talisman.name);
             }
-            talisman.catalog_match = find_catalog_match(&talisman, cached_catalog_mods);
+            // Catalog match will be done below with the index
             all_detected_mods.push(talisman);
         }
     }
+
+    // Build catalog index once for O(1) lookups instead of O(n) per mod
+    let catalog_index = CatalogIndex::new(cached_catalog_mods);
 
     // Process detected mods to find catalog matches and handle duplicates
     let total_detected = all_detected_mods.len();
@@ -611,8 +614,8 @@ pub fn detect_manual_mods(
                 mod_info.name = format!("{} (Manual)", mod_info.name);
             }
 
-            // Try to find a match in the catalog
-            mod_info.catalog_match = find_catalog_match(&mod_info, cached_catalog_mods);
+            // Try to find a match in the catalog using indexed lookup
+            mod_info.catalog_match = find_catalog_match_indexed(&mod_info, &catalog_index);
 
             // If this mod matches a catalog entry that is already installed, skip it to avoid duplicates
             if let Some(cat) = &mod_info.catalog_match
@@ -678,11 +681,47 @@ fn scan_for_json_files(dir_path: &Path) -> Result<Vec<PathBuf>, String> {
     }
 }
 
-fn find_catalog_match(
+/// Pre-computed lookup index for catalog matching
+struct CatalogIndex<'a> {
+    /// Map from lowercase title to catalog mod
+    by_title_lower: HashMap<String, &'a cache::Mod>,
+    /// Map from compact ID (no spaces, lowercase) to catalog mod
+    by_id_lower: HashMap<String, &'a cache::Mod>,
+    /// Map from compacted name (alphanumeric only) to catalog mod
+    by_compact: HashMap<String, &'a cache::Mod>,
+    /// All catalog mods for similarity fallback
+    all_mods: &'a [cache::Mod],
+}
+
+impl<'a> CatalogIndex<'a> {
+    fn new(catalog_mods: &'a [cache::Mod]) -> Self {
+        let mut by_title_lower = HashMap::with_capacity(catalog_mods.len());
+        let mut by_id_lower = HashMap::with_capacity(catalog_mods.len());
+        let mut by_compact = HashMap::with_capacity(catalog_mods.len());
+
+        for catalog_mod in catalog_mods {
+            let title_lower = catalog_mod.title.to_lowercase();
+            let id_lower = catalog_mod.title.replace(' ', "").to_lowercase();
+            let title_compact = compact(&title_lower);
+
+            by_title_lower.insert(title_lower, catalog_mod);
+            by_id_lower.insert(id_lower, catalog_mod);
+            by_compact.insert(title_compact, catalog_mod);
+        }
+
+        Self {
+            by_title_lower,
+            by_id_lower,
+            by_compact,
+            all_mods: catalog_mods,
+        }
+    }
+}
+
+fn find_catalog_match_indexed(
     local_mod: &DetectedMod,
-    catalog_mods: &[cache::Mod],
+    index: &CatalogIndex,
 ) -> Option<CatalogMatch> {
-    // Special case for Steamodded
     let local_id_lower = local_mod.id.to_lowercase();
     let local_name_lower = local_mod.name.to_lowercase();
     let local_id_compact = compact(&local_id_lower);
@@ -696,75 +735,56 @@ fn find_catalog_match(
         .unwrap_or_default();
 
     // Enhanced Steamodded detection
-    if local_id_lower == "steamodded" || 
-       local_name_lower == "steamodded" ||
-       local_id_lower.contains("steamodded") || 
-       local_name_lower.contains("steamodded") ||
-       local_id_lower == "smods" || 
-       local_name_lower == "smods" ||
-       dir_name_lower.starts_with("smods") ||  // Match anything starting with "smods"
-       dir_name_lower.contains("steamodded")
-    {
-        // Find Steamodded in the catalog
-        for catalog_mod in catalog_mods {
-            if catalog_mod.title.to_lowercase() == "steamodded" {
-                return Some(CatalogMatch {
-                    title: catalog_mod.title.clone(),
-                    catalog_id: catalog_mod.title.clone(),
-                    download_url: catalog_mod.download_url.clone(),
-                    version: catalog_mod.version.clone(),
-                });
-            }
-        }
+    let is_steamodded = local_id_lower == "steamodded"
+        || local_name_lower == "steamodded"
+        || local_id_lower.contains("steamodded")
+        || local_name_lower.contains("steamodded")
+        || local_id_lower == "smods"
+        || local_name_lower == "smods"
+        || dir_name_lower.starts_with("smods")
+        || dir_name_lower.contains("steamodded");
+
+    if is_steamodded && let Some(catalog_mod) = index.by_title_lower.get("steamodded") {
+        return Some(create_match(catalog_mod));
     }
 
     // Special case for Talisman
-    if local_id_lower == "talisman"
+    let is_talisman = local_id_lower == "talisman"
         || local_name_lower == "talisman"
         || local_id_lower.contains("talisman")
-        || local_name_lower.contains("talisman")
+        || local_name_lower.contains("talisman");
+
+    if is_talisman && let Some(catalog_mod) = index.by_title_lower.get("talisman") {
+        return Some(create_match(catalog_mod));
+    }
+
+    // 1. Try exact ID match (O(1) lookup)
+    if let Some(catalog_mod) = index.by_id_lower.get(&local_id_lower) {
+        return Some(create_match(catalog_mod));
+    }
+
+    // 2. Try exact name match (O(1) lookup)
+    if let Some(catalog_mod) = index.by_title_lower.get(&local_name_lower) {
+        return Some(create_match(catalog_mod));
+    }
+
+    // 3. Try directory name match (O(1) lookup)
+    if !dir_name_lower.is_empty()
+        && let Some(catalog_mod) = index.by_title_lower.get(&dir_name_lower)
     {
-        for catalog_mod in catalog_mods {
-            if catalog_mod.title.to_lowercase() == "talisman" {
-                return Some(CatalogMatch {
-                    title: catalog_mod.title.clone(),
-                    catalog_id: catalog_mod.title.clone(),
-                    download_url: catalog_mod.download_url.clone(),
-                    version: catalog_mod.version.clone(),
-                });
-            }
-        }
-    }
-    for catalog_mod in catalog_mods {
-        // Precompute catalog names/IDs once per catalog mod
-        let catalog_title_lower = catalog_mod.title.to_lowercase();
-        let catalog_id_lower = catalog_mod.title.replace(" ", "").to_lowercase();
-        let catalog_title_compact = compact(&catalog_title_lower);
-
-        // 1. Try exact ID match
-        if catalog_id_lower == local_id_lower {
-            return Some(create_match(catalog_mod));
-        }
-
-        // 2. Try exact name match
-        if catalog_title_lower == local_name_lower {
-            return Some(create_match(catalog_mod));
-        }
-
-        // 3. Try directory name match (already handled above for Steamodded)
-        if catalog_title_lower == dir_name_lower && !dir_name_lower.is_empty() {
-            return Some(create_match(catalog_mod));
-        }
-
-        // 4. Try compacted name match (removes punctuation/spacing)
-        if catalog_title_compact == local_id_compact || catalog_title_compact == local_name_compact
-        {
-            return Some(create_match(catalog_mod));
-        }
+        return Some(create_match(catalog_mod));
     }
 
-    // 5. Try similarity matching (edit distance with relative threshold)
-    for catalog_mod in catalog_mods {
+    // 4. Try compacted name match (O(1) lookup)
+    if let Some(catalog_mod) = index.by_compact.get(&local_id_compact) {
+        return Some(create_match(catalog_mod));
+    }
+    if let Some(catalog_mod) = index.by_compact.get(&local_name_compact) {
+        return Some(create_match(catalog_mod));
+    }
+
+    // 5. Fallback to similarity matching (still O(n) but only for unmatched mods)
+    for catalog_mod in index.all_mods {
         let catalog_name_lower = catalog_mod.title.to_lowercase();
         let catalog_name_compact = compact(&catalog_name_lower);
 
