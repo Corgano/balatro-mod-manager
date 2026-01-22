@@ -4169,11 +4169,14 @@
 
     .collections-left {
         width: 42%;
+        min-width: 280px;
         padding-right: 2.2rem;
     }
 
     .collections-right {
         flex: 1;
+        min-width: 0;
+        container-type: inline-size;
     }
 
     .collections-separator {
@@ -4239,6 +4242,10 @@
         display: flex;
         gap: 0.5rem;
         margin-bottom: 1rem;
+    }
+
+    .collections-import .ghost {
+        flex: 1;
     }
 
     .collections-import .ghost.import {
@@ -4471,11 +4478,6 @@
     }
 
     @media (max-width: 1200px) {
-        .collections-left {
-            width: 38%;
-            padding-right: 3.2rem;
-        }
-
         .collections-create .text-input {
             min-width: 200px;
             font-size: 0.95rem;
@@ -4507,11 +4509,6 @@
     }
 
     @media (max-width: 980px) {
-        .collections-left {
-            width: 42%;
-            padding-right: 2.6rem;
-        }
-
         .collections-create .text-input {
             min-width: 180px;
             font-size: 0.9rem;
@@ -4614,11 +4611,21 @@
 
     .collections-mods-grid {
         --card-scale: 0.8;
+        --card-min-width: calc(250px * var(--card-scale, 1));
+        display: grid;
         grid-template-columns: repeat(
             auto-fill,
-            minmax(calc(250px * var(--card-scale, 1)), 1fr)
+            minmax(var(--card-min-width), 1fr)
         );
         gap: 24px;
+        padding: 0 0.5rem;
+    }
+
+    /* Force single column when container is too narrow for 2 cards + gap */
+    @container (max-width: 450px) {
+        .collections-mods-grid {
+            grid-template-columns: 1fr;
+        }
     }
 
     .local-mods-grid {
