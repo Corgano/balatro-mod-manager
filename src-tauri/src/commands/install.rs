@@ -94,21 +94,6 @@ fn refresh_mod_detection_cache() {
     local_mod_detection::clear_detection_cache();
 }
 
-#[cfg(target_os = "windows")]
-async fn get_installation_and_console(
-    state: &tauri::State<'_, AppState>,
-) -> Result<(String, bool), String> {
-    let db = state.db.lock().await;
-    let install_path = db
-        .get_installation_path()
-        .map_err(|e| e.to_string())?
-        .ok_or_else(|| {
-            AppError::InvalidState("No installation path set".to_string()).to_string()
-        })?;
-    let lovely_console_enabled = db.is_lovely_console_enabled().map_err(|e| e.to_string())?;
-    Ok((install_path, lovely_console_enabled))
-}
-
 #[cfg(target_os = "macos")]
 #[tauri::command]
 pub async fn launch_balatro(state: tauri::State<'_, AppState>) -> Result<(), String> {
