@@ -114,7 +114,9 @@ pub async fn update_lovely_to_latest(state: tauri::State<'_, AppState>) -> Resul
         .map_err(|e| e.to_string())?;
 
     // Remove current install and reinstall
-    lovely::remove_installed_lovely().map_err(|e| e.to_string())?;
+    lovely::remove_installed_lovely()
+        .await
+        .map_err(|e| e.to_string())?;
     lovely::ensure_lovely_exists()
         .await
         .map_err(|e| e.to_string())?;

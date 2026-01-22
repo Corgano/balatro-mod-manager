@@ -422,7 +422,7 @@ pub async fn get_latest_lovely_version() -> Result<String, AppError> {
 }
 
 /// Remove currently installed Lovely artifacts so a clean reinstall can occur.
-pub fn remove_installed_lovely() -> Result<(), AppError> {
+pub async fn remove_installed_lovely() -> Result<(), AppError> {
     #[cfg(target_os = "macos")]
     {
         let config_dir = dirs::config_dir()
@@ -430,28 +430,59 @@ pub fn remove_installed_lovely() -> Result<(), AppError> {
         let bins_dir = config_dir.join("Balatro/bins");
         let lovely_path = bins_dir.join("liblovely.dylib");
         if lovely_path.exists() {
-            std::fs::remove_file(&lovely_path).map_err(|e| AppError::FileWrite {
-                path: lovely_path.clone(),
-                source: e.to_string(),
-            })?;
+            tokio::fs::remove_file(&lovely_path)
+                .await
+                .map_err(|e| AppError::FileWrite {
+                    path: lovely_path.clone(),
+                    source: e.to_string(),
+                })?;
         }
         Ok(())
     }
 
     #[cfg(any(target_os = "windows", target_os = "linux"))]
     {
+        // Remove from game directory
         let balatro_paths = crate::finder::get_balatro_paths_cached();
-        if balatro_paths.is_empty() {
-            return Ok(()); // Nothing to remove if we can't detect it
+        if !balatro_paths.is_empty() {
+            let game_path = &balatro_paths[0];
+            let dll_path = game_path.join("version.dll");
+            if dll_path.exists() {
+                tokio::fs::remove_file(&dll_path)
+                    .await
+                    .map_err(|e| AppError::FileWrite {
+                        path: dll_path.clone(),
+                        source: e.to_string(),
+                    })?;
+            }
+            // Also remove liblovely.so on Linux
+            #[cfg(target_os = "linux")]
+            {
+                let so_path = game_path.join("liblovely.so");
+                if so_path.exists() {
+                    let _ = tokio::fs::remove_file(&so_path).await;
+                }
+            }
         }
-        let game_path = &balatro_paths[0];
-        let dll_path = game_path.join("version.dll");
-        if dll_path.exists() {
-            std::fs::remove_file(&dll_path).map_err(|e| AppError::FileWrite {
-                path: dll_path.clone(),
-                source: e.to_string(),
-            })?;
+
+        // Also remove cached copies on Linux
+        #[cfg(target_os = "linux")]
+        {
+            if let Some(config_dir) = dirs::config_dir() {
+                let bins_dir = config_dir.join("Balatro/bins");
+                let cached_dll = bins_dir.join("version.dll");
+                let cached_so = bins_dir.join("liblovely.so");
+                if cached_dll.exists() {
+                    let _ = tokio::fs::remove_file(&cached_dll).await;
+                    log::info!("Removed cached version.dll");
+                }
+                if cached_so.exists() {
+                    let _ = tokio::fs::remove_file(&cached_so).await;
+                    log::info!("Removed cached liblovely.so");
+                }
+            }
         }
+
         Ok(())
     }
 

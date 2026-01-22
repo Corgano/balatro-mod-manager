@@ -191,9 +191,17 @@
     cursor: pointer;
     font-family: "M6X11", sans-serif;
     font-size: 1.15rem;
-    transition: all 0.2s ease;
+    transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
   }
-  .copy-button:hover { transform: translateY(-2px); }
+  .copy-button:hover {
+    transform: translateY(-2px);
+    background: #5a68b0;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+  }
+  .copy-button:active {
+    transform: translateY(1px);
+    box-shadow: none;
+  }
   .buttons { display: flex; justify-content: flex-end; margin-top: 1rem; }
   .buttons { gap: 0.5rem; flex-wrap: wrap; }
   .close-button {
@@ -206,6 +214,16 @@
     cursor: pointer;
     font-family: "M6X11", sans-serif;
     font-size: 1.15rem;
+    transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+  }
+  .close-button:hover {
+    transform: translateY(-2px);
+    background: #62b894;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+  }
+  .close-button:active {
+    transform: translateY(1px);
+    box-shadow: none;
   }
   .install-button {
     background: #3498db;
@@ -217,6 +235,20 @@
     cursor: pointer;
     font-family: "M6X11", sans-serif;
     font-size: 1.15rem;
+    transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+  }
+  .install-button:hover:not(:disabled) {
+    transform: translateY(-2px);
+    background: #4aa3e0;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+  }
+  .install-button:active:not(:disabled) {
+    transform: translateY(1px);
+    box-shadow: none;
+  }
+  .install-button:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
   }
   .launch-anyway {
     background: #c14139;
@@ -228,6 +260,16 @@
     cursor: pointer;
     font-family: "M6X11", sans-serif;
     font-size: 1.15rem;
+    transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+  }
+  .launch-anyway:hover {
+    transform: translateY(-2px);
+    background: #d04a42;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+  }
+  .launch-anyway:active {
+    transform: translateY(1px);
+    box-shadow: none;
   }
   .error { color: #f87171; font-family: "M6X11", sans-serif; margin-top: 0.5rem; }
   @media (max-width: 1160px) {
