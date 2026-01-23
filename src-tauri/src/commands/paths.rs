@@ -218,20 +218,32 @@ fn resolve_mods_dir_for_open() -> Result<PathBuf, String> {
 
     // On Flatpak, also ensure the host-visible Mods folder exists so openers that escape
     // the sandbox (flatpak-spawn --host) have a valid target path.
+    // Lovely 0.9.0+ uses ~/.local/share/Balatro/Mods instead of ~/.config/Balatro/Mods
     if std::env::var_os("FLATPAK_ID").is_some()
         && let Some(home) = dirs::home_dir()
     {
-        let host_mods = home.join(".config/Balatro/Mods");
-        if host_mods != mods_dir
-            && !host_mods.exists()
-            && let Err(e) = std::fs::create_dir_all(&host_mods)
-        {
-            log::warn!(
-                "Failed to create host mods directory at {}: {}",
-                host_mods.display(),
-                e
-            );
-        }
+        // Lovely 0.9.0+ location
+        let new_host_mods = home.join(".local/share/Balatro/Mods");
+        // Lovely < 0.9.0 location
+        let old_host_mods = home.join(".config/Balatro/Mods");
+
+        // Prefer the new location if it exists, otherwise fall back to old location
+        let host_mods = if new_host_mods.exists() {
+            new_host_mods
+        } else if old_host_mods.exists() {
+            old_host_mods
+        } else {
+            // Neither exists - create the new location (assume Lovely 0.9.0+)
+            if let Err(e) = std::fs::create_dir_all(&new_host_mods) {
+                log::warn!(
+                    "Failed to create host mods directory at {}: {}",
+                    new_host_mods.display(),
+                    e
+                );
+            }
+            new_host_mods
+        };
+
         if host_mods.exists() {
             return Ok(host_mods);
         }
