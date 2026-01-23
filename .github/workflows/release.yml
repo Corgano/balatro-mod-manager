@@ -25,42 +25,27 @@ jobs:
           # Adjust this grep command if your version format or file path differs
           APP_VERSION=$(grep -m1 'version =' src-tauri/Cargo.toml | cut -d '"' -f2)
           echo "APP_VERSION=$APP_VERSION" >> $GITHUB_OUTPUT
-      - name: Generate GitHub-Style Release Notes
+      - name: Install git-cliff
+        run: |
+          curl -sSL https://github.com/orhun/git-cliff/releases/latest/download/git-cliff-2.7.0-x86_64-unknown-linux-gnu.tar.gz | tar xz
+          sudo mv git-cliff-2.7.0/git-cliff /usr/local/bin/
+      - name: Generate Release Notes
         id: notes
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           APP_VERSION: ${{ steps.version.outputs.APP_VERSION }}
         run: |
-          REPO_OWNER=$(echo "$GITHUB_REPOSITORY" | cut -d '/' -f 1)
-          REPO_NAME=$(echo "$GITHUB_REPOSITORY" | cut -d '/' -f 2)
-
-          ALL_TAGS=$(git tag -l 'v*' | sort -V)
-          echo "All tags in repository: $ALL_TAGS"
-
-          CURRENT_TAG="v$APP_VERSION"
-
-          PREVIOUS_TAG=$(echo "$ALL_TAGS" | grep -v "^$CURRENT_TAG$" | sort -V | tail -n 1)
-
-          echo "Previous tag: $PREVIOUS_TAG"
-          echo "Current version: $CURRENT_TAG"
-
-          echo "## What's Changed" > RELEASE_NOTES.md
-
-          # Fetch recent merged PRs targeting the main branch
-          # Consider adjusting --limit or filtering logic if needed
-          gh pr list --repo $GITHUB_REPOSITORY --state merged --base main --json number,title,author,url --limit 10 | jq -r '.[] | "* \(.title) by @\(.author.login) in \(.url)"' >> RELEASE_NOTES.md
+          PREVIOUS_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
 
           if [ -n "$PREVIOUS_TAG" ]; then
-            echo "" >> RELEASE_NOTES.md
-            echo "**Full Changelog**: https://github.com/$REPO_OWNER/$REPO_NAME/compare/$PREVIOUS_TAG...$CURRENT_TAG" >> RELEASE_NOTES.md
+            git cliff "$PREVIOUS_TAG".. --tag "v$APP_VERSION" > RELEASE_NOTES.md
           else
-            echo "" >> RELEASE_NOTES.md
-            echo "**Full Changelog**: First release!" >> RELEASE_NOTES.md # Handle first release case
+            git cliff --tag "v$APP_VERSION" > RELEASE_NOTES.md
           fi
 
-          # Append security note only if signing is NOT successful later (consider conditional logic)
-          # For now, keeping it as requested, but ideally you'd remove this if signing works
+          # Append FAQ
           cat >> RELEASE_NOTES.md << 'EOL'
+
+          ---
           ❓ FAQ
           Q: How do I know this isn't malware?
           A: Check the source code and verify the digital signature details.
