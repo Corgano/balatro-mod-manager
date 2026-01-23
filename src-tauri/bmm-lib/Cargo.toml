@@ -7,7 +7,7 @@ edition = "2024"
 anyhow = "1.0.100"
 bincode = { version = "2.0", features = ["serde"] }
 bytes = "1.11.0"
-chrono = "0.4.43"
+chrono = { version = "0.4.43", features = ["serde"] }
 dirs = "6.0.0"
 discord-rich-presence = "1.0.0"
 env_logger = "0.11.8"

@@ -32,8 +32,13 @@ import { cardScale, darkMode } from "../../stores/ui";
 import { get } from "svelte/store";
 import ReportIssue from "../../components/ReportIssue.svelte";
 import CollectionPicker from "../../components/CollectionPicker.svelte";
+import BackupsPanel from "../../components/BackupsPanel.svelte";
+import CreateBackupModal from "../../components/CreateBackupModal.svelte";
+import RestoreBackupPopup from "../../components/RestoreBackupPopup.svelte";
+import DeleteBackupPopup from "../../components/DeleteBackupPopup.svelte";
 import { fade } from "svelte/transition";
 import { isLinuxPlatform } from "$lib/platform";
+import { backupsStore } from "../../stores/backups";
 
 	let currentSection = $state("mods");
 	let isLinux = $state(false);
@@ -328,6 +333,15 @@ import { isLinuxPlatform } from "$lib/platform";
 				Mods
 			</button>
 			<button
+				class:active={currentSection === "backups"}
+				onclick={() => {
+					currentSection = "backups";
+					backupsStore.load();
+				}}
+			>
+				Backups
+			</button>
+			<button
 				class:active={currentSection === "settings"}
 				onclick={() => (currentSection = "settings")}
 			>
@@ -351,6 +365,10 @@ import { isLinuxPlatform } from "$lib/platform";
 		<!-- All sections stay mounted for smooth transitions -->
 		<div class="section-wrapper" class:active={currentSection === "mods"}>
 			<Mods mod={null} {handleDependencyCheck} />
+		</div>
+
+		<div class="section-wrapper" class:active={currentSection === "backups"}>
+			<BackupsPanel />
 		</div>
 
 		<div class="section-wrapper" class:active={currentSection === "settings"}>
@@ -415,6 +433,9 @@ import { isLinuxPlatform } from "$lib/platform";
 	<CollectionPicker />
 	<CollectionImportPopup />
 	<ReportIssue />
+	<CreateBackupModal />
+	<RestoreBackupPopup />
+	<DeleteBackupPopup />
 
 <style>
 	.main-page {

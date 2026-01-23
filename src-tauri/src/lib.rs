@@ -458,6 +458,14 @@ pub fn run() {
             commands::external::open_external_url,
             commands::init::get_app_init_data,
             commands::init::get_all_settings,
+            commands::backup::create_backup,
+            commands::backup::list_backups,
+            commands::backup::restore_backup,
+            commands::backup::delete_backup,
+            commands::backup::get_backups_total_size,
+            commands::backup::get_backups_directory,
+            commands::backup::check_interrupted_restore,
+            commands::backup::clear_interrupted_restore,
             exit_application
         ])
         .build(tauri::generate_context!());

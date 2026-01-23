@@ -9,6 +9,7 @@
         updateAvailableStore,
     } from "../stores/modStore";
     import { forceRefreshCache } from "../stores/modCache";
+    import { createAutoBackup } from "../stores/backups";
 
 	// Component props for callbacks
 	export let onUninstalled:
@@ -63,6 +64,10 @@
         // Close immediately to avoid UI lock if backend hangs.
         show = false;
         uninstallDialogStore.update((s) => ({ ...s, show: false }));
+
+        // Create auto-backup before uninstall
+        await createAutoBackup("auto_uninstall", modName);
+
         // Optimistically update UI state; we'll reconcile with cache refresh after.
         if (actionToRun === "cascade") {
             const toClear = Array.isArray(dependents) ? dependents : [];

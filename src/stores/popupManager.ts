@@ -7,6 +7,9 @@ import {
   securityPopupStore,
   updatePopupStore,
   reportIssueStore,
+  createBackupPopupStore,
+  restoreBackupPopupStore,
+  deleteBackupPopupStore,
   type LovelyPopupState,
   type UninstallDialogState,
   type WarningPopupState,
@@ -14,6 +17,9 @@ import {
   type SecurityPopupState,
   type UpdatePopupState,
   type ReportIssueState,
+  type CreateBackupPopupState,
+  type RestoreBackupPopupState,
+  type DeleteBackupPopupState,
 } from "./modStore";
 import {
   collectionImportStore,
@@ -41,7 +47,10 @@ export type PopupType =
   | "requires"
   | "security"
   | "update"
-  | "reportIssue";
+  | "reportIssue"
+  | "createBackup"
+  | "restoreBackup"
+  | "deleteBackup";
 
 /**
  * Represents the state of a popup that has been pushed to the stack.
@@ -114,6 +123,23 @@ function closePopupByType(type: PopupType): void {
     case "reportIssue":
       reportIssueStore.set({ visible: false });
       break;
+    case "createBackup":
+      createBackupPopupStore.set({ visible: false });
+      break;
+    case "restoreBackup":
+      restoreBackupPopupStore.set({
+        visible: false,
+        backupId: "",
+        backupName: "",
+      });
+      break;
+    case "deleteBackup":
+      deleteBackupPopupStore.set({
+        visible: false,
+        backupId: "",
+        backupName: "",
+      });
+      break;
   }
 }
 
@@ -158,6 +184,15 @@ function openPopupDirect(state: PopupState): void {
       break;
     case "reportIssue":
       reportIssueStore.set(state.data as ReportIssueState);
+      break;
+    case "createBackup":
+      createBackupPopupStore.set(state.data as CreateBackupPopupState);
+      break;
+    case "restoreBackup":
+      restoreBackupPopupStore.set(state.data as RestoreBackupPopupState);
+      break;
+    case "deleteBackup":
+      deleteBackupPopupStore.set(state.data as DeleteBackupPopupState);
       break;
   }
   // Reset transitioning flag after a microtask to allow store update to propagate
@@ -231,6 +266,9 @@ let prevStates: Record<PopupType, { open: boolean; data: unknown }> = {
   security: { open: false, data: null },
   update: { open: false, data: null },
   reportIssue: { open: false, data: null },
+  createBackup: { open: false, data: null },
+  restoreBackup: { open: false, data: null },
+  deleteBackup: { open: false, data: null },
 };
 
 /**
@@ -487,6 +525,83 @@ reportIssueStore.subscribe((state) => {
   prevStates.reportIssue = { open: isOpen, data: state };
 });
 
+createBackupPopupStore.subscribe((state) => {
+  const wasOpen = prevStates.createBackup.open;
+  const isOpen = state.visible;
+
+  if (isOpen && !wasOpen && !isTransitioning) {
+    const currentPopup = findCurrentlyOpenPopup("createBackup");
+    if (currentPopup) {
+      createBackupPopupStore.set({ visible: false });
+      handlePopupConflict(
+        currentPopup.type,
+        currentPopup.data,
+        "createBackup",
+        state,
+      );
+      return;
+    }
+  } else if (!isOpen && wasOpen && !isTransitioning) {
+    handlePopupClose();
+  }
+
+  prevStates.createBackup = { open: isOpen, data: state };
+});
+
+restoreBackupPopupStore.subscribe((state) => {
+  const wasOpen = prevStates.restoreBackup.open;
+  const isOpen = state.visible;
+
+  if (isOpen && !wasOpen && !isTransitioning) {
+    const currentPopup = findCurrentlyOpenPopup("restoreBackup");
+    if (currentPopup) {
+      restoreBackupPopupStore.set({
+        visible: false,
+        backupId: "",
+        backupName: "",
+      });
+      handlePopupConflict(
+        currentPopup.type,
+        currentPopup.data,
+        "restoreBackup",
+        state,
+      );
+      return;
+    }
+  } else if (!isOpen && wasOpen && !isTransitioning) {
+    handlePopupClose();
+  }
+
+  prevStates.restoreBackup = { open: isOpen, data: state };
+});
+
+deleteBackupPopupStore.subscribe((state) => {
+  const wasOpen = prevStates.deleteBackup.open;
+  const isOpen = state.visible;
+
+  if (isOpen && !wasOpen && !isTransitioning) {
+    const currentPopup = findCurrentlyOpenPopup("deleteBackup");
+    if (currentPopup) {
+      deleteBackupPopupStore.set({
+        visible: false,
+        backupId: "",
+        backupName: "",
+      });
+      handlePopupConflict(
+        currentPopup.type,
+        currentPopup.data,
+        "deleteBackup",
+        state,
+      );
+      return;
+    }
+  } else if (!isOpen && wasOpen && !isTransitioning) {
+    handlePopupClose();
+  }
+
+  prevStates.deleteBackup = { open: isOpen, data: state };
+});
+
 /**
  * Clear the popup stack (use when navigating away or resetting state).
  */
@@ -518,6 +633,9 @@ export const hasActivePopup = derived(
     securityPopupStore,
     updatePopupStore,
     reportIssueStore,
+    createBackupPopupStore,
+    restoreBackupPopupStore,
+    deleteBackupPopupStore,
   ],
   ([
     $lovely,
@@ -530,6 +648,9 @@ export const hasActivePopup = derived(
     $security,
     $update,
     $reportIssue,
+    $createBackup,
+    $restoreBackup,
+    $deleteBackup,
   ]) => {
     return (
       $lovely.visible ||
@@ -541,7 +662,10 @@ export const hasActivePopup = derived(
       $requires.visible ||
       $security.visible ||
       $update.visible ||
-      $reportIssue.visible
+      $reportIssue.visible ||
+      $createBackup.visible ||
+      $restoreBackup.visible ||
+      $deleteBackup.visible
     );
   },
 );
