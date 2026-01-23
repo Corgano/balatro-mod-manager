@@ -23,7 +23,7 @@ use crate::bmi::BmiClient;
 use crate::compat_helper;
 use crate::state::AppState;
 use crate::util::map_error;
-#[cfg(any(target_os = "macos", target_os = "windows"))]
+#[cfg(target_os = "macos")]
 use bmm_lib::errors::AppError;
 use bmm_lib::local_mod_detection;
 #[cfg(target_os = "macos")]
