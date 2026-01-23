@@ -10,9 +10,10 @@ use flate2::Compression;
 use flate2::read::GzDecoder;
 use flate2::write::GzEncoder;
 use serde::{Deserialize, Serialize};
-use std::fs::{self, File};
+use std::fs::File;
 use std::path::{Path, PathBuf};
 use tar::{Archive, Builder};
+use tokio::fs;
 
 /// Maximum number of automatic backups to retain.
 const MAX_AUTO_BACKUPS: usize = 5;
@@ -128,7 +129,7 @@ pub async fn create_backup(
 
     // Check if we should debounce auto-backups
     if trigger.is_auto()
-        && let Ok(backups) = list_backups()
+        && let Ok(backups) = list_backups().await
         && let Some(latest) = backups.first()
     {
         let elapsed = Utc::now()
@@ -145,10 +146,12 @@ pub async fn create_backup(
     }
 
     // Create backups directory if it doesn't exist
-    fs::create_dir_all(&backups_dir).map_err(|e| AppError::DirCreate {
-        path: backups_dir.clone(),
-        source: e.to_string(),
-    })?;
+    fs::create_dir_all(&backups_dir)
+        .await
+        .map_err(|e| AppError::DirCreate {
+            path: backups_dir.clone(),
+            source: e.to_string(),
+        })?;
 
     // Generate backup ID and directory name
     let now = Utc::now();
@@ -162,10 +165,12 @@ pub async fn create_backup(
     let id = format!("{}_{}", now.format("%Y%m%d_%H%M%S"), trigger_str);
     let backup_dir = backups_dir.join(&id);
 
-    fs::create_dir_all(&backup_dir).map_err(|e| AppError::DirCreate {
-        path: backup_dir.clone(),
-        source: e.to_string(),
-    })?;
+    fs::create_dir_all(&backup_dir)
+        .await
+        .map_err(|e| AppError::DirCreate {
+            path: backup_dir.clone(),
+            source: e.to_string(),
+        })?;
 
     // Get database state
     let db = Database::new()?;
@@ -174,7 +179,7 @@ pub async fn create_backup(
     let lovely_version = db.get_lovely_version().ok().flatten();
 
     // Find disabled mods (those with .lovelyignore files)
-    let disabled_mods = find_disabled_mods(&mods_dir)?;
+    let disabled_mods = find_disabled_mods(&mods_dir).await?;
 
     // Create database snapshot
     let db_snapshot = DatabaseSnapshot {
@@ -185,15 +190,26 @@ pub async fn create_backup(
     let db_snapshot_path = backup_dir.join("database.json");
     let db_json = serde_json::to_string_pretty(&db_snapshot)?;
     fs::write(&db_snapshot_path, &db_json)
+        .await
         .map_err(|e| AppError::InvalidState(format!("Failed to write database snapshot: {}", e)))?;
 
-    // Create compressed tar archive of mods folder
+    // Create compressed tar archive of mods folder (CPU-intensive, run in blocking task)
     let archive_path = backup_dir.join("mods.tar.gz");
-    create_mods_archive(&mods_dir, &archive_path)?;
+    let mods_dir_clone = mods_dir.clone();
+    let archive_path_clone = archive_path.clone();
+    tokio::task::spawn_blocking(move || {
+        create_mods_archive_sync(&mods_dir_clone, &archive_path_clone)
+    })
+    .await
+    .map_err(|e| AppError::InvalidState(format!("Archive task failed: {}", e)))??;
 
     // Calculate total size
-    let archive_size = fs::metadata(&archive_path).map(|m| m.len()).unwrap_or(0);
+    let archive_size = fs::metadata(&archive_path)
+        .await
+        .map(|m| m.len())
+        .unwrap_or(0);
     let db_size = fs::metadata(&db_snapshot_path)
+        .await
         .map(|m| m.len())
         .unwrap_or(0);
     let size_bytes = archive_size + db_size;
@@ -220,10 +236,11 @@ pub async fn create_backup(
     let metadata_path = backup_dir.join("metadata.json");
     let metadata_json = serde_json::to_string_pretty(&metadata)?;
     fs::write(&metadata_path, &metadata_json)
+        .await
         .map_err(|e| AppError::InvalidState(format!("Failed to write backup metadata: {}", e)))?;
 
     // Enforce retention policy for auto-backups
-    enforce_retention()?;
+    enforce_retention().await?;
 
     log::info!(
         "Created backup '{}': {} mods, {} bytes",
@@ -236,17 +253,22 @@ pub async fn create_backup(
 }
 
 /// Find mods that have .lovelyignore files (disabled mods).
-fn find_disabled_mods(mods_dir: &Path) -> Result<Vec<String>, AppError> {
+async fn find_disabled_mods(mods_dir: &Path) -> Result<Vec<String>, AppError> {
     let mut disabled = Vec::new();
 
     if !mods_dir.exists() {
         return Ok(disabled);
     }
 
-    let entries = fs::read_dir(mods_dir)
+    let mut entries = fs::read_dir(mods_dir)
+        .await
         .map_err(|e| AppError::InvalidState(format!("Failed to read mods directory: {}", e)))?;
 
-    for entry in entries.flatten() {
+    while let Some(entry) = entries.next_entry().await.transpose() {
+        let entry = match entry {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
         let path = entry.path();
         if path.is_dir() {
             let ignore_file = path.join(".lovelyignore");
@@ -261,8 +283,8 @@ fn find_disabled_mods(mods_dir: &Path) -> Result<Vec<String>, AppError> {
     Ok(disabled)
 }
 
-/// Create a compressed tar archive of the mods folder.
-fn create_mods_archive(mods_dir: &Path, archive_path: &Path) -> Result<(), AppError> {
+/// Create a compressed tar archive of the mods folder (synchronous, CPU-intensive).
+fn create_mods_archive_sync(mods_dir: &Path, archive_path: &Path) -> Result<(), AppError> {
     let file = File::create(archive_path)
         .map_err(|e| AppError::InvalidState(format!("Failed to create archive file: {}", e)))?;
 
@@ -272,7 +294,7 @@ fn create_mods_archive(mods_dir: &Path, archive_path: &Path) -> Result<(), AppEr
 
     if mods_dir.exists() {
         // Add all contents of mods directory to the archive
-        let entries = fs::read_dir(mods_dir)
+        let entries = std::fs::read_dir(mods_dir)
             .map_err(|e| AppError::InvalidState(format!("Failed to read mods directory: {}", e)))?;
 
         for entry in entries.flatten() {
@@ -310,19 +332,24 @@ fn create_mods_archive(mods_dir: &Path, archive_path: &Path) -> Result<(), AppEr
 }
 
 /// List all backups, sorted by creation time (newest first).
-pub fn list_backups() -> Result<Vec<BackupMetadata>, AppError> {
+pub async fn list_backups() -> Result<Vec<BackupMetadata>, AppError> {
     let backups_dir = get_backups_dir()?;
 
     if !backups_dir.exists() {
         return Ok(Vec::new());
     }
 
-    let entries = fs::read_dir(&backups_dir)
+    let mut entries = fs::read_dir(&backups_dir)
+        .await
         .map_err(|e| AppError::InvalidState(format!("Failed to read backups directory: {}", e)))?;
 
     let mut backups = Vec::new();
 
-    for entry in entries.flatten() {
+    while let Some(entry) = entries.next_entry().await.transpose() {
+        let entry = match entry {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
         let path = entry.path();
         if !path.is_dir() {
             continue;
@@ -333,7 +360,7 @@ pub fn list_backups() -> Result<Vec<BackupMetadata>, AppError> {
             continue;
         }
 
-        match fs::read_to_string(&metadata_path) {
+        match fs::read_to_string(&metadata_path).await {
             Ok(content) => match serde_json::from_str::<BackupMetadata>(&content) {
                 Ok(metadata) => backups.push(metadata),
                 Err(e) => {
@@ -399,6 +426,7 @@ pub async fn restore_backup(backup_id: &str) -> Result<(), AppError> {
 
     // Read database snapshot
     let db_content = fs::read_to_string(&db_snapshot_path)
+        .await
         .map_err(|e| AppError::InvalidState(format!("Failed to read database snapshot: {}", e)))?;
 
     let db_snapshot: DatabaseSnapshot = serde_json::from_str(&db_content)
@@ -413,6 +441,7 @@ pub async fn restore_backup(backup_id: &str) -> Result<(), AppError> {
         .join(".restore_in_progress");
 
     fs::write(&restore_marker, backup_id)
+        .await
         .map_err(|e| AppError::InvalidState(format!("Failed to create restore marker: {}", e)))?;
 
     // Extract to a temporary directory first (atomic approach)
@@ -423,33 +452,41 @@ pub async fn restore_backup(backup_id: &str) -> Result<(), AppError> {
 
     // Clean up any previous failed restore
     if temp_dir.exists() {
-        let _ = fs::remove_dir_all(&temp_dir);
+        let _ = fs::remove_dir_all(&temp_dir).await;
     }
 
-    fs::create_dir_all(&temp_dir).map_err(|e| AppError::DirCreate {
-        path: temp_dir.clone(),
-        source: e.to_string(),
-    })?;
+    fs::create_dir_all(&temp_dir)
+        .await
+        .map_err(|e| AppError::DirCreate {
+            path: temp_dir.clone(),
+            source: e.to_string(),
+        })?;
 
-    // Extract archive to temp directory
-    extract_mods_archive(&archive_path, &temp_dir)?;
+    // Extract archive to temp directory (CPU-intensive, run in blocking task)
+    let archive_path_clone = archive_path.clone();
+    let temp_dir_clone = temp_dir.clone();
+    tokio::task::spawn_blocking(move || {
+        extract_mods_archive_sync(&archive_path_clone, &temp_dir_clone)
+    })
+    .await
+    .map_err(|e| AppError::InvalidState(format!("Extract task failed: {}", e)))??;
 
     // Clear current mods folder (except Lovely-related files)
-    clear_mods_folder(&mods_dir)?;
+    clear_mods_folder(&mods_dir).await?;
 
     // Move extracted mods to mods folder
-    move_restored_mods(&temp_dir, &mods_dir)?;
+    move_restored_mods(&temp_dir, &mods_dir).await?;
 
     // Restore database state
     let db = Database::new()?;
     restore_database_state(&db, &db_snapshot)?;
 
     // Restore enabled/disabled states
-    restore_enabled_states(&mods_dir, &db_snapshot.disabled_mods)?;
+    restore_enabled_states(&mods_dir, &db_snapshot.disabled_mods).await?;
 
     // Clean up
-    let _ = fs::remove_dir_all(&temp_dir);
-    let _ = fs::remove_file(&restore_marker);
+    let _ = fs::remove_dir_all(&temp_dir).await;
+    let _ = fs::remove_file(&restore_marker).await;
 
     // Clear mod detection cache to reflect new state
     crate::local_mod_detection::clear_detection_cache();
@@ -459,8 +496,8 @@ pub async fn restore_backup(backup_id: &str) -> Result<(), AppError> {
     Ok(())
 }
 
-/// Extract the mods archive to a directory.
-fn extract_mods_archive(archive_path: &Path, dest_dir: &Path) -> Result<(), AppError> {
+/// Extract the mods archive to a directory (synchronous, CPU-intensive).
+fn extract_mods_archive_sync(archive_path: &Path, dest_dir: &Path) -> Result<(), AppError> {
     let file = File::open(archive_path)
         .map_err(|e| AppError::InvalidState(format!("Failed to open archive: {}", e)))?;
 
@@ -475,15 +512,20 @@ fn extract_mods_archive(archive_path: &Path, dest_dir: &Path) -> Result<(), AppE
 }
 
 /// Clear the mods folder, preserving Lovely-related files.
-fn clear_mods_folder(mods_dir: &Path) -> Result<(), AppError> {
+async fn clear_mods_folder(mods_dir: &Path) -> Result<(), AppError> {
     if !mods_dir.exists() {
         return Ok(());
     }
 
-    let entries = fs::read_dir(mods_dir)
+    let mut entries = fs::read_dir(mods_dir)
+        .await
         .map_err(|e| AppError::InvalidState(format!("Failed to read mods directory: {}", e)))?;
 
-    for entry in entries.flatten() {
+    while let Some(entry) = entries.next_entry().await.transpose() {
+        let entry = match entry {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
         let path = entry.path();
         let name = entry.file_name();
 
@@ -496,11 +538,11 @@ fn clear_mods_folder(mods_dir: &Path) -> Result<(), AppError> {
         }
 
         if path.is_dir() {
-            fs::remove_dir_all(&path).map_err(|e| {
+            fs::remove_dir_all(&path).await.map_err(|e| {
                 AppError::InvalidState(format!("Failed to remove directory {:?}: {}", path, e))
             })?;
         } else {
-            fs::remove_file(&path).map_err(|e| {
+            fs::remove_file(&path).await.map_err(|e| {
                 AppError::InvalidState(format!("Failed to remove file {:?}: {}", path, e))
             })?;
         }
@@ -510,42 +552,54 @@ fn clear_mods_folder(mods_dir: &Path) -> Result<(), AppError> {
 }
 
 /// Move restored mods from temp directory to mods folder.
-fn move_restored_mods(temp_dir: &Path, mods_dir: &Path) -> Result<(), AppError> {
+async fn move_restored_mods(temp_dir: &Path, mods_dir: &Path) -> Result<(), AppError> {
     if !temp_dir.exists() {
         return Ok(());
     }
 
-    let entries = fs::read_dir(temp_dir)
+    let mut entries = fs::read_dir(temp_dir)
+        .await
         .map_err(|e| AppError::InvalidState(format!("Failed to read temp directory: {}", e)))?;
 
-    for entry in entries.flatten() {
+    while let Some(entry) = entries.next_entry().await.transpose() {
+        let entry = match entry {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
         let src_path = entry.path();
         let dest_path = mods_dir.join(entry.file_name());
 
         if src_path.is_dir() {
             // Use rename if possible (same filesystem), otherwise copy
-            if fs::rename(&src_path, &dest_path).is_err() {
-                copy_dir_recursive(&src_path, &dest_path)?;
-                let _ = fs::remove_dir_all(&src_path);
+            if fs::rename(&src_path, &dest_path).await.is_err() {
+                let src_clone = src_path.clone();
+                let dest_clone = dest_path.clone();
+                tokio::task::spawn_blocking(move || {
+                    copy_dir_recursive_sync(&src_clone, &dest_clone)
+                })
+                .await
+                .map_err(|e| AppError::InvalidState(format!("Copy task failed: {}", e)))??;
+                let _ = fs::remove_dir_all(&src_path).await;
             }
-        } else if fs::rename(&src_path, &dest_path).is_err() {
+        } else if fs::rename(&src_path, &dest_path).await.is_err() {
             fs::copy(&src_path, &dest_path)
+                .await
                 .map_err(|e| AppError::InvalidState(format!("Failed to copy file: {}", e)))?;
-            let _ = fs::remove_file(&src_path);
+            let _ = fs::remove_file(&src_path).await;
         }
     }
 
     Ok(())
 }
 
-/// Recursively copy a directory.
-fn copy_dir_recursive(src: &Path, dest: &Path) -> Result<(), AppError> {
-    fs::create_dir_all(dest).map_err(|e| AppError::DirCreate {
+/// Recursively copy a directory (synchronous, for spawn_blocking).
+fn copy_dir_recursive_sync(src: &Path, dest: &Path) -> Result<(), AppError> {
+    std::fs::create_dir_all(dest).map_err(|e| AppError::DirCreate {
         path: dest.to_path_buf(),
         source: e.to_string(),
     })?;
 
-    let entries = fs::read_dir(src).map_err(|e| {
+    let entries = std::fs::read_dir(src).map_err(|e| {
         AppError::InvalidState(format!("Failed to read directory {:?}: {}", src, e))
     })?;
 
@@ -554,9 +608,9 @@ fn copy_dir_recursive(src: &Path, dest: &Path) -> Result<(), AppError> {
         let dest_path = dest.join(entry.file_name());
 
         if src_path.is_dir() {
-            copy_dir_recursive(&src_path, &dest_path)?;
+            copy_dir_recursive_sync(&src_path, &dest_path)?;
         } else {
-            fs::copy(&src_path, &dest_path)
+            std::fs::copy(&src_path, &dest_path)
                 .map_err(|e| AppError::InvalidState(format!("Failed to copy file: {}", e)))?;
         }
     }
@@ -585,17 +639,22 @@ fn restore_database_state(db: &Database, snapshot: &DatabaseSnapshot) -> Result<
 }
 
 /// Restore enabled/disabled states for mods.
-fn restore_enabled_states(mods_dir: &Path, disabled_mods: &[String]) -> Result<(), AppError> {
+async fn restore_enabled_states(mods_dir: &Path, disabled_mods: &[String]) -> Result<(), AppError> {
     // First, remove all .lovelyignore files
     if mods_dir.exists() {
-        let entries = fs::read_dir(mods_dir)
+        let mut entries = fs::read_dir(mods_dir)
+            .await
             .map_err(|e| AppError::InvalidState(format!("Failed to read mods directory: {}", e)))?;
 
-        for entry in entries.flatten() {
+        while let Some(entry) = entries.next_entry().await.transpose() {
+            let entry = match entry {
+                Ok(e) => e,
+                Err(_) => continue,
+            };
             let path = entry.path();
             if path.is_dir() {
                 let ignore_file = path.join(".lovelyignore");
-                let _ = fs::remove_file(&ignore_file);
+                let _ = fs::remove_file(&ignore_file).await;
             }
         }
     }
@@ -605,7 +664,7 @@ fn restore_enabled_states(mods_dir: &Path, disabled_mods: &[String]) -> Result<(
         let mod_path = mods_dir.join(mod_name);
         if mod_path.exists() && mod_path.is_dir() {
             let ignore_file = mod_path.join(".lovelyignore");
-            fs::write(&ignore_file, "").map_err(|e| {
+            fs::write(&ignore_file, "").await.map_err(|e| {
                 AppError::InvalidState(format!(
                     "Failed to create .lovelyignore for {}: {}",
                     mod_name, e
@@ -618,7 +677,7 @@ fn restore_enabled_states(mods_dir: &Path, disabled_mods: &[String]) -> Result<(
 }
 
 /// Delete a backup by ID.
-pub fn delete_backup(backup_id: &str) -> Result<(), AppError> {
+pub async fn delete_backup(backup_id: &str) -> Result<(), AppError> {
     let backups_dir = get_backups_dir()?;
     let backup_dir = backups_dir.join(backup_id);
 
@@ -630,6 +689,7 @@ pub fn delete_backup(backup_id: &str) -> Result<(), AppError> {
     }
 
     fs::remove_dir_all(&backup_dir)
+        .await
         .map_err(|e| AppError::InvalidState(format!("Failed to delete backup: {}", e)))?;
 
     log::info!("Deleted backup '{}'", backup_id);
@@ -639,8 +699,8 @@ pub fn delete_backup(backup_id: &str) -> Result<(), AppError> {
 
 /// Enforce the retention policy for automatic backups.
 /// Keeps only the most recent MAX_AUTO_BACKUPS automatic backups.
-pub fn enforce_retention() -> Result<(), AppError> {
-    let backups = list_backups()?;
+pub async fn enforce_retention() -> Result<(), AppError> {
+    let backups = list_backups().await?;
 
     // Filter to only auto backups
     let auto_backups: Vec<_> = backups.iter().filter(|b| b.trigger.is_auto()).collect();
@@ -648,7 +708,7 @@ pub fn enforce_retention() -> Result<(), AppError> {
     // Delete oldest auto backups if we exceed the limit
     if auto_backups.len() > MAX_AUTO_BACKUPS {
         for backup in auto_backups.iter().skip(MAX_AUTO_BACKUPS) {
-            if let Err(e) = delete_backup(&backup.id) {
+            if let Err(e) = delete_backup(&backup.id).await {
                 log::warn!("Failed to delete old backup '{}': {}", backup.id, e);
             }
         }
@@ -658,8 +718,8 @@ pub fn enforce_retention() -> Result<(), AppError> {
 }
 
 /// Get the total size of all backups in bytes.
-pub fn get_total_backups_size() -> Result<u64, AppError> {
-    let backups = list_backups()?;
+pub async fn get_total_backups_size() -> Result<u64, AppError> {
+    let backups = list_backups().await?;
     Ok(backups.iter().map(|b| b.size_bytes).sum())
 }
 
@@ -669,7 +729,7 @@ pub fn check_interrupted_restore() -> Option<String> {
     let restore_marker = config_dir.join("Balatro").join(".restore_in_progress");
 
     if restore_marker.exists() {
-        fs::read_to_string(&restore_marker).ok()
+        std::fs::read_to_string(&restore_marker).ok()
     } else {
         None
     }
@@ -682,7 +742,7 @@ pub fn clear_interrupted_restore_marker() -> Result<(), AppError> {
     let restore_marker = config_dir.join("Balatro").join(".restore_in_progress");
 
     if restore_marker.exists() {
-        fs::remove_file(&restore_marker).map_err(|e| {
+        std::fs::remove_file(&restore_marker).map_err(|e| {
             AppError::InvalidState(format!("Failed to remove restore marker: {}", e))
         })?;
     }
