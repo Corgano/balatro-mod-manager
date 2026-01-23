@@ -457,7 +457,10 @@ pub async fn launch_balatro(state: tauri::State<'_, AppState>) -> Result<(), Str
     // Only available in Lovely 0.9.0+
     if is_vanilla {
         if supports_vanilla_flag(lovely_version.as_deref()) {
-            log::info!("Adding --vanilla flag (Lovely version: {:?})", lovely_version);
+            log::info!(
+                "Adding --vanilla flag (Lovely version: {:?})",
+                lovely_version
+            );
             cmd.arg("--vanilla");
         } else {
             // If we can't determine version, assume latest Lovely supports --vanilla
