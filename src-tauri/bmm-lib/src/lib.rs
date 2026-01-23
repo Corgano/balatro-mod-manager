@@ -5,6 +5,7 @@
 //!
 //! # Modules
 //!
+//! - [`backup`]: Backup and restore functionality for mod snapshots
 //! - [`balamod`]: Balamod (alternative mod loader) support and Balatro game detection
 //! - [`cache`]: Binary cache for remote mod index data
 //! - [`database`]: SQLite database for storing app settings and installed mod metadata
@@ -19,6 +20,8 @@
 //! - [`rate_limiter`]: Rate limiter for GitHub API requests
 //! - [`smods_installer`]: Steamodded/Talisman installer
 
+/// Backup and restore functionality for mod snapshots.
+pub mod backup;
 /// Balamod support and Balatro game detection.
 pub mod balamod;
 /// Binary cache for remote mod index data.

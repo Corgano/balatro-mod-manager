@@ -392,3 +392,38 @@ export interface ReportIssueState {
 export const reportIssueStore = writable<ReportIssueState>({
   visible: false,
 });
+
+// CreateBackup popup state
+export interface CreateBackupPopupState {
+  visible: boolean;
+}
+
+export const createBackupPopupStore = writable<CreateBackupPopupState>({
+  visible: false,
+});
+
+// Backup restore confirmation popup state
+export interface RestoreBackupPopupState {
+  visible: boolean;
+  backupId: string;
+  backupName: string;
+}
+
+export const restoreBackupPopupStore = writable<RestoreBackupPopupState>({
+  visible: false,
+  backupId: "",
+  backupName: "",
+});
+
+// Backup delete confirmation popup state
+export interface DeleteBackupPopupState {
+  visible: boolean;
+  backupId: string;
+  backupName: string;
+}
+
+export const deleteBackupPopupStore = writable<DeleteBackupPopupState>({
+  visible: false,
+  backupId: "",
+  backupName: "",
+});
