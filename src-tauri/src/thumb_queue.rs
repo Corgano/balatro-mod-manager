@@ -43,6 +43,8 @@ impl ThumbnailManager {
         let client = reqwest::Client::builder()
             .user_agent("balatro-mod-manager/1.0")
             .timeout(Duration::from_secs(10))
+            // Accept invalid certs for direct IP connections (fallback mode)
+            .danger_accept_invalid_certs(true)
             .build()
             .expect("reqwest client");
 

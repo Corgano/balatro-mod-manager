@@ -879,11 +879,25 @@ fn normalize_thumbnail_url(client: &BmiClient, raw: &str) -> Result<String, Stri
         if let Some(path) = normalize_thumbnail_path(url.path()) {
             url.set_path(&path);
         }
+        // Rewrite to fallback IP if we're using fallback mode
+        if client.is_using_fallback()
+            && let Some(fallback) = &client.fallback_url
+        {
+            let path_and_query = url.path().to_string()
+                + url
+                    .query()
+                    .map(|q| format!("?{}", q))
+                    .as_deref()
+                    .unwrap_or("");
+            if let Ok(rewritten) = fallback.join(path_and_query.trim_start_matches('/')) {
+                return Ok(rewritten.to_string());
+            }
+        }
         return Ok(url.to_string());
     }
     let path = normalize_thumbnail_path(raw).unwrap_or_else(|| raw.to_string());
     client
-        .base_url
+        .effective_base_url()
         .join(path.trim_start_matches('/'))
         .map(|u| u.to_string())
         .map_err(|e| e.to_string())
