@@ -25,24 +25,23 @@ jobs:
           # Adjust this grep command if your version format or file path differs
           APP_VERSION=$(grep -m1 'version =' src-tauri/Cargo.toml | cut -d '"' -f2)
           echo "APP_VERSION=$APP_VERSION" >> $GITHUB_OUTPUT
-      - name: Install git-cliff
-        run: |
-          curl -sSL https://github.com/orhun/git-cliff/releases/latest/download/git-cliff-2.7.0-x86_64-unknown-linux-gnu.tar.gz | tar xz
-          sudo mv git-cliff-2.7.0/git-cliff /usr/local/bin/
-      - name: Generate Release Notes
-        id: notes
-        env:
-          APP_VERSION: ${{ steps.version.outputs.APP_VERSION }}
+      - name: Get previous tag
+        id: prev-tag
         run: |
           PREVIOUS_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
-
-          if [ -n "$PREVIOUS_TAG" ]; then
-            git cliff "$PREVIOUS_TAG".. --tag "v$APP_VERSION" > RELEASE_NOTES.md
-          else
-            git cliff --tag "v$APP_VERSION" > RELEASE_NOTES.md
-          fi
-
-          # Append FAQ
+          echo "PREVIOUS_TAG=$PREVIOUS_TAG" >> $GITHUB_OUTPUT
+      - name: Generate Release Notes
+        uses: orhun/git-cliff-action@v4
+        id: git-cliff
+        with:
+          config: cliff.toml
+          args: ${{ steps.prev-tag.outputs.PREVIOUS_TAG && format('{0}.. --tag v{1}', steps.prev-tag.outputs.PREVIOUS_TAG, steps.version.outputs.APP_VERSION) || format('--tag v{0}', steps.version.outputs.APP_VERSION) }}
+        env:
+          OUTPUT: RELEASE_NOTES.md
+          GITHUB_REPO: ${{ github.repository }}
+      - name: Append FAQ to Release Notes
+        id: notes
+        run: |
           cat >> RELEASE_NOTES.md << 'EOL'
 
           ---
