@@ -455,8 +455,19 @@ pub async fn launch_balatro(state: tauri::State<'_, AppState>) -> Result<(), Str
 
     // Use Lovely's --vanilla flag to skip mod loading while keeping DLL in place
     // Only available in Lovely 0.9.0+
-    if is_vanilla && supports_vanilla_flag(lovely_version.as_deref()) {
-        cmd.arg("--vanilla");
+    if is_vanilla {
+        if supports_vanilla_flag(lovely_version.as_deref()) {
+            log::info!("Adding --vanilla flag (Lovely version: {:?})", lovely_version);
+            cmd.arg("--vanilla");
+        } else {
+            // If we can't determine version, assume latest Lovely supports --vanilla
+            // This is better than silently launching with mods when user wants vanilla
+            log::warn!(
+                "Vanilla mode requested but Lovely version unknown ({:?}). Adding --vanilla flag anyway (assuming 0.9.0+)",
+                lovely_version
+            );
+            cmd.arg("--vanilla");
+        }
     }
 
     cmd.spawn().map_err(|e| e.to_string())?;
