@@ -78,11 +78,6 @@
     font-size: 2.8rem;
     margin: 0 0 2rem 0;
     font-family: "M6X11", sans-serif;
-    text-shadow:
-      -2px -2px 0 #000,
-      2px -2px 0 #000,
-      -2px 2px 0 #000,
-      2px 2px 0 #000;
   }
 
   .actions-row {
