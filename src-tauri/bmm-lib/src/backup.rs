@@ -796,13 +796,15 @@ mod tests {
         // Create some mod directories
         let mod1 = mods_dir.join("EnabledMod");
         let mod2 = mods_dir.join("DisabledMod");
-        fs::create_dir_all(&mod1).unwrap();
-        fs::create_dir_all(&mod2).unwrap();
+        std::fs::create_dir_all(&mod1).unwrap();
+        std::fs::create_dir_all(&mod2).unwrap();
 
         // Add .lovelyignore to disabled mod
-        fs::write(mod2.join(".lovelyignore"), "").unwrap();
+        std::fs::write(mod2.join(".lovelyignore"), "").unwrap();
 
-        let disabled = find_disabled_mods(mods_dir).unwrap();
+        // Use tokio runtime for async test
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let disabled = rt.block_on(find_disabled_mods(mods_dir)).unwrap();
         assert_eq!(disabled, vec!["DisabledMod"]);
     }
 
@@ -815,17 +817,17 @@ mod tests {
 
         // Create test mod structure
         let test_mod = mods_dir.join("TestMod");
-        fs::create_dir_all(&test_mod).unwrap();
-        fs::write(test_mod.join("main.lua"), "-- test mod").unwrap();
-        fs::write(test_mod.join("config.json"), "{}").unwrap();
+        std::fs::create_dir_all(&test_mod).unwrap();
+        std::fs::write(test_mod.join("main.lua"), "-- test mod").unwrap();
+        std::fs::write(test_mod.join("config.json"), "{}").unwrap();
 
         // Create archive
-        create_mods_archive(&mods_dir, &archive_path).unwrap();
+        create_mods_archive_sync(&mods_dir, &archive_path).unwrap();
         assert!(archive_path.exists());
 
         // Extract archive
-        fs::create_dir_all(&extract_dir).unwrap();
-        extract_mods_archive(&archive_path, &extract_dir).unwrap();
+        std::fs::create_dir_all(&extract_dir).unwrap();
+        extract_mods_archive_sync(&archive_path, &extract_dir).unwrap();
 
         // Verify extracted contents
         let extracted_mod = extract_dir.join("TestMod");

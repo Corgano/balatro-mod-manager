@@ -1,4 +1,4 @@
-import { writable, get } from "svelte/store";
+import { writable } from "svelte/store";
 import { invoke } from "@tauri-apps/api/core";
 
 export type BackupTrigger =
@@ -25,7 +25,7 @@ export interface BackupsState {
 }
 
 function createBackupsStore() {
-  const { subscribe, set, update } = writable<BackupsState>({
+  const { subscribe, update } = writable<BackupsState>({
     backups: [],
     loading: false,
     totalSize: 0,

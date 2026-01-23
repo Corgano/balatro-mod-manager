@@ -143,8 +143,8 @@ tasks:
       - cmd: bun run check
       - cmd: cd ./src-tauri && cargo fmt --all --check
       - cmd: cd ./src-tauri && cargo clippy -- -D warnings
-      - cmd: cd ./src-tauri && cargo test -q
-      - cmd: cd ./src-tauri/bmm-lib && cargo test -q
+      - cmd: cd ./src-tauri && cargo test -q -- --test-threads=1
+      - cmd: cd ./src-tauri/bmm-lib && cargo test -q -- --test-threads=1
   fmt:
     desc: Format Rust and frontend code
     cmds:
@@ -170,8 +170,8 @@ tasks:
   test:
     desc: Run Rust tests for both crates
     cmds:
-      - cmd: cd ./src-tauri && cargo test -q
-      - cmd: cd ./src-tauri/bmm-lib && cargo test -q
+      - cmd: cd ./src-tauri && cargo test -q -- --test-threads=1
+      - cmd: cd ./src-tauri/bmm-lib && cargo test -q -- --test-threads=1
   clean:
     desc: Clean build artifacts
     cmds:
