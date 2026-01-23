@@ -5,6 +5,7 @@
 	import { lovelyPopupStore } from "../stores/modStore";
 	import { isLinuxPlatform } from "../lib/platform";
 	import { onMount } from "svelte";
+	import { Check } from "lucide-svelte";
 
 let showAlert = false;
 let isLinux = false;
@@ -254,7 +255,7 @@ onMount(() => {
 					class:active={launchMode === "modded"}
 					onclick={() => setMode("modded")}
 				>
-					<span class="check">{launchMode === "modded" ? "✓" : ""}</span>
+					<span class="check">{#if launchMode === "modded"}<Check size={16} strokeWidth={3} />{/if}</span>
 					Modded
 				</button>
 				<button
@@ -262,7 +263,7 @@ onMount(() => {
 					class:active={launchMode === "vanilla"}
 					onclick={() => setMode("vanilla")}
 				>
-					<span class="check">{launchMode === "vanilla" ? "✓" : ""}</span>
+					<span class="check">{#if launchMode === "vanilla"}<Check size={16} strokeWidth={3} />{/if}</span>
 					Vanilla
 				</button>
 			</div>
@@ -399,9 +400,13 @@ onMount(() => {
 	}
 
 	.dropdown-item .check {
-		width: 0.9rem;
+		width: 1.2rem;
+		height: 16px;
 		font-size: 1rem;
-		display: inline-block;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		margin-right: 0.3rem;
 	}
 
 	@media (max-width: 1160px) {
