@@ -113,6 +113,15 @@
 	async function setupAppWindow() {
 		const appWindow = Window.getCurrent();
 
+		// Wait for the next frame to ensure the page is painted
+		await new Promise<void>((resolve) => {
+			requestAnimationFrame(() => {
+				requestAnimationFrame(() => {
+					resolve();
+				});
+			});
+		});
+
 		await appWindow.show();
 		await appWindow.setFocus();
 	}
