@@ -252,20 +252,25 @@ impl Database {
             // Add a small delay to ensure all handles are released
             std::thread::sleep(std::time::Duration::from_millis(100));
 
-            // Try to backup the old database
+            // Try to backup the old database - fail if we can't
             let backup_path = db_path.with_extension("db.bak");
 
-            // If backup fails, just log a warning but continue
-            match std::fs::rename(db_path, &backup_path) {
-                Ok(_) => {}
-                Err(e) => {
-                    log::warn!("Failed to backup old database, continuing anyway: {e}");
-                    // Try to directly remove the old file if we can't rename it
-                    if let Err(e) = std::fs::remove_file(db_path) {
-                        log::warn!("Failed to remove old database: {e}");
-                    }
-                }
+            // Remove old backup if it exists
+            if backup_path.exists()
+                && let Err(e) = std::fs::remove_file(&backup_path)
+            {
+                log::warn!("Failed to remove old backup file: {e}");
             }
+
+            // Backup is mandatory - don't proceed without it
+            std::fs::rename(db_path, &backup_path).map_err(|e| {
+                // Try to clean up the new database we created
+                let _ = std::fs::remove_file(&temp_db_path);
+                AppError::DatabaseInit(format!(
+                    "Failed to backup database before migration: {e}. \
+                     Migration aborted to prevent data loss."
+                ))
+            })?;
 
             // Replace with the new one
             match std::fs::rename(&temp_db_path, db_path) {
