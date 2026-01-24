@@ -342,11 +342,15 @@
     align-items: center;
     gap: 0.5rem;
     padding: 0.5rem 1rem;
-    background: var(--ui-panel-bg);
+    background: #1a1a2e;
     border: 2px solid var(--ui-mod-panel-border);
     border-radius: 8px;
     z-index: 1000;
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  }
+
+  .bulk-action-bar.light {
+    background: #8a2a35;
   }
 
   .count {
