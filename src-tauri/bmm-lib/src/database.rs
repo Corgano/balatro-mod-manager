@@ -36,7 +36,24 @@ pub struct InstalledMod {
 }
 
 impl Database {
-    const CURRENT_DB_VERSION: &'static str = "1.2"; // Update this when schema changes
+    const CURRENT_DB_VERSION: (u32, u32) = (1, 2); // Update this when schema changes
+
+    /// Converts a version tuple to a string representation.
+    fn version_to_string(v: (u32, u32)) -> String {
+        format!("{}.{}", v.0, v.1)
+    }
+
+    /// Parses a version string into a tuple.
+    fn parse_version(s: &str) -> Option<(u32, u32)> {
+        let parts: Vec<&str> = s.split('.').collect();
+        if parts.len() == 2 {
+            let major = parts[0].parse().ok()?;
+            let minor = parts[1].parse().ok()?;
+            Some((major, minor))
+        } else {
+            None
+        }
+    }
 
     /// Creates a new Database instance, opening or creating the SQLite file.
     ///
@@ -203,7 +220,10 @@ impl Database {
             [],
             |row| row.get::<_, String>(0),
         ) {
-            Ok(version) => Ok(version != Self::CURRENT_DB_VERSION),
+            Ok(version) => match Self::parse_version(&version) {
+                Some(v) => Ok(v < Self::CURRENT_DB_VERSION),
+                None => Ok(true), // Invalid version format, needs migration
+            },
             Err(_) => Ok(true), // If we can't get the version, assume migration is needed
         }
     }
@@ -431,7 +451,7 @@ impl Database {
         // Set the database version
         conn.execute(
             "INSERT OR REPLACE INTO settings (setting, value) VALUES ('db_version', ?1)",
-            [Self::CURRENT_DB_VERSION],
+            [&Self::version_to_string(Self::CURRENT_DB_VERSION)],
         )
         .map_err(|e| AppError::DatabaseInit(e.to_string()))?;
 
