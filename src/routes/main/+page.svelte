@@ -426,7 +426,7 @@ import { backupsStore } from "../../stores/backups";
 		{onError}
 	/>
 
-	{#if appVersion}<div class="version-text">v0.3.9</div>{/if}
+	{#if appVersion}<div class="version-text">v0.4.0</div>{/if}
 </div>
 
 	<LovelyMissingPopup />
