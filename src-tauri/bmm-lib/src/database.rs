@@ -886,4 +886,33 @@ mod tests {
 
         Ok(())
     }
+
+    #[test]
+    fn test_get_mod_details_not_found() -> Result<(), AppError> {
+        let db = create_memory_db()?;
+        let result = db.get_mod_details("NonExistentMod");
+        assert!(result.is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn test_remove_nonexistent_mod_succeeds() -> Result<(), AppError> {
+        let db = create_memory_db()?;
+        // Removing a mod that doesn't exist should not error
+        let result = db.remove_installed_mod("NonExistentMod");
+        assert!(result.is_ok());
+        Ok(())
+    }
+
+    #[test]
+    fn test_duplicate_mod_replaces() -> Result<(), AppError> {
+        let db = create_memory_db()?;
+        db.add_installed_mod("TestMod", "/path/v1", &[], Some("1.0".to_string()))?;
+        db.add_installed_mod("TestMod", "/path/v2", &[], Some("2.0".to_string()))?;
+
+        let mods = db.get_installed_mods()?;
+        assert_eq!(mods.len(), 1);
+        assert_eq!(mods[0].path, "/path/v2");
+        Ok(())
+    }
 }

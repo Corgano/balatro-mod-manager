@@ -1107,4 +1107,27 @@ mod tests {
             Some(PathBuf::from("mod/init.lua"))
         );
     }
+
+    #[test]
+    fn test_validate_uninstall_path_rejects_outside_mods_dir() {
+        let td = tempfile::tempdir().unwrap();
+        let mods_dir = td.path().join("Mods");
+        let outside = td.path().join("outside");
+        std::fs::create_dir_all(&mods_dir).unwrap();
+        std::fs::create_dir_all(&outside).unwrap();
+
+        let result = validate_uninstall_path(&outside, &[mods_dir]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_validate_uninstall_path_rejects_nonexistent() {
+        let td = tempfile::tempdir().unwrap();
+        let mods_dir = td.path().join("Mods");
+        let nonexistent = mods_dir.join("DoesNotExist");
+        std::fs::create_dir_all(&mods_dir).unwrap();
+
+        let result = validate_uninstall_path(&nonexistent, &[mods_dir]);
+        assert!(result.is_err());
+    }
 }
