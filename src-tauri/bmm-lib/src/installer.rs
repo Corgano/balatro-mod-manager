@@ -323,18 +323,29 @@ fn parse_disposition_filename(header_value: &str) -> Option<String> {
 
 fn sanitize_mod_name(name: &str) -> String {
     let mut out = String::with_capacity(name.len());
+    let mut last_was_space = true; // Start true to trim leading spaces
+
     for c in name.chars() {
         if c.is_ascii_control() {
             continue;
         }
-        if matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|') {
-            out.push(' ');
+
+        let is_illegal = matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|');
+        let is_space = c == ' ' || is_illegal;
+
+        if is_space {
+            if !last_was_space {
+                out.push(' ');
+                last_was_space = true;
+            }
         } else {
             out.push(c);
+            last_was_space = false;
         }
     }
-    let collapsed = out.split_whitespace().collect::<Vec<_>>().join(" ");
-    collapsed.trim_matches(|c| c == ' ' || c == '.').to_string()
+
+    // Trim trailing space and dots
+    out.trim_end_matches([' ', '.']).to_string()
 }
 
 /// Sanitize an archive entry path to prevent path traversal attacks.
