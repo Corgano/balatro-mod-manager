@@ -208,9 +208,11 @@ fn sync_proton_mods(host_mods: &Path, compat_mods: &Path) -> Result<(), String> 
 ///   will try to derive the steamapps directory from it.
 #[cfg(target_os = "linux")]
 pub fn ensure_proton_mod_dir_link(game_path: Option<&Path>) -> Result<(), String> {
-    // Don't run inside Flatpak - Flatpak has its own path handling
-    if std::env::var_os("FLATPAK_ID").is_some() {
-        return Ok(());
+    let is_flatpak = std::env::var_os("FLATPAK_ID").is_some();
+
+    // For Flatpak, we need to use flatpak-spawn to create symlinks on the host
+    if is_flatpak {
+        return ensure_proton_mod_dir_link_flatpak();
     }
 
     let host_mods =
@@ -300,6 +302,161 @@ pub fn ensure_proton_mod_dir_link(game_path: Option<&Path>) -> Result<(), String
     );
 
     Ok(())
+}
+
+/// Flatpak-specific implementation that uses flatpak-spawn to create symlinks on the host.
+/// This is needed because the Flatpak sandbox cannot directly access the Steam/Proton prefix.
+#[cfg(target_os = "linux")]
+fn ensure_proton_mod_dir_link_flatpak() -> Result<(), String> {
+    use std::process::Command;
+
+    let Some(home) = dirs::home_dir() else {
+        return Err("Could not determine home directory".to_string());
+    };
+
+    // The host mods directory (Lovely 0.9.0+ location)
+    let host_mods = home.join(".local/share/Balatro/Mods");
+
+    // Common Steam library locations to check
+    let mut steam_locations = vec![
+        home.join(".local/share/Steam/steamapps"),
+        home.join(".steam/steam/steamapps"),
+        home.join(".steam/root/steamapps"),
+        home.join(".steam/debian-installation/steamapps"),
+    ];
+
+    // Also check for SD card / external drive locations (common on Steam Deck)
+    // These are typically mounted at /run/media/<user>/<volume>/
+    if let Ok(user) = std::env::var("USER") {
+        let media_base = PathBuf::from("/run/media").join(&user);
+
+        // Use flatpak-spawn to list mounted volumes
+        let ls_result = Command::new("flatpak-spawn")
+            .args(["--host", "ls", &media_base.to_string_lossy()])
+            .output();
+
+        if let Ok(output) = ls_result
+            && output.status.success()
+        {
+            let volumes = String::from_utf8_lossy(&output.stdout);
+            for volume in volumes.lines() {
+                let volume = volume.trim();
+                if volume.is_empty() {
+                    continue;
+                }
+                // Check common Steam library paths on external drives
+                steam_locations.push(media_base.join(volume).join("steamapps"));
+                steam_locations.push(media_base.join(volume).join("SteamLibrary/steamapps"));
+            }
+        }
+    }
+
+    // Find which Steam location has Balatro installed
+    let mut compat_mods_path: Option<PathBuf> = None;
+    for steamapps in &steam_locations {
+        let balatro_path = steamapps.join("common/Balatro");
+        let compat_path = steamapps
+            .join("compatdata/2379780/pfx/drive_c/users/steamuser/AppData/Roaming/Balatro/Mods");
+
+        // Check if Balatro exists at this location using flatpak-spawn
+        let check_result = Command::new("flatpak-spawn")
+            .args(["--host", "test", "-d", &balatro_path.to_string_lossy()])
+            .status();
+
+        if let Ok(status) = check_result
+            && status.success()
+        {
+            compat_mods_path = Some(compat_path);
+            info!("Found Balatro installation at {}", steamapps.display());
+            break;
+        }
+    }
+
+    let Some(compat_mods) = compat_mods_path else {
+        info!("No Steam Balatro installation found from Flatpak, skipping Proton symlink");
+        return Ok(());
+    };
+
+    // Check if symlink already exists
+    let check_symlink = Command::new("flatpak-spawn")
+        .args(["--host", "test", "-L", &compat_mods.to_string_lossy()])
+        .status();
+
+    if let Ok(status) = check_symlink
+        && status.success()
+    {
+        info!("Proton symlink already exists: {}", compat_mods.display());
+        return Ok(());
+    }
+
+    // Check if it exists as a regular directory
+    let check_dir = Command::new("flatpak-spawn")
+        .args(["--host", "test", "-d", &compat_mods.to_string_lossy()])
+        .status();
+
+    if let Ok(status) = check_dir
+        && status.success()
+    {
+        warn!(
+            "Proton Mods path exists as directory, not creating symlink: {}",
+            compat_mods.display()
+        );
+        return Ok(());
+    }
+
+    // Create the host mods directory if it doesn't exist
+    let mkdir_result = Command::new("flatpak-spawn")
+        .args(["--host", "mkdir", "-p", &host_mods.to_string_lossy()])
+        .status();
+
+    if let Err(e) = mkdir_result {
+        warn!("Failed to create host mods directory: {}", e);
+    }
+
+    // Create parent directory for the compat mods path
+    if let Some(parent) = compat_mods.parent() {
+        let mkdir_parent = Command::new("flatpak-spawn")
+            .args(["--host", "mkdir", "-p", &parent.to_string_lossy()])
+            .status();
+
+        if let Err(e) = mkdir_parent {
+            return Err(format!(
+                "Failed to create Proton mods parent directory: {}",
+                e
+            ));
+        }
+    }
+
+    // Create the symlink using flatpak-spawn
+    let symlink_result = Command::new("flatpak-spawn")
+        .args([
+            "--host",
+            "ln",
+            "-s",
+            &host_mods.to_string_lossy(),
+            &compat_mods.to_string_lossy(),
+        ])
+        .output();
+
+    match symlink_result {
+        Ok(output) => {
+            if output.status.success() {
+                info!(
+                    "Created Proton symlink via flatpak-spawn: {} -> {}",
+                    compat_mods.display(),
+                    host_mods.display()
+                );
+                Ok(())
+            } else {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                Err(format!(
+                    "Failed to create Proton symlink: {}",
+                    stderr.trim()
+                ))
+            }
+        }
+        Err(e) => Err(format!("Failed to run flatpak-spawn for symlink: {}", e)),
+    }
 }
 
 /// No-op on non-Linux platforms.
