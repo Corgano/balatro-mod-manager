@@ -47,6 +47,23 @@ const MAX_DECOMPRESSED_SIZE: u64 = 2 * 1024 * 1024 * 1024;
 /// Maximum number of files allowed in an archive
 const MAX_ARCHIVE_FILES: usize = 10_000;
 
+/// Delay after uninstalling a mod before reinstalling (Windows).
+/// Windows file handles take longer to fully release.
+#[cfg(target_os = "windows")]
+const FILE_LOCK_RELEASE_DELAY_MS: u64 = 250;
+
+/// Delay after uninstalling a mod before reinstalling (Unix).
+#[cfg(not(target_os = "windows"))]
+const FILE_LOCK_RELEASE_DELAY_MS: u64 = 100;
+
+/// Base retry delay for directory removal (Windows).
+#[cfg(target_os = "windows")]
+const DIR_REMOVE_BASE_DELAY_MS: u64 = 100;
+
+/// Base retry delay for directory removal (Unix).
+#[cfg(not(target_os = "windows"))]
+const DIR_REMOVE_BASE_DELAY_MS: u64 = 50;
+
 /// Downloads and installs a mod from the given URL.
 ///
 /// The archive is automatically detected and extracted to the Balatro Mods
@@ -238,11 +255,7 @@ pub async fn install_mod(url: String, folder_name: Option<String>) -> Result<Pat
 
         // Give the filesystem time to fully release file handles.
         // This is especially important on Windows where file locks can persist briefly.
-        // Using 250ms for Windows reliability (100ms was insufficient per issue reports).
-        #[cfg(target_os = "windows")]
-        sleep(Duration::from_millis(250)).await;
-        #[cfg(not(target_os = "windows"))]
-        sleep(Duration::from_millis(100)).await;
+        sleep(Duration::from_millis(FILE_LOCK_RELEASE_DELAY_MS)).await;
     }
 
     log::info!("Installing mod: {url}");
@@ -812,11 +825,7 @@ fn apply_disabled_marker(mod_path: &Path) -> Result<(), AppError> {
 fn remove_dir_with_retry(path: &PathBuf, max_retries: u32) -> Result<(), AppError> {
     let mut last_error = None;
 
-    // Base delay is higher on Windows where file locks persist longer
-    #[cfg(target_os = "windows")]
-    let base_delay_ms: u64 = 100;
-    #[cfg(not(target_os = "windows"))]
-    let base_delay_ms: u64 = 50;
+    let base_delay_ms = DIR_REMOVE_BASE_DELAY_MS;
 
     for attempt in 0..max_retries {
         match fs::remove_dir_all(path) {
