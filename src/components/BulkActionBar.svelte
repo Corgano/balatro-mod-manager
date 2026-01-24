@@ -1,6 +1,7 @@
 <script lang="ts">
     import { Check, X, Power, PowerOff, Trash2, ChevronDown } from "lucide-svelte";
     import { fly } from "svelte/transition";
+    import { onMount, onDestroy } from "svelte";
     import {
         selectedModsStore,
         clearSelection,
@@ -89,6 +90,25 @@
     function closeDropdown() {
         selectDropdownOpen = false;
     }
+
+    // Close dropdown when clicking outside
+    function handleClickOutside(event: MouseEvent) {
+        if (selectDropdownOpen) {
+            const target = event.target as HTMLElement;
+            const dropdown = document.querySelector('.select-dropdown-wrapper');
+            if (dropdown && !dropdown.contains(target)) {
+                selectDropdownOpen = false;
+            }
+        }
+    }
+
+    onMount(() => {
+        document.addEventListener('click', handleClickOutside);
+    });
+
+    onDestroy(() => {
+        document.removeEventListener('click', handleClickOutside);
+    });
 
     async function handleEnableSelected() {
         if (isBusy) return;
