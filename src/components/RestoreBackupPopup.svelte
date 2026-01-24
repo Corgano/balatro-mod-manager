@@ -14,7 +14,10 @@
     const success = await backupsStore.restoreBackup(backupId);
 
     if (success) {
-      addMessage("Backup restored successfully. Please restart the app.", "success");
+      addMessage(
+        "Backup restored successfully. Please restart the app.",
+        "success",
+      );
     } else if ($backupsStore.error) {
       addMessage($backupsStore.error, "error");
     }
@@ -24,7 +27,11 @@
   }
 
   function handleClose() {
-    restoreBackupPopupStore.set({ visible: false, backupId: "", backupName: "" });
+    restoreBackupPopupStore.set({
+      visible: false,
+      backupId: "",
+      backupName: "",
+    });
   }
 
   function handleKeydown(e: KeyboardEvent) {
@@ -46,17 +53,26 @@
     >
       <h3>Restore Backup?</h3>
       <p class="dialog-text">
-        This will replace your current mods with the backed-up configuration from
+        This will replace your current mods with the backed-up configuration
+        from
         <strong>"{$restoreBackupPopupStore.backupName}"</strong>.
       </p>
       <p class="dialog-hint">
         Your current mods will be backed up automatically before restoring.
       </p>
       <div class="dialog-actions">
-        <button class="confirm-button" onclick={handleRestore} disabled={isProcessing}>
+        <button
+          class="confirm-button"
+          onclick={handleRestore}
+          disabled={isProcessing}
+        >
           {isProcessing ? "Restoring..." : "Restore"}
         </button>
-        <button class="cancel-button" onclick={handleClose} disabled={isProcessing}>
+        <button
+          class="cancel-button"
+          onclick={handleClose}
+          disabled={isProcessing}
+        >
           Cancel
         </button>
       </div>
@@ -131,7 +147,9 @@
     font-family: "M6X11", sans-serif;
     font-size: 1.25rem;
     cursor: pointer;
-    transition: transform 0.2s ease, background-color 0.2s ease;
+    transition:
+      transform 0.2s ease,
+      background-color 0.2s ease;
     box-shadow: 0 4px 0 rgba(0, 0, 0, 0.25);
   }
 

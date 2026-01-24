@@ -20,7 +20,8 @@
   import { invoke, convertFileSrc } from "@tauri-apps/api/core";
   import { configDir, join } from "@tauri-apps/api/path";
 
-  const ua = typeof navigator !== "undefined" ? navigator.userAgent.toLowerCase() : "";
+  const ua =
+    typeof navigator !== "undefined" ? navigator.userAgent.toLowerCase() : "";
   const platformData =
     typeof document !== "undefined"
       ? document.documentElement.dataset.platform
@@ -144,7 +145,10 @@
     const isPosixAbs = s.startsWith("/");
     if (!isWindowsPath && !isUnc && !isPosixAbs) return null;
     if (isUnc) {
-      const normalized = s.replace(/^\\\\/, "").replace(/\\\\/g, "/").replace(/\\/g, "/");
+      const normalized = s
+        .replace(/^\\\\/, "")
+        .replace(/\\\\/g, "/")
+        .replace(/\\/g, "/");
       return encodeURI(`file://${normalized}`);
     }
     const normalized = isWindowsPath ? s.replace(/\\/g, "/") : s;
@@ -213,7 +217,7 @@
         "Balatro",
         "mod_assets",
         "thumbnails",
-        `${safeSlug(key)}.jpg`
+        `${safeSlug(key)}.jpg`,
       );
       const url = toAssetUrl(path);
       cacheUrlMemo.set(key, url);
@@ -231,7 +235,10 @@
   function isDefaultResolved(path: string | null | undefined): boolean {
     if (!path) return false;
     const r = resolveLocal(path);
-    return r === resolvedDefaultSrc() || /(^|\/)images\/cover\.jpg$/i.test(path.trim());
+    return (
+      r === resolvedDefaultSrc() ||
+      /(^|\/)images\/cover\.jpg$/i.test(path.trim())
+    );
   }
 
   function clearTimer() {
@@ -332,13 +339,18 @@
     triedLocalFileFallback = false;
     releaseSlot();
     // Schedule a one-shot cache recheck: background queue may fetch it soon
-    if (enableCache && cacheTitle && cacheRecheckTimer === null && !thumbMemo.has(cacheTitle)) {
+    if (
+      enableCache &&
+      cacheTitle &&
+      cacheRecheckTimer === null &&
+      !thumbMemo.has(cacheTitle)
+    ) {
       cacheRecheckTimer = setTimeout(async () => {
         cacheRecheckTimer = null;
         try {
           const cached = await invoke<string | null>(
             "get_cached_thumbnail_by_title",
-            { title: cacheTitle }
+            { title: cacheTitle },
           );
           if (cached) {
             const resolved = resolveLocal(cached);
@@ -355,7 +367,9 @@
             triedLocalFileFallback = false;
             dispatch("load");
           }
-        } catch (_) { /* ignore */ }
+        } catch (_) {
+          /* ignore */
+        }
       }, CACHE_RECHECK_DELAY_MS) as unknown as number;
     }
   }
@@ -385,7 +399,10 @@
     ) {
       seenCacheTitles.add(cacheTitle);
       // Non-blocking; backend will no-op if already cached
-      invoke("cache_thumbnail_from_url", { title: cacheTitle, url: currentSrc }).catch(() => {});
+      invoke("cache_thumbnail_from_url", {
+        title: cacheTitle,
+        url: currentSrc,
+      }).catch(() => {});
     }
   }
 
@@ -417,7 +434,11 @@
     if (useLocalFileFallback()) {
       return;
     }
-    if (!triedFallback && fallbackSrc && currentSrc !== resolveLocal(fallbackSrc)) {
+    if (
+      !triedFallback &&
+      fallbackSrc &&
+      currentSrc !== resolveLocal(fallbackSrc)
+    ) {
       triedFallback = true;
       usingDefault = false;
       if (isDefaultResolved(fallbackSrc)) {
@@ -453,7 +474,11 @@
     if (useLocalFileFallback()) {
       return;
     }
-    if (!triedFallback && fallbackSrc && currentSrc !== resolveLocal(fallbackSrc)) {
+    if (
+      !triedFallback &&
+      fallbackSrc &&
+      currentSrc !== resolveLocal(fallbackSrc)
+    ) {
       triedFallback = true;
       usingDefault = false;
       if (isDefaultResolved(fallbackSrc)) {
@@ -488,9 +513,12 @@
       if (thumbMemo.has(cacheTitle)) {
         const cached = thumbMemo.get(cacheTitle)!;
         // Data URLs and remote URLs can be used directly
-        const resolved = cached.startsWith("data:") || cached.startsWith("http://") || cached.startsWith("https://")
-          ? cached
-          : toAssetUrl(cached);
+        const resolved =
+          cached.startsWith("data:") ||
+          cached.startsWith("http://") ||
+          cached.startsWith("https://")
+            ? cached
+            : toAssetUrl(cached);
         if (resolved) {
           triedFallback = false;
           usingDefault = false;
@@ -510,14 +538,17 @@
       try {
         const cached = await invoke<string | null>(
           "get_cached_thumbnail_by_title",
-          { title: cacheTitle }
+          { title: cacheTitle },
         );
         if (cached) {
           thumbMemo.set(cacheTitle, cached);
           // Data URLs and remote URLs can be used directly
-          const resolved = cached.startsWith("data:") || cached.startsWith("http://") || cached.startsWith("https://")
-            ? cached
-            : toAssetUrl(cached);
+          const resolved =
+            cached.startsWith("data:") ||
+            cached.startsWith("http://") ||
+            cached.startsWith("https://")
+              ? cached
+              : toAssetUrl(cached);
           triedFallback = false;
           usingDefault = false;
           localFileFallback = resolved;
@@ -553,7 +584,7 @@
           tryLoadCachedOrStart();
         }
       },
-      { root: null, rootMargin: isLinux ? "0px" : "150px", threshold: 0.01 }
+      { root: null, rootMargin: isLinux ? "0px" : "150px", threshold: 0.01 },
     );
     observer.observe(wrapper);
   }
@@ -593,14 +624,17 @@
       // A real src arrived after we were showing default; switch and load it.
       usingDefault = false;
       currentSrc = null;
-      if (inView && !deferLoad) tryLoadCachedOrStart(); else ensureObserved();
+      if (inView && !deferLoad) tryLoadCachedOrStart();
+      else ensureObserved();
     } else if (!isValidSrc(srcStr) || isDefaultResolved(srcStr)) {
       if (!usingDefault) resetToDefault();
       lockDefaultFor = srcStr;
     } else if (currentSrc !== resolved && !usingDefault) {
-      if (inView && !deferLoad) tryLoadCachedOrStart(); else ensureObserved();
+      if (inView && !deferLoad) tryLoadCachedOrStart();
+      else ensureObserved();
     } else if (currentSrc === null && !usingDefault) {
-      if (inView && !deferLoad) tryLoadCachedOrStart(); else ensureObserved();
+      if (inView && !deferLoad) tryLoadCachedOrStart();
+      else ensureObserved();
     }
   } else {
     // If no src is provided, immediately show the static default cover
@@ -618,23 +652,35 @@
       (!loaded && usingDefault && enableCache && !!cacheTitle && inView));
 </script>
 
-<div class={`lazy-image ${className} ${loaded ? 'loaded' : ''}`} bind:this={wrapper} style={!loaded ? `background:url('${resolvedDefaultSrc()}') center/cover no-repeat` : ''}>
+<div
+  class={`lazy-image ${className} ${loaded ? "loaded" : ""}`}
+  bind:this={wrapper}
+  style={!loaded
+    ? `background:url('${resolvedDefaultSrc()}') center/cover no-repeat`
+    : ""}
+>
   {#if usingDefault}
     <img
       src={resolveLocal(defaultSrc) || `${assets}/images/cover.jpg`}
-      alt={alt}
+      {alt}
       draggable="false"
       decoding="async"
     />
+  {:else if currentSrc}
+    {#key currentSrc}
+      <img
+        src={currentSrc}
+        {alt}
+        on:load={handleLoad}
+        on:error={handleError}
+        draggable="false"
+        decoding="async"
+        aria-hidden={!loaded}
+      />
+    {/key}
   {:else}
-    {#if currentSrc}
-      {#key currentSrc}
-        <img src={currentSrc} alt={alt} on:load={handleLoad} on:error={handleError} draggable="false" decoding="async" aria-hidden={!loaded} />
-      {/key}
-    {:else}
-      <!-- Show placeholder cover while waiting to start loading -->
-      <!-- default cover via background; no extra element needed -->
-    {/if}
+    <!-- Show placeholder cover while waiting to start loading -->
+    <!-- default cover via background; no extra element needed -->
   {/if}
   {#if showSpinnerOverlay}
     <div class="spinner-backdrop" aria-hidden="true"></div>
@@ -689,8 +735,17 @@
   }
 
   @keyframes square-spin {
-    0% { transform: translateZ(0) rotate(0deg); opacity: 0.8; }
-    50% { transform: translateZ(0) rotate(180deg); opacity: 1; }
-    100% { transform: translateZ(0) rotate(360deg); opacity: 0.8; }
+    0% {
+      transform: translateZ(0) rotate(0deg);
+      opacity: 0.8;
+    }
+    50% {
+      transform: translateZ(0) rotate(180deg);
+      opacity: 1;
+    }
+    100% {
+      transform: translateZ(0) rotate(360deg);
+      opacity: 0.8;
+    }
   }
 </style>

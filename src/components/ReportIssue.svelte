@@ -41,7 +41,11 @@
     submitting = true;
     try {
       const mm_version = await invoke<string>("get_app_version");
-      await invoke("submit_report", { title, description, mmVersion: mm_version });
+      await invoke("submit_report", {
+        title,
+        description,
+        mmVersion: mm_version,
+      });
       addMessage("Issue reported!", "success");
       resetForm();
       close();
@@ -121,13 +125,17 @@
 
 {#if $reportIssueStore.visible}
   <div class="modal-background" transition:fade={{ duration: 160 }}>
-    <div class="modal" transition:scale={{ duration: 160, start: 0.95, opacity: 1 }}>
+    <div
+      class="modal"
+      transition:scale={{ duration: 160, start: 0.95, opacity: 1 }}
+    >
       <div class="header">
         <Bug size={28} />
         <h2>Report an issue</h2>
       </div>
       <p class="desc">
-        The report will contain logs from the mod manager and minimal hardware information to assist with troubleshooting.
+        The report will contain logs from the mod manager and minimal hardware
+        information to assist with troubleshooting.
       </p>
 
       <label class="input-label" for="report-title">Title</label>
@@ -153,7 +161,9 @@
       <div class="counter">{description.length}/{DESC_MAX}</div>
 
       <div class="buttons">
-        <button class="cancel" onclick={close} disabled={submitting}>Cancel</button>
+        <button class="cancel" onclick={close} disabled={submitting}
+          >Cancel</button
+        >
         <button class="submit" onclick={handleSubmit} disabled={submitting}>
           {#if submitting}Submitting...{:else}Submit{/if}
         </button>
@@ -164,7 +174,10 @@
 
 {#if showCopyPrompt}
   <div class="modal-background" transition:fade={{ duration: 160 }}>
-    <div class="modal" transition:scale={{ duration: 160, start: 0.95, opacity: 1 }}>
+    <div
+      class="modal"
+      transition:scale={{ duration: 160, start: 0.95, opacity: 1 }}
+    >
       <h2>Reporting the issue failed.</h2>
       <p class="desc">Would you like to copy the log to your clipboard?</p>
       {#if reportError}
@@ -178,12 +191,18 @@
           id="report-log-preview"
           class="text-area default-scrollbar"
           rows={6}
-          readonly
-        >{logPreview}</textarea>
+          readonly>{logPreview}</textarea
+        >
       {/if}
       <div class="buttons">
-        <button class="cancel" onclick={() => (showCopyPrompt = false)} disabled={copying}>No</button>
-        <button class="cancel" onclick={openLogsFolder} disabled={copying}>Open Logs Folder</button>
+        <button
+          class="cancel"
+          onclick={() => (showCopyPrompt = false)}
+          disabled={copying}>No</button
+        >
+        <button class="cancel" onclick={openLogsFolder} disabled={copying}
+          >Open Logs Folder</button
+        >
         <button class="submit" onclick={copyLogToClipboard} disabled={copying}>
           {#if copying}Copying...{:else}Copy Log{/if}
         </button>
@@ -212,19 +231,25 @@
     align-items: center;
     justify-content: center;
     cursor: pointer;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.35);
-    transition: transform 0.15s ease, opacity 0.15s ease;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+    transition:
+      transform 0.15s ease,
+      opacity 0.15s ease;
     background: #56a786;
     outline: 2px solid #74cca8;
     color: #fff;
   }
-  .report-fab:hover { transform: scale(1.05); }
-  .report-fab:active { transform: scale(0.98); }
+  .report-fab:hover {
+    transform: scale(1.05);
+  }
+  .report-fab:active {
+    transform: scale(0.98);
+  }
 
   .modal-background {
     position: fixed;
     inset: 0;
-    background: rgba(0,0,0,0.6);
+    background: rgba(0, 0, 0, 0.6);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -247,16 +272,25 @@
     gap: 12px;
     margin-bottom: 0.5rem;
   }
-  h2 { font-family: "M6X11", sans-serif; margin: 0; }
-  .desc { font-family: "M6X11", sans-serif; margin: 0.5rem 0 1.25rem; }
-  .desc.error { color: #ffb3b3; }
+  h2 {
+    font-family: "M6X11", sans-serif;
+    margin: 0;
+  }
+  .desc {
+    font-family: "M6X11", sans-serif;
+    margin: 0.5rem 0 1.25rem;
+  }
+  .desc.error {
+    color: #ffb3b3;
+  }
 
   .input-label {
     display: block;
     margin: 0.5rem 0 0.25rem;
     font-family: "M6X11", sans-serif;
   }
-  .text-input, .text-area {
+  .text-input,
+  .text-area {
     width: 100%;
     background: #1f1f1f;
     color: #f4eee0;
@@ -313,7 +347,11 @@
     cursor: pointer;
     font-family: "M6X11", sans-serif;
     font-size: 1.1rem;
-    transition: transform 0.12s ease, background-color 0.12s ease, box-shadow 0.12s ease, filter 0.12s ease;
+    transition:
+      transform 0.12s ease,
+      background-color 0.12s ease,
+      box-shadow 0.12s ease,
+      filter 0.12s ease;
   }
   .submit {
     background: #56a786;
@@ -325,20 +363,52 @@
     cursor: pointer;
     font-family: "M6X11", sans-serif;
     font-size: 1.1rem;
-    transition: transform 0.12s ease, background-color 0.12s ease, box-shadow 0.12s ease, filter 0.12s ease;
+    transition:
+      transform 0.12s ease,
+      background-color 0.12s ease,
+      box-shadow 0.12s ease,
+      filter 0.12s ease;
   }
-  .cancel:hover { transform: translateY(-1px) scale(1.03); filter: brightness(1.05); }
-  .submit:hover { transform: translateY(-1px) scale(1.03); filter: brightness(1.05); }
-  .cancel:active { transform: translateY(0) scale(0.98); filter: brightness(0.95); }
-  .submit:active { transform: translateY(0) scale(0.98); filter: brightness(0.95); }
-  .cancel:focus-visible { box-shadow: 0 0 0 2px rgba(200, 134, 134, 0.35); outline: none; }
-  .submit:focus-visible { box-shadow: 0 0 0 2px rgba(116, 204, 168, 0.35); outline: none; }
+  .cancel:hover {
+    transform: translateY(-1px) scale(1.03);
+    filter: brightness(1.05);
+  }
+  .submit:hover {
+    transform: translateY(-1px) scale(1.03);
+    filter: brightness(1.05);
+  }
+  .cancel:active {
+    transform: translateY(0) scale(0.98);
+    filter: brightness(0.95);
+  }
+  .submit:active {
+    transform: translateY(0) scale(0.98);
+    filter: brightness(0.95);
+  }
+  .cancel:focus-visible {
+    box-shadow: 0 0 0 2px rgba(200, 134, 134, 0.35);
+    outline: none;
+  }
+  .submit:focus-visible {
+    box-shadow: 0 0 0 2px rgba(116, 204, 168, 0.35);
+    outline: none;
+  }
   .cancel:disabled,
-  .submit:disabled { opacity: 0.7; cursor: not-allowed; }
+  .submit:disabled {
+    opacity: 0.7;
+    cursor: not-allowed;
+  }
 
   @media (max-width: 1160px) {
-    .report-fab { bottom: 1rem; left: 0.8rem; width: 32px; height: 32px; }
-    .modal { padding: 1rem 1.5rem 1rem 1rem; }
+    .report-fab {
+      bottom: 1rem;
+      left: 0.8rem;
+      width: 32px;
+      height: 32px;
+    }
+    .modal {
+      padding: 1rem 1.5rem 1rem 1rem;
+    }
     /* Give inputs extra breathing room from the right edge */
     .text-input,
     .text-area {

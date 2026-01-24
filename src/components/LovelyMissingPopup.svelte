@@ -43,7 +43,10 @@
 
   async function copyPath() {
     if (!normalizedPath) {
-      addMessage("Game path not set; open Settings and set it first.", "warning");
+      addMessage(
+        "Game path not set; open Settings and set it first.",
+        "warning",
+      );
       return;
     }
     try {
@@ -69,7 +72,8 @@
       try {
         const present = await invoke<boolean>("is_lovely_installed");
         if (!present) {
-          installError = "Lovely still not detected. Add a Defender exclusion and try again.";
+          installError =
+            "Lovely still not detected. Add a Defender exclusion and try again.";
           return;
         }
       } catch (_) {
@@ -78,7 +82,7 @@
       close();
       // If this popup was from a launch attempt, offer to continue via callback
       const cb = $lovelyPopupStore.onLaunchAnyway;
-      if ($lovelyPopupStore.source === 'launch' && cb) {
+      if ($lovelyPopupStore.source === "launch" && cb) {
         await cb();
       }
     } catch (e) {
@@ -92,18 +96,25 @@
 
 {#if $lovelyPopupStore.visible}
   <div class="modal-background" transition:fade={{ duration: 160 }}>
-    <div class="modal" transition:scale={{ duration: 160, start: 0.95, opacity: 1 }}>
+    <div
+      class="modal"
+      transition:scale={{ duration: 160, start: 0.95, opacity: 1 }}
+    >
       <h2>Lovely Not Detected</h2>
-      <p>
-        The Lovely injector was not detected. Mods require Lovely to load.
-      </p>
+      <p>The Lovely injector was not detected. Mods require Lovely to load.</p>
 
       {#if isWindows}
         <div class="steps">
           <p>Windows Defender may remove the injector DLL. To prevent this:</p>
           <ol>
-            <li>Open Windows Security → Virus & threat protection → Manage settings.</li>
-            <li>Temporarily disable Real-time protection (Windows re-enables it automatically later).</li>
+            <li>
+              Open Windows Security → Virus & threat protection → Manage
+              settings.
+            </li>
+            <li>
+              Temporarily disable Real-time protection (Windows re-enables it
+              automatically later).
+            </li>
             <li>Scroll to Add or remove exclusions and confirm if prompted.</li>
             <li>Add a folder exclusion for the Balatro directory.</li>
           </ol>
@@ -123,11 +134,22 @@
       {/if}
 
       <div class="buttons">
-        <button class="install-button" onclick={installLovely} disabled={installing}>
+        <button
+          class="install-button"
+          onclick={installLovely}
+          disabled={installing}
+        >
           {#if installing}Installing...{:else}Install Lovely{/if}
         </button>
-        {#if $lovelyPopupStore.source === 'launch' && $lovelyPopupStore.onLaunchAnyway}
-          <button class="launch-anyway" onclick={() => { const cb = $lovelyPopupStore.onLaunchAnyway; close(); cb && cb(); }}>
+        {#if $lovelyPopupStore.source === "launch" && $lovelyPopupStore.onLaunchAnyway}
+          <button
+            class="launch-anyway"
+            onclick={() => {
+              const cb = $lovelyPopupStore.onLaunchAnyway;
+              close();
+              cb && cb();
+            }}
+          >
             Launch Anyway
           </button>
         {/if}
@@ -165,7 +187,9 @@
     margin-bottom: 0.75rem;
     font-family: "M6X11", sans-serif;
   }
-  p, li, .path {
+  p,
+  li,
+  .path {
     color: #f4eee0;
     font-size: 1.05rem;
     font-family: "M6X11", sans-serif;
@@ -191,7 +215,10 @@
     cursor: pointer;
     font-family: "M6X11", sans-serif;
     font-size: 1.15rem;
-    transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+    transition:
+      transform 0.15s ease,
+      box-shadow 0.15s ease,
+      background 0.15s ease;
   }
   .copy-button:hover {
     transform: translateY(-2px);
@@ -202,8 +229,15 @@
     transform: translateY(1px);
     box-shadow: none;
   }
-  .buttons { display: flex; justify-content: flex-end; margin-top: 1rem; }
-  .buttons { gap: 0.5rem; flex-wrap: wrap; }
+  .buttons {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 1rem;
+  }
+  .buttons {
+    gap: 0.5rem;
+    flex-wrap: wrap;
+  }
   .close-button {
     background: #56a786;
     outline: #74cca8 solid 2px;
@@ -214,7 +248,10 @@
     cursor: pointer;
     font-family: "M6X11", sans-serif;
     font-size: 1.15rem;
-    transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+    transition:
+      transform 0.15s ease,
+      box-shadow 0.15s ease,
+      background 0.15s ease;
   }
   .close-button:hover {
     transform: translateY(-2px);
@@ -235,7 +272,10 @@
     cursor: pointer;
     font-family: "M6X11", sans-serif;
     font-size: 1.15rem;
-    transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+    transition:
+      transform 0.15s ease,
+      box-shadow 0.15s ease,
+      background 0.15s ease;
   }
   .install-button:hover:not(:disabled) {
     transform: translateY(-2px);
@@ -260,7 +300,10 @@
     cursor: pointer;
     font-family: "M6X11", sans-serif;
     font-size: 1.15rem;
-    transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+    transition:
+      transform 0.15s ease,
+      box-shadow 0.15s ease,
+      background 0.15s ease;
   }
   .launch-anyway:hover {
     transform: translateY(-2px);
@@ -271,8 +314,15 @@
     transform: translateY(1px);
     box-shadow: none;
   }
-  .error { color: #f87171; font-family: "M6X11", sans-serif; margin-top: 0.5rem; }
+  .error {
+    color: #f87171;
+    font-family: "M6X11", sans-serif;
+    margin-top: 0.5rem;
+  }
   @media (max-width: 1160px) {
-    .modal { max-width: 90%; padding: 1.5rem; }
+    .modal {
+      max-width: 90%;
+      padding: 1.5rem;
+    }
   }
 </style>

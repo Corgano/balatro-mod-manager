@@ -25,7 +25,10 @@
   let creating = $state(false);
 
   const normalizeName = (name: string): string =>
-    name.trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+    name
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, "");
 
   const hasCollectionMod = (
     collection: { modTitles: string[]; modIds: string[] },
@@ -35,9 +38,12 @@
     const normalizedTitle = normalizeName(title);
     if (id) {
       const normalizedId = normalizeName(id);
-      if (collection.modIds.some((i) => normalizeName(i) === normalizedId)) return true;
+      if (collection.modIds.some((i) => normalizeName(i) === normalizedId))
+        return true;
     }
-    return collection.modTitles.some((t) => normalizeName(t) === normalizedTitle);
+    return collection.modTitles.some(
+      (t) => normalizeName(t) === normalizedTitle,
+    );
   };
 
   const ensureDownloadUrl = (mod: Mod): Mod => {
@@ -120,8 +126,11 @@
           if (mod.requires_steamodded) required.push("Steamodded");
           if (mod.requires_talisman) required.push("Talisman");
           if (required.length > 0) {
-          const normalizeName = (name: string) =>
-            name.toLowerCase().replace(/[^a-z0-9+]+/g, "").trim();
+            const normalizeName = (name: string) =>
+              name
+                .toLowerCase()
+                .replace(/[^a-z0-9+]+/g, "")
+                .trim();
             const resolveTitle = (name: string) => {
               const normalized = normalizeName(name);
               const match = get(modsStore).find(
@@ -235,7 +244,10 @@
     if (mod.requires_talisman) required.push("Talisman");
 
     const normalizeNameLocal = (name: string) =>
-      name.toLowerCase().replace(/[^a-z0-9+]+/g, "").trim();
+      name
+        .toLowerCase()
+        .replace(/[^a-z0-9+]+/g, "")
+        .trim();
     const resolveTitle = (name: string) => {
       const normalized = normalizeNameLocal(name);
       const match = get(modsStore).find(
@@ -271,7 +283,6 @@
       });
     }
   }
-
 </script>
 
 <svelte:window
@@ -334,11 +345,11 @@
               $collectionPickerStore.modTitle ?? "",
               $collectionPickerStore.modId,
             )}
-            {@const modCount = Math.max(col.modTitles.length, col.modIds.length)}
-            <button
-              class="row"
-              onclick={() => handleToggle(col.id)}
-            >
+            {@const modCount = Math.max(
+              col.modTitles.length,
+              col.modIds.length,
+            )}
+            <button class="row" onclick={() => handleToggle(col.id)}>
               <span class="icon" class:checked={isMember}>
                 {#if isMember}
                   <Check size={18} strokeWidth={3} />
@@ -356,7 +367,6 @@
       <div class="footer">
         <button class="ghost" onclick={close}>Done</button>
       </div>
-
     </div>
   </div>
 {/if}
@@ -450,7 +460,10 @@
     color: inherit;
     font-family: "M6X11", sans-serif;
     text-align: left;
-    transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+    transition:
+      transform 0.15s ease,
+      box-shadow 0.15s ease,
+      background 0.15s ease;
   }
 
   .list > .row:first-child {
@@ -512,7 +525,10 @@
     font-family: "M6X11", sans-serif;
     font-size: 1.05rem;
     cursor: pointer;
-    transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+    transition:
+      transform 0.15s ease,
+      box-shadow 0.15s ease,
+      background 0.15s ease;
     box-shadow: 0 4px 0 rgba(0, 0, 0, 0.25);
   }
 

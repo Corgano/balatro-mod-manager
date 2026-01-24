@@ -144,7 +144,10 @@
     font-family: "M6X11", sans-serif;
     font-size: 1rem;
     cursor: pointer;
-    transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+    transition:
+      transform 0.15s ease,
+      box-shadow 0.15s ease,
+      background 0.15s ease;
   }
 
   .ghost.neutral {

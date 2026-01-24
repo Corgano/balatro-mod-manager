@@ -11,7 +11,9 @@
     if (isCreating) return;
     isCreating = true;
 
-    const backup = await backupsStore.createBackup(backupName.trim() || undefined);
+    const backup = await backupsStore.createBackup(
+      backupName.trim() || undefined,
+    );
     if (backup) {
       addMessage("Backup created successfully", "success");
       handleClose();
@@ -47,7 +49,8 @@
     >
       <h3>Create Backup</h3>
       <p class="subtitle">
-        Give your backup a name (optional). If left empty, it will be labeled as "Manual backup".
+        Give your backup a name (optional). If left empty, it will be labeled as
+        "Manual backup".
       </p>
 
       <div class="input-group">
@@ -62,10 +65,18 @@
       </div>
 
       <div class="modal-actions">
-        <button class="create-button" onclick={handleCreate} disabled={isCreating}>
+        <button
+          class="create-button"
+          onclick={handleCreate}
+          disabled={isCreating}
+        >
           {isCreating ? "Creating..." : "Create"}
         </button>
-        <button class="cancel-button" onclick={handleClose} disabled={isCreating}>
+        <button
+          class="cancel-button"
+          onclick={handleClose}
+          disabled={isCreating}
+        >
           Cancel
         </button>
       </div>
@@ -166,7 +177,9 @@
     font-family: "M6X11", sans-serif;
     font-size: 1.25rem;
     cursor: pointer;
-    transition: transform 0.2s ease, background-color 0.2s ease;
+    transition:
+      transform 0.2s ease,
+      background-color 0.2s ease;
     box-shadow: 0 4px 0 rgba(0, 0, 0, 0.25);
   }
 

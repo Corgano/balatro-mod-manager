@@ -41,20 +41,27 @@
 
 {#if $updatePopupStore.visible}
   <div class="modal-background" transition:fade={{ duration: 160 }}>
-    <div class="modal" transition:scale={{ duration: 160, start: 0.95, opacity: 1 }}>
+    <div
+      class="modal"
+      transition:scale={{ duration: 160, start: 0.95, opacity: 1 }}
+    >
       <h2>Update Available</h2>
-      <p>
-        A newer version of Balatro Mod Manager is available.
-      </p>
+      <p>A newer version of Balatro Mod Manager is available.</p>
       <p class="ver">
-        Current: <span class="version">v{$updatePopupStore.currentVersion}</span> •
-        Latest: <span class="version">v{$updatePopupStore.latestVersion}</span>
+        Current: <span class="version">v{$updatePopupStore.currentVersion}</span
+        >
+        • Latest:
+        <span class="version">v{$updatePopupStore.latestVersion}</span>
       </p>
 
       <div class="buttons">
-        <button class="download-button" onclick={handleDownload}>Download</button>
+        <button class="download-button" onclick={handleDownload}
+          >Download</button
+        >
         <button class="close-button" onclick={handleClose}>Close</button>
-        <button class="dontshow-button" onclick={handleDontShow}>Don't show anymore</button>
+        <button class="dontshow-button" onclick={handleDontShow}
+          >Don't show anymore</button
+        >
       </div>
     </div>
   </div>
@@ -88,13 +95,16 @@
     margin-bottom: 0.75rem;
     font-family: "M6X11", sans-serif;
   }
-  p, .ver {
+  p,
+  .ver {
     color: #f4eee0;
     font-size: 1.1rem;
     font-family: "M6X11", sans-serif;
     margin: 0.25rem 0 0.75rem 0;
   }
-  .ver .version { color: #fdcf51; }
+  .ver .version {
+    color: #fdcf51;
+  }
   .buttons {
     display: flex;
     justify-content: center;
@@ -112,8 +122,20 @@
     font-family: "M6X11", sans-serif;
     color: #fff;
   }
-  .download-button { background: #3498db; outline: #2980b9 solid 2px; }
-  .close-button { background: #56a786; outline: #74cca8 solid 2px; }
-  .dontshow-button { background: #c14139; outline: #a13029 solid 2px; }
-  button:hover { opacity: 0.9; transform: translateY(-1px); }
+  .download-button {
+    background: #3498db;
+    outline: #2980b9 solid 2px;
+  }
+  .close-button {
+    background: #56a786;
+    outline: #74cca8 solid 2px;
+  }
+  .dontshow-button {
+    background: #c14139;
+    outline: #a13029 solid 2px;
+  }
+  button:hover {
+    opacity: 0.9;
+    transform: translateY(-1px);
+  }
 </style>

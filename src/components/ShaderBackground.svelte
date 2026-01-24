@@ -1,43 +1,43 @@
 <script lang="ts">
-	import { onMount } from "svelte";
+  import { onMount } from "svelte";
 
-	// Props
-	interface Props {
-		darkMode?: boolean;
-	}
-	let { darkMode = false }: Props = $props();
+  // Props
+  interface Props {
+    darkMode?: boolean;
+  }
+  let { darkMode = false }: Props = $props();
 
-	// Color palettes
-	const LIGHT_COLORS = {
-		colour_1: [0.85, 0.2, 0.2, 1.0],        // Vibrant red
-		colour_2: [0.0, 156/255, 1.0, 1.0],    // Bright blue
-		colour_3: [0.0, 0.0, 0.0, 1.0],        // Black
-	};
+  // Color palettes
+  const LIGHT_COLORS = {
+    colour_1: [0.85, 0.2, 0.2, 1.0], // Vibrant red
+    colour_2: [0.0, 156 / 255, 1.0, 1.0], // Bright blue
+    colour_3: [0.0, 0.0, 0.0, 1.0], // Black
+  };
 
-	const DARK_COLORS = {
-		colour_1: [20/255, 15/255, 90/255, 1.0],     // Deep blue-purple
-		colour_2: [40/255, 5/255, 70/255, 1.0],      // Blue-magenta
-		colour_3: [3/255, 3/255, 15/255, 1.0],       // Dark blue-black
-	};
+  const DARK_COLORS = {
+    colour_1: [20 / 255, 15 / 255, 90 / 255, 1.0], // Deep blue-purple
+    colour_2: [40 / 255, 5 / 255, 70 / 255, 1.0], // Blue-magenta
+    colour_3: [3 / 255, 3 / 255, 15 / 255, 1.0], // Dark blue-black
+  };
 
-	let canvas: HTMLCanvasElement;
-	let gl: WebGLRenderingContext;
-	let program: WebGLProgram;
-	let timeLocation: WebGLUniformLocation;
-	let resolutionLocation: WebGLUniformLocation;
-	let colour1Location: WebGLUniformLocation;
-	let colour2Location: WebGLUniformLocation;
-	let colour3Location: WebGLUniformLocation;
-	let startTime: number;
+  let canvas: HTMLCanvasElement;
+  let gl: WebGLRenderingContext;
+  let program: WebGLProgram;
+  let timeLocation: WebGLUniformLocation;
+  let resolutionLocation: WebGLUniformLocation;
+  let colour1Location: WebGLUniformLocation;
+  let colour2Location: WebGLUniformLocation;
+  let colour3Location: WebGLUniformLocation;
+  let startTime: number;
 
-	const vertexShader = `
+  const vertexShader = `
     attribute vec2 position;
     void main() {
       gl_Position = vec4(position, 0.0, 1.0);
     }
   `;
 
-	const fragmentShader = `
+  const fragmentShader = `
     precision highp float;
     uniform float iTime;
     uniform vec2 iResolution;
@@ -92,86 +92,92 @@
 	}
   `;
 
-	function createShader(type: number, source: string): WebGLShader {
-		const shader = gl.createShader(type);
-		if (!shader) {
-			throw new Error("Failed to create shader");
-		}
-		gl.shaderSource(shader, source);
-		gl.compileShader(shader);
+  function createShader(type: number, source: string): WebGLShader {
+    const shader = gl.createShader(type);
+    if (!shader) {
+      throw new Error("Failed to create shader");
+    }
+    gl.shaderSource(shader, source);
+    gl.compileShader(shader);
 
-		if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
-			const info = gl.getShaderInfoLog(shader);
-			gl.deleteShader(shader);
-			throw new Error("Shader compilation error: " + info);
-		}
+    if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+      const info = gl.getShaderInfoLog(shader);
+      gl.deleteShader(shader);
+      throw new Error("Shader compilation error: " + info);
+    }
 
-		return shader;
-	}
+    return shader;
+  }
 
-	function initWebGL() {
-		const context = canvas.getContext("webgl");
-		if (!context) {
-			throw new Error("WebGL not supported");
-		}
-		gl = context;
+  function initWebGL() {
+    const context = canvas.getContext("webgl");
+    if (!context) {
+      throw new Error("WebGL not supported");
+    }
+    gl = context;
 
-		const vertShader = createShader(gl.VERTEX_SHADER, vertexShader);
-		const fragShader = createShader(gl.FRAGMENT_SHADER, fragmentShader);
-		if (!vertShader || !fragShader) {
-			throw new Error("Failed to create shaders");
-		}
+    const vertShader = createShader(gl.VERTEX_SHADER, vertexShader);
+    const fragShader = createShader(gl.FRAGMENT_SHADER, fragmentShader);
+    if (!vertShader || !fragShader) {
+      throw new Error("Failed to create shaders");
+    }
 
-		const prog = gl.createProgram();
-		if (!prog) {
-			throw new Error("Failed to create program");
-		}
-		program = prog;
+    const prog = gl.createProgram();
+    if (!prog) {
+      throw new Error("Failed to create program");
+    }
+    program = prog;
 
-		gl.attachShader(program, vertShader);
-		gl.attachShader(program, fragShader);
-		gl.linkProgram(program);
+    gl.attachShader(program, vertShader);
+    gl.attachShader(program, fragShader);
+    gl.linkProgram(program);
 
-		if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
-			const info = gl.getProgramInfoLog(program);
-			throw new Error("Program link error: " + info);
-		}
+    if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+      const info = gl.getProgramInfoLog(program);
+      throw new Error("Program link error: " + info);
+    }
 
-		const tLocation = gl.getUniformLocation(program, "iTime");
-		const rLocation = gl.getUniformLocation(program, "iResolution");
-		const c1Location = gl.getUniformLocation(program, "colour_1");
-		const c2Location = gl.getUniformLocation(program, "colour_2");
-		const c3Location = gl.getUniformLocation(program, "colour_3");
+    const tLocation = gl.getUniformLocation(program, "iTime");
+    const rLocation = gl.getUniformLocation(program, "iResolution");
+    const c1Location = gl.getUniformLocation(program, "colour_1");
+    const c2Location = gl.getUniformLocation(program, "colour_2");
+    const c3Location = gl.getUniformLocation(program, "colour_3");
 
-		// Check if uniforms exist in the shader
-		if (tLocation === null || rLocation === null || c1Location === null || c2Location === null || c3Location === null) {
-			throw new Error(
-				"Failed to get uniform locations: required uniforms not found in shader",
-			);
-		}
+    // Check if uniforms exist in the shader
+    if (
+      tLocation === null ||
+      rLocation === null ||
+      c1Location === null ||
+      c2Location === null ||
+      c3Location === null
+    ) {
+      throw new Error(
+        "Failed to get uniform locations: required uniforms not found in shader",
+      );
+    }
 
-		// Create and bind vertex buffer
-		const positions = new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]);
-		const buffer = gl.createBuffer();
-		gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
-		gl.bufferData(gl.ARRAY_BUFFER, positions, gl.STATIC_DRAW);
+    // Create and bind vertex buffer
+    const positions = new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]);
+    const buffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+    gl.bufferData(gl.ARRAY_BUFFER, positions, gl.STATIC_DRAW);
 
-		// Get and enable the position attribute
-		const positionLocation = gl.getAttribLocation(program, "position");
-		gl.enableVertexAttribArray(positionLocation);
-		gl.vertexAttribPointer(positionLocation, 2, gl.FLOAT, false, 0, 0);
+    // Get and enable the position attribute
+    const positionLocation = gl.getAttribLocation(program, "position");
+    gl.enableVertexAttribArray(positionLocation);
+    gl.vertexAttribPointer(positionLocation, 2, gl.FLOAT, false, 0, 0);
 
-		timeLocation = tLocation;
-		resolutionLocation = rLocation;
-		colour1Location = c1Location;
-		colour2Location = c2Location;
-		colour3Location = c3Location;
+    timeLocation = tLocation;
+    resolutionLocation = rLocation;
+    colour1Location = c1Location;
+    colour2Location = c2Location;
+    colour3Location = c3Location;
 
-		startTime = performance.now();
-		render();
-	}
+    startTime = performance.now();
+    render();
+  }
 
-	let animationFrame: number;
+  let animationFrame: number;
   let running = false;
   const MIN_FRAME_MS = 1000 / 30; // throttle to ~30fps to save GPU
   let lastFrame = 0;
@@ -192,80 +198,98 @@
 
     // Set colors based on theme
     const colors = darkMode ? DARK_COLORS : LIGHT_COLORS;
-    gl.uniform4f(colour1Location, colors.colour_1[0], colors.colour_1[1], colors.colour_1[2], colors.colour_1[3]);
-    gl.uniform4f(colour2Location, colors.colour_2[0], colors.colour_2[1], colors.colour_2[2], colors.colour_2[3]);
-    gl.uniform4f(colour3Location, colors.colour_3[0], colors.colour_3[1], colors.colour_3[2], colors.colour_3[3]);
+    gl.uniform4f(
+      colour1Location,
+      colors.colour_1[0],
+      colors.colour_1[1],
+      colors.colour_1[2],
+      colors.colour_1[3],
+    );
+    gl.uniform4f(
+      colour2Location,
+      colors.colour_2[0],
+      colors.colour_2[1],
+      colors.colour_2[2],
+      colors.colour_2[3],
+    );
+    gl.uniform4f(
+      colour3Location,
+      colors.colour_3[0],
+      colors.colour_3[1],
+      colors.colour_3[2],
+      colors.colour_3[3],
+    );
 
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
     animationFrame = requestAnimationFrame(render);
   }
 
-	function handleResize() {
-		canvas.width = window.innerWidth;
-		canvas.height = window.innerHeight;
-	}
+  function handleResize() {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+  }
 
-	onMount(() => {
-		handleResize();
-		window.addEventListener("resize", handleResize);
-		running = true;
-		initWebGL();
+  onMount(() => {
+    handleResize();
+    window.addEventListener("resize", handleResize);
+    running = true;
+    initWebGL();
 
-		// Pause when the tab/app is hidden and resume on visible
-		const onVis = () => {
-			if (document.hidden) {
-				running = false;
-				if (animationFrame) cancelAnimationFrame(animationFrame);
-			} else {
-				running = true;
-				lastFrame = 0;
-				animationFrame = requestAnimationFrame(render);
-			}
-		};
-		document.addEventListener("visibilitychange", onVis);
+    // Pause when the tab/app is hidden and resume on visible
+    const onVis = () => {
+      if (document.hidden) {
+        running = false;
+        if (animationFrame) cancelAnimationFrame(animationFrame);
+      } else {
+        running = true;
+        lastFrame = 0;
+        animationFrame = requestAnimationFrame(render);
+      }
+    };
+    document.addEventListener("visibilitychange", onVis);
 
-		return () => {
-			window.removeEventListener("resize", handleResize);
-			document.removeEventListener("visibilitychange", onVis);
-			if (animationFrame) {
-				cancelAnimationFrame(animationFrame);
-			}
-		};
-	});
+    return () => {
+      window.removeEventListener("resize", handleResize);
+      document.removeEventListener("visibilitychange", onVis);
+      if (animationFrame) {
+        cancelAnimationFrame(animationFrame);
+      }
+    };
+  });
 </script>
 
 <canvas bind:this={canvas}></canvas>
 <div class="blur-overlay"></div>
 
 <style>
-	canvas {
-		position: fixed;
-		top: 0;
-		left: 0;
-		width: 100%;
-		height: 100%;
-		z-index: -1;
-		pointer-events: none; /* Prevent canvas from blocking interactions */
-	}
-	.blur-overlay {
-		position: fixed;
-		top: 0;
-		left: 0;
-		width: 100%;
-		height: 100%;
-		backdrop-filter: blur(10px);
-		background: rgba(57, 54, 70, 0.3);
-		z-index: -1;
-		pointer-events: none;
-	}
-	:global(body) {
-		margin: 0;
-		padding: 0;
-		transition: background 0.3s ease;
-	}
+  canvas {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: -1;
+    pointer-events: none; /* Prevent canvas from blocking interactions */
+  }
+  .blur-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    backdrop-filter: blur(10px);
+    background: rgba(57, 54, 70, 0.3);
+    z-index: -1;
+    pointer-events: none;
+  }
+  :global(body) {
+    margin: 0;
+    padding: 0;
+    transition: background 0.3s ease;
+  }
 
-	:global([data-platform="linux"]) .blur-overlay {
-		backdrop-filter: none;
-		background: rgba(57, 54, 70, 0.6);
-	}
+  :global([data-platform="linux"]) .blur-overlay {
+    backdrop-filter: none;
+    background: rgba(57, 54, 70, 0.6);
+  }
 </style>

@@ -5,7 +5,10 @@
     formatBackupDate,
     getBackupDisplayName,
   } from "../stores/backups";
-  import { restoreBackupPopupStore, deleteBackupPopupStore } from "../stores/modStore";
+  import {
+    restoreBackupPopupStore,
+    deleteBackupPopupStore,
+  } from "../stores/modStore";
   import { Archive, RotateCcw } from "lucide-svelte";
 
   interface Props {
@@ -46,7 +49,9 @@
     <div class="backup-metadata">
       <span class="date">{formatBackupDate(backup.created_at)}</span>
       <span class="separator">•</span>
-      <span class="mod-count">{backup.mod_count} mod{backup.mod_count !== 1 ? "s" : ""}</span>
+      <span class="mod-count"
+        >{backup.mod_count} mod{backup.mod_count !== 1 ? "s" : ""}</span
+      >
       <span class="separator">•</span>
       <span class="size">{formatBytes(backup.size_bytes)}</span>
     </div>
@@ -58,9 +63,7 @@
     <button class="restore-button" onclick={openRestoreConfirm}>
       Restore
     </button>
-    <button class="delete-button" onclick={openDeleteConfirm}>
-      Delete
-    </button>
+    <button class="delete-button" onclick={openDeleteConfirm}> Delete </button>
   </div>
 </div>
 
@@ -74,7 +77,9 @@
     border: 2px solid rgba(244, 238, 224, 0.3);
     border-radius: 8px;
     padding: 1rem 1.25rem;
-    transition: background 0.2s ease, border-color 0.2s ease;
+    transition:
+      background 0.2s ease,
+      border-color 0.2s ease;
   }
 
   .backup-card:hover {
@@ -143,7 +148,9 @@
     font-family: "M6X11", sans-serif;
     font-size: 1.1rem;
     cursor: pointer;
-    transition: transform 0.2s ease, background-color 0.2s ease;
+    transition:
+      transform 0.2s ease,
+      background-color 0.2s ease;
     box-shadow: 0 3px 0 rgba(0, 0, 0, 0.2);
   }
 

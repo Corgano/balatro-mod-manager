@@ -6,7 +6,11 @@
     closeDepPrompt,
     setModInCollection,
   } from "../stores/collections";
-  import { modsStore, installationStatus, loadingStates2 } from "../stores/modStore";
+  import {
+    modsStore,
+    installationStatus,
+    loadingStates2,
+  } from "../stores/modStore";
   import { invoke } from "@tauri-apps/api/core";
   import { addMessage } from "$lib/stores";
   import type { Mod } from "../stores/modStore";
@@ -105,10 +109,15 @@
       transition:scale={{ duration: 200, start: 0.9, opacity: 0 }}
       onpointerdown={(e) => e.stopPropagation()}
     >
-      <h3>{$depPromptStore.modTitle} requires {$depPromptStore.missing.join(" and ")}</h3>
+      <h3>
+        {$depPromptStore.modTitle} requires {$depPromptStore.missing.join(
+          " and ",
+        )}
+      </h3>
       {#if $depPromptStore.isPreAddCheck}
         <p>
-          Install {$depPromptStore.missing.join(" and ")} first, then add "{$depPromptStore.modTitle}" to "{$depPromptStore.collectionName}"?
+          Install {$depPromptStore.missing.join(" and ")} first, then add "{$depPromptStore.modTitle}"
+          to "{$depPromptStore.collectionName}"?
         </p>
       {:else}
         <p>

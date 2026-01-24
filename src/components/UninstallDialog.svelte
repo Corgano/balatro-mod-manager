@@ -1,501 +1,502 @@
 <script lang="ts">
-    import { fade, scale } from "svelte/transition";
-    import { invoke } from "@tauri-apps/api/core";
-    import { get } from "svelte/store";
-    import {
-        uninstallDialogStore,
-        installationStatus,
-        modsStore,
-        updateAvailableStore,
-    } from "../stores/modStore";
-    import { forceRefreshCache } from "../stores/modCache";
-    import { createAutoBackup } from "../stores/backups";
+  import { fade, scale } from "svelte/transition";
+  import { invoke } from "@tauri-apps/api/core";
+  import { get } from "svelte/store";
+  import {
+    uninstallDialogStore,
+    installationStatus,
+    modsStore,
+    updateAvailableStore,
+  } from "../stores/modStore";
+  import { forceRefreshCache } from "../stores/modCache";
+  import { createAutoBackup } from "../stores/backups";
 
-	// Component props for callbacks
-	export let onUninstalled:
-		| ((event: {
-				detail: { modName: string; success: boolean; action: string };
-		  }) => void)
-		| undefined = undefined;
+  // Component props for callbacks
+  export let onUninstalled:
+    | ((event: {
+        detail: { modName: string; success: boolean; action: string };
+      }) => void)
+    | undefined = undefined;
 
-	export let onError: ((event: { detail: unknown }) => void) | undefined =
-		undefined;
+  export let onError: ((event: { detail: unknown }) => void) | undefined =
+    undefined;
 
-	// Expose component state as props - but also subscribe to the store
-	export let show = false;
-	export let modName = "";
-	export let modPath = "";
-	export let dependents: string[] = [];
+  // Expose component state as props - but also subscribe to the store
+  export let show = false;
+  export let modName = "";
+  export let modPath = "";
+  export let dependents: string[] = [];
 
-	// Subscribe to the store changes
-	import { onMount } from "svelte";
+  // Subscribe to the store changes
+  import { onMount } from "svelte";
 
-	onMount(() => {
-		const unsubscribe = uninstallDialogStore.subscribe((state) => {
-			show = state.show;
-			modName = state.modName;
-			modPath = state.modPath;
-			dependents = state.dependents;
-		});
+  onMount(() => {
+    const unsubscribe = uninstallDialogStore.subscribe((state) => {
+      show = state.show;
+      modName = state.modName;
+      modPath = state.modPath;
+      dependents = state.dependents;
+    });
 
-		return unsubscribe;
-	});
+    return unsubscribe;
+  });
 
-    let action: "cancel" | "force" | "cascade" | null = null;
-    let isUninstalling = false;
+  let action: "cancel" | "force" | "cascade" | null = null;
+  let isUninstalling = false;
 
-    // Resolve path from DB when not provided
-    async function resolvePathIfNeeded(name: string, path: string): Promise<string> {
-        if (path && path.trim().length > 0) return path;
-        try {
-            const mods: { name: string; path: string }[] = await invoke("get_installed_mods_from_db");
-            const found = mods.find((m) => m.name.toLowerCase() === name.toLowerCase());
-            return found?.path ?? "";
-        } catch (_) {
-            return "";
-        }
+  // Resolve path from DB when not provided
+  async function resolvePathIfNeeded(
+    name: string,
+    path: string,
+  ): Promise<string> {
+    if (path && path.trim().length > 0) return path;
+    try {
+      const mods: { name: string; path: string }[] = await invoke(
+        "get_installed_mods_from_db",
+      );
+      const found = mods.find(
+        (m) => m.name.toLowerCase() === name.toLowerCase(),
+      );
+      return found?.path ?? "";
+    } catch (_) {
+      return "";
     }
+  }
 
-    async function handleUninstall() {
-        if (isUninstalling) return;
-        const actionToRun = action;
-        isUninstalling = true;
-        let success = false;
-        // Close immediately to avoid UI lock if backend hangs.
-        show = false;
-        uninstallDialogStore.update((s) => ({ ...s, show: false }));
+  async function handleUninstall() {
+    if (isUninstalling) return;
+    const actionToRun = action;
+    isUninstalling = true;
+    let success = false;
+    // Close immediately to avoid UI lock if backend hangs.
+    show = false;
+    uninstallDialogStore.update((s) => ({ ...s, show: false }));
 
-        // Create auto-backup before uninstall
-        await createAutoBackup("auto_uninstall", modName);
+    // Create auto-backup before uninstall
+    await createAutoBackup("auto_uninstall", modName);
 
-        // Optimistically update UI state; we'll reconcile with cache refresh after.
+    // Optimistically update UI state; we'll reconcile with cache refresh after.
+    if (actionToRun === "cascade") {
+      const toClear = Array.isArray(dependents) ? dependents : [];
+      installationStatus.update((s) => {
+        const next = { ...s } as Record<string, boolean>;
+        next[modName] = false;
+        for (const d of toClear) next[d] = false;
+        return next;
+      });
+    } else {
+      installationStatus.update((s) => ({ ...s, [modName]: false }));
+    }
+    updateAvailableStore.update((s) => ({ ...s, [modName]: false }));
+    try {
+      if (actionToRun === "cascade") {
+        await invoke("cascade_uninstall", { rootMod: modName });
+        success = true;
+      } else if (actionToRun === "force") {
+        const pathToUse = await resolvePathIfNeeded(modName, modPath);
+        await invoke("force_remove_mod", {
+          name: modName,
+          path: pathToUse,
+        });
+        success = true;
+      } else if (actionToRun === null) {
+        const pathToUse = await resolvePathIfNeeded(modName, modPath);
+        await invoke("remove_installed_mod", {
+          name: modName,
+          path: pathToUse,
+        });
+        success = true;
+      }
+
+      if (success && onUninstalled) {
+        onUninstalled({
+          detail: {
+            modName,
+            success: true,
+            action: actionToRun || "single",
+          },
+        });
+      }
+
+      // Immediately update UI state to reflect removal
+      if (success) {
         if (actionToRun === "cascade") {
-            const toClear = Array.isArray(dependents) ? dependents : [];
-            installationStatus.update((s) => {
-                const next = { ...s } as Record<string, boolean>;
-                next[modName] = false;
-                for (const d of toClear) next[d] = false;
-                return next;
-            });
+          const toClear = Array.isArray(dependents) ? dependents : [];
+          installationStatus.update((s) => {
+            const next = { ...s } as Record<string, boolean>;
+            next[modName] = false;
+            for (const d of toClear) next[d] = false;
+            return next;
+          });
         } else {
-            installationStatus.update((s) => ({ ...s, [modName]: false }));
+          installationStatus.update((s) => ({ ...s, [modName]: false }));
         }
         updateAvailableStore.update((s) => ({ ...s, [modName]: false }));
+      }
+      // Refresh cache in the background; do not block UI.
+      void (async () => {
         try {
-
-            if (actionToRun === "cascade") {
-                await invoke("cascade_uninstall", { rootMod: modName });
-                success = true;
-            } else if (actionToRun === "force") {
-                const pathToUse = await resolvePathIfNeeded(modName, modPath);
-                await invoke("force_remove_mod", {
-                    name: modName,
-                    path: pathToUse,
-                });
-                success = true;
-            } else if (actionToRun === null) {
-                const pathToUse = await resolvePathIfNeeded(modName, modPath);
-                await invoke("remove_installed_mod", {
-                    name: modName,
-                    path: pathToUse,
-                });
-                success = true;
-            }
-
-            if (success && onUninstalled) {
-                onUninstalled({
-                    detail: {
-                        modName,
-                        success: true,
-                        action: actionToRun || "single",
-                    },
-                });
-            }
-
-            // Immediately update UI state to reflect removal
-            if (success) {
-                if (actionToRun === "cascade") {
-                    const toClear = Array.isArray(dependents) ? dependents : [];
-                    installationStatus.update((s) => {
-                        const next = { ...s } as Record<string, boolean>;
-                        next[modName] = false;
-                        for (const d of toClear) next[d] = false;
-                        return next;
-                    });
-                } else {
-                    installationStatus.update((s) => ({ ...s, [modName]: false }));
-                }
-				updateAvailableStore.update((s) => ({ ...s, [modName]: false }));
-            }
-			// Refresh cache in the background; do not block UI.
-			void (async () => {
-				try {
-					const installed = await forceRefreshCache();
-					// Normalize mod names for matching (removes spaces, dashes, underscores and other special chars)
-					const normalizeModName = (name: string) =>
-						name.toLowerCase().replace(/[^a-z0-9]/g, "");
-					// Create a set of normalized installed mod names for fuzzy matching
-					const installedNormalized = new Set(
-						installed.map((mod) => normalizeModName(mod.name)),
-					);
-					// Also keep exact lowercase names for exact matching
-					const installedExact = new Set(
-						installed.map((mod) => mod.name.toLowerCase()),
-					);
-					const mods = get(modsStore);
-					installationStatus.set(
-						Object.fromEntries(
-							mods.map((mod) => [
-								mod.title,
-								// Check exact match first, then normalized match
-								installedExact.has(mod.title.toLowerCase()) ||
-								installedNormalized.has(normalizeModName(mod.title)),
-							]),
-						),
-					);
-				} catch (_) {
-					// ignore refresh errors
-				}
-			})();
-
-        } catch (e) {
-            console.error("Uninstall error:", e);
-            onError?.({ detail: e });
-        } finally {
-            isUninstalling = false;
-            action = null;
+          const installed = await forceRefreshCache();
+          // Normalize mod names for matching (removes spaces, dashes, underscores and other special chars)
+          const normalizeModName = (name: string) =>
+            name.toLowerCase().replace(/[^a-z0-9]/g, "");
+          // Create a set of normalized installed mod names for fuzzy matching
+          const installedNormalized = new Set(
+            installed.map((mod) => normalizeModName(mod.name)),
+          );
+          // Also keep exact lowercase names for exact matching
+          const installedExact = new Set(
+            installed.map((mod) => mod.name.toLowerCase()),
+          );
+          const mods = get(modsStore);
+          installationStatus.set(
+            Object.fromEntries(
+              mods.map((mod) => [
+                mod.title,
+                // Check exact match first, then normalized match
+                installedExact.has(mod.title.toLowerCase()) ||
+                  installedNormalized.has(normalizeModName(mod.title)),
+              ]),
+            ),
+          );
+        } catch (_) {
+          // ignore refresh errors
         }
+      })();
+    } catch (e) {
+      console.error("Uninstall error:", e);
+      onError?.({ detail: e });
+    } finally {
+      isUninstalling = false;
+      action = null;
     }
+  }
 
-	function closeDialog() {
-		action = null;
-		isUninstalling = false;
-		show = false;
-		uninstallDialogStore.update((s) => ({ ...s, show: false }));
-	}
+  function closeDialog() {
+    action = null;
+    isUninstalling = false;
+    show = false;
+    uninstallDialogStore.update((s) => ({ ...s, show: false }));
+  }
 </script>
 
 {#if show}
-	<div class="dialog-overlay" transition:fade={{ duration: 160 }}>
-		<div class="dialog-content" transition:scale={{ duration: 160 }}>
-			<h2>Uninstall {modName}?</h2>
+  <div class="dialog-overlay" transition:fade={{ duration: 160 }}>
+    <div class="dialog-content" transition:scale={{ duration: 160 }}>
+      <h2>Uninstall {modName}?</h2>
 
-			{#if dependents.length > 0}
-				<div class="dependency-list">
-					<h3>{modName} is required for:</h3>
-					<div class="scroll-container">
-						<ul>
-							{#each dependents as dependent}
-								<li>{dependent}</li>
-							{/each}
-						</ul>
-					</div>
-				</div>
+      {#if dependents.length > 0}
+        <div class="dependency-list">
+          <h3>{modName} is required for:</h3>
+          <div class="scroll-container">
+            <ul>
+              {#each dependents as dependent}
+                <li>{dependent}</li>
+              {/each}
+            </ul>
+          </div>
+        </div>
 
-				<div class="actions">
-					<button
-						class="confirm-button"
-						disabled={isUninstalling}
-						onclick={() => {
-							action = "cascade";
-							handleUninstall();
-						}}
-					>
-						Uninstall All ({dependents.length})
-					</button>
-					<button
-						class="force-button"
-						disabled={isUninstalling}
-						onclick={() => {
-							action = "force";
-							handleUninstall();
-						}}
-					>
-						Force Remove Anyway
-					</button>
-					<button class="cancel-button" onclick={closeDialog}>
-						Cancel
-					</button>
-				</div>
-			{:else}
-				<div class="actions">
-					<button
-						class="confirm-button"
-						disabled={isUninstalling}
-						onclick={() => {
-							action = null;
-							handleUninstall();
-						}}>Confirm</button
-					>
-					<button onclick={closeDialog} class="force-button"
-						>Cancel</button
-					>
-				</div>
-			{/if}
-		</div>
-	</div>
+        <div class="actions">
+          <button
+            class="confirm-button"
+            disabled={isUninstalling}
+            onclick={() => {
+              action = "cascade";
+              handleUninstall();
+            }}
+          >
+            Uninstall All ({dependents.length})
+          </button>
+          <button
+            class="force-button"
+            disabled={isUninstalling}
+            onclick={() => {
+              action = "force";
+              handleUninstall();
+            }}
+          >
+            Force Remove Anyway
+          </button>
+          <button class="cancel-button" onclick={closeDialog}> Cancel </button>
+        </div>
+      {:else}
+        <div class="actions">
+          <button
+            class="confirm-button"
+            disabled={isUninstalling}
+            onclick={() => {
+              action = null;
+              handleUninstall();
+            }}>Confirm</button
+          >
+          <button onclick={closeDialog} class="force-button">Cancel</button>
+        </div>
+      {/if}
+    </div>
+  </div>
 {/if}
 
 <style>
-	.dependency-list {
-		margin: 1rem 0;
-		padding: 1rem;
-		background: rgba(244, 238, 224, 0.1);
-		border-radius: 6px;
-	}
+  .dependency-list {
+    margin: 1rem 0;
+    padding: 1rem;
+    background: rgba(244, 238, 224, 0.1);
+    border-radius: 6px;
+  }
 
-	.dependency-list h3 {
-		color: #fdcf51;
-		margin-bottom: 0.5rem;
-		font-size: 1.5rem;
-	}
+  .dependency-list h3 {
+    color: #fdcf51;
+    margin-bottom: 0.5rem;
+    font-size: 1.5rem;
+  }
 
-	.dependency-list ul {
-		list-style-type: square;
-		padding-left: 1.5rem;
-	}
+  .dependency-list ul {
+    list-style-type: square;
+    padding-left: 1.5rem;
+  }
 
-	.dependency-list li {
-		color: #f4eee0;
-		margin-bottom: 0.25rem;
-	}
+  .dependency-list li {
+    color: #f4eee0;
+    margin-bottom: 0.25rem;
+  }
 
-	.scroll-container {
-		max-height: 40vh;
-		overflow-y: auto;
-		margin: 0.5rem 0;
-		padding-right: 0.5rem;
+  .scroll-container {
+    max-height: 40vh;
+    overflow-y: auto;
+    margin: 0.5rem 0;
+    padding-right: 0.5rem;
 
-		&::-webkit-scrollbar {
-			width: 10px;
-		}
+    &::-webkit-scrollbar {
+      width: 10px;
+    }
 
-		&::-webkit-scrollbar-track {
-			background: transparent;
-			border-radius: 15px;
-		}
+    &::-webkit-scrollbar-track {
+      background: transparent;
+      border-radius: 15px;
+    }
 
-		&::-webkit-scrollbar-thumb {
-			background: #f4eee0;
-			border: 2px solid rgba(193, 65, 57, 0.8);
-			border-radius: 15px;
-		}
-	}
+    &::-webkit-scrollbar-thumb {
+      background: #f4eee0;
+      border: 2px solid rgba(193, 65, 57, 0.8);
+      border-radius: 15px;
+    }
+  }
 
-	.dialog-overlay {
-		position: fixed;
-		top: 0;
-		left: 0;
-		width: 100%;
-		height: 100%;
-		background: rgba(0, 0, 0, 0.8);
-		display: flex;
-		justify-content: center;
-		align-items: center;
-		z-index: 1000;
-		backdrop-filter: blur(2px);
-	}
+  .dialog-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.8);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 1000;
+    backdrop-filter: blur(2px);
+  }
 
-	:global([data-platform="linux"]) .dialog-overlay {
-		backdrop-filter: none;
-		background: rgba(0, 0, 0, 0.92);
-	}
+  :global([data-platform="linux"]) .dialog-overlay {
+    backdrop-filter: none;
+    background: rgba(0, 0, 0, 0.92);
+  }
 
-	.dialog-content {
-		background: #393646;
-		border: 2px solid #f4eee0;
-		border-radius: 12px;
-		padding: 2rem;
-		width: 560px;
-		max-width: 90%;
-		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-	}
+  .dialog-content {
+    background: #393646;
+    border: 2px solid #f4eee0;
+    border-radius: 12px;
+    padding: 2rem;
+    width: 560px;
+    max-width: 90%;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  }
 
-	.dialog-content h2 {
-		text-align: center;
-	}
+  .dialog-content h2 {
+    text-align: center;
+  }
 
-	h2 {
-		color: #fdcf51;
-		font-size: 1.8rem;
-		margin: 0 0 1.5rem;
-		font-family: "M6X11", sans-serif;
-	}
+  h2 {
+    color: #fdcf51;
+    font-size: 1.8rem;
+    margin: 0 0 1.5rem;
+    font-family: "M6X11", sans-serif;
+  }
 
-	ul {
-		list-style: none;
-		padding: 0;
-		margin: 0;
-	}
+  ul {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+  }
 
-	li {
-		color: #c14139;
-		padding: 0.5rem 0;
-		display: flex;
-		align-items: center;
-		gap: 0.75rem;
-		font-size: 1.2rem;
-	}
+  li {
+    color: #c14139;
+    padding: 0.5rem 0;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    font-size: 1.2rem;
+  }
 
-	li::before {
-		content: "⚠️";
-		font-size: 0.9rem;
-	}
+  li::before {
+    content: "⚠️";
+    font-size: 0.9rem;
+  }
 
-	.actions {
-		display: grid;
-		grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
-		gap: 1rem;
-		margin-top: 2rem;
-	}
+  .actions {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: 1rem;
+    margin-top: 2rem;
+  }
 
-	button {
-		padding: 1rem 1.5rem;
-		border: none;
-		border-radius: 6px;
-		font-family: "M6X11", sans-serif;
-		font-size: 1.1rem;
-		cursor: pointer;
-		transition:
-			transform 0.2s ease,
-			background-color 0.2s ease;
-	}
+  button {
+    padding: 1rem 1.5rem;
+    border: none;
+    border-radius: 6px;
+    font-family: "M6X11", sans-serif;
+    font-size: 1.1rem;
+    cursor: pointer;
+    transition:
+      transform 0.2s ease,
+      background-color 0.2s ease;
+  }
 
-	.confirm-button {
-		background: #56a786; /* Green from your download button */
-		color: #f4eee0;
-		border: 2px solid #459373;
-	}
+  .confirm-button {
+    background: #56a786; /* Green from your download button */
+    color: #f4eee0;
+    border: 2px solid #459373;
+  }
 
-	.confirm-button:hover {
-		background: #67b897;
-		transform: translateY(-2px);
-	}
+  .confirm-button:hover {
+    background: #67b897;
+    transform: translateY(-2px);
+  }
 
-	.force-button {
-		background: #c14139; /* Red from delete button */
-		color: #f4eee0;
-		border: 2px solid #a13029;
-	}
+  .force-button {
+    background: #c14139; /* Red from delete button */
+    color: #f4eee0;
+    border: 2px solid #a13029;
+  }
 
-	.force-button:hover {
-		background: #d2524a;
-		transform: translateY(-2px);
-	}
+  .force-button:hover {
+    background: #d2524a;
+    transform: translateY(-2px);
+  }
 
-	.cancel-button {
-		background: #ea9600; /* Orange from categories button */
-		color: #f4eee0;
-		border: 2px solid #cc8400;
-	}
+  .cancel-button {
+    background: #ea9600; /* Orange from categories button */
+    color: #f4eee0;
+    border: 2px solid #cc8400;
+  }
 
-	.cancel-button:hover {
-		background: #fca800;
-		transform: translateY(-2px);
-	}
-	.cancel-button:active,
-	.force-button:active,
-	.confirm-button:active {
-		transform: translateY(0);
-	}
+  .cancel-button:hover {
+    background: #fca800;
+    transform: translateY(-2px);
+  }
+  .cancel-button:active,
+  .force-button:active,
+  .confirm-button:active {
+    transform: translateY(0);
+  }
 
-	/* Update the actions grid */
-	.actions {
-		display: grid;
-		grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-		gap: 1rem;
-		margin-top: 2rem;
-	}
+  /* Update the actions grid */
+  .actions {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 1rem;
+    margin-top: 2rem;
+  }
 
-	@media (max-width: 768px) {
-		.dialog-content {
-			padding: 1.5rem;
-			width: 90%;
-			margin: 1rem;
-		}
+  @media (max-width: 768px) {
+    .dialog-content {
+      padding: 1.5rem;
+      width: 90%;
+      margin: 1rem;
+    }
 
-		.scroll-container {
-			max-height: 35vh;
-		}
+    .scroll-container {
+      max-height: 35vh;
+    }
 
-		h2 {
-			font-size: 1.5rem;
-			margin-bottom: 1rem;
-		}
+    h2 {
+      font-size: 1.5rem;
+      margin-bottom: 1rem;
+    }
 
-		.dependency-list {
-			padding: 0.75rem;
-			margin: 0.75rem 0;
-		}
+    .dependency-list {
+      padding: 0.75rem;
+      margin: 0.75rem 0;
+    }
 
-		.dependency-list h3 {
-			font-size: 1.2rem;
-		}
+    .dependency-list h3 {
+      font-size: 1.2rem;
+    }
 
-		.dependency-list li {
-			font-size: 1rem;
-			padding: 0.25rem 0;
-		}
+    .dependency-list li {
+      font-size: 1rem;
+      padding: 0.25rem 0;
+    }
 
-		button {
-			padding: 0.75rem 1rem;
-			font-size: 0.95rem;
-		}
+    button {
+      padding: 0.75rem 1rem;
+      font-size: 0.95rem;
+    }
 
-		.actions {
-			grid-template-columns: 1fr;
-			gap: 0.75rem;
-			margin-top: 1.5rem;
-		}
-	}
+    .actions {
+      grid-template-columns: 1fr;
+      gap: 0.75rem;
+      margin-top: 1.5rem;
+    }
+  }
 
-	@media (max-width: 480px) {
-		.dialog-content {
-			padding: 1rem;
-			border-width: 1px;
-		}
+  @media (max-width: 480px) {
+    .dialog-content {
+      padding: 1rem;
+      border-width: 1px;
+    }
 
-		.scroll-container {
-			max-height: 30vh;
-		}
+    .scroll-container {
+      max-height: 30vh;
+    }
 
-		h2 {
-			font-size: 1.3rem;
-			margin-bottom: 0.75rem;
-		}
+    h2 {
+      font-size: 1.3rem;
+      margin-bottom: 0.75rem;
+    }
 
-		.dependency-list h3 {
-			font-size: 1.1rem;
-		}
+    .dependency-list h3 {
+      font-size: 1.1rem;
+    }
 
-		.dependency-list li {
-			font-size: 0.9rem;
-			gap: 0.5rem;
-		}
+    .dependency-list li {
+      font-size: 0.9rem;
+      gap: 0.5rem;
+    }
 
-		button {
-			padding: 0.6rem 0.8rem;
-			font-size: 0.9rem;
-		}
+    button {
+      padding: 0.6rem 0.8rem;
+      font-size: 0.9rem;
+    }
 
-		.actions {
-			gap: 0.5rem;
-			margin-top: 1rem;
-		}
-	}
+    .actions {
+      gap: 0.5rem;
+      margin-top: 1rem;
+    }
+  }
 
-	@media (max-width: 360px) {
-		.dialog-content {
-			padding: 0.75rem;
-		}
+  @media (max-width: 360px) {
+    .dialog-content {
+      padding: 0.75rem;
+    }
 
-		h2 {
-			font-size: 1.2rem;
-		}
+    h2 {
+      font-size: 1.2rem;
+    }
 
-		button {
-			font-size: 0.85rem;
-			padding: 0.5rem 0.7rem;
-		}
-	}
+    button {
+      font-size: 0.85rem;
+      padding: 0.5rem 0.7rem;
+    }
+  }
 </style>

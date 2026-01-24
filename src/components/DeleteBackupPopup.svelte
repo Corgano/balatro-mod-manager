@@ -24,7 +24,11 @@
   }
 
   function handleClose() {
-    deleteBackupPopupStore.set({ visible: false, backupId: "", backupName: "" });
+    deleteBackupPopupStore.set({
+      visible: false,
+      backupId: "",
+      backupName: "",
+    });
   }
 
   function handleKeydown(e: KeyboardEvent) {
@@ -49,14 +53,20 @@
         Are you sure you want to delete
         <strong>"{$deleteBackupPopupStore.backupName}"</strong>?
       </p>
-      <p class="dialog-warning">
-        This action cannot be undone.
-      </p>
+      <p class="dialog-warning">This action cannot be undone.</p>
       <div class="dialog-actions">
-        <button class="delete-button" onclick={handleDelete} disabled={isProcessing}>
+        <button
+          class="delete-button"
+          onclick={handleDelete}
+          disabled={isProcessing}
+        >
           {isProcessing ? "Deleting..." : "Delete"}
         </button>
-        <button class="cancel-button" onclick={handleClose} disabled={isProcessing}>
+        <button
+          class="cancel-button"
+          onclick={handleClose}
+          disabled={isProcessing}
+        >
           Cancel
         </button>
       </div>
@@ -131,7 +141,9 @@
     font-family: "M6X11", sans-serif;
     font-size: 1.25rem;
     cursor: pointer;
-    transition: transform 0.2s ease, background-color 0.2s ease;
+    transition:
+      transform 0.2s ease,
+      background-color 0.2s ease;
     box-shadow: 0 4px 0 rgba(0, 0, 0, 0.25);
   }
 

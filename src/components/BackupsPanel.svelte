@@ -22,7 +22,7 @@
     } catch (e) {
       addMessage(
         `Failed to open backups folder: ${e instanceof Error ? e.message : String(e)}`,
-        "error"
+        "error",
       );
     }
   }
@@ -47,7 +47,11 @@
   </div>
 
   {#if $backupsStore.totalSize > 0}
-    <p class="size-info">Total backup size: <span class="highlight">{formatBytes($backupsStore.totalSize)}</span></p>
+    <p class="size-info">
+      Total backup size: <span class="highlight"
+        >{formatBytes($backupsStore.totalSize)}</span
+      >
+    </p>
   {/if}
 
   {#if $backupsStore.loading && $backupsStore.backups.length === 0}
@@ -57,7 +61,9 @@
   {:else if $backupsStore.backups.length === 0}
     <div class="empty-state">
       <p>No backups yet.</p>
-      <p class="hint">Create a backup to save your current mods configuration.</p>
+      <p class="hint">
+        Create a backup to save your current mods configuration.
+      </p>
     </div>
   {:else}
     <div class="backups-list">
@@ -96,7 +102,9 @@
     font-family: "M6X11", sans-serif;
     font-size: 1.1rem;
     cursor: pointer;
-    transition: transform 0.15s ease, background-color 0.15s ease;
+    transition:
+      transform 0.15s ease,
+      background-color 0.15s ease;
     box-shadow: 0 3px 0 rgba(0, 0, 0, 0.3);
   }
 
