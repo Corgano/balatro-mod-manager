@@ -4,11 +4,12 @@
 		ArrowDownToLine,
 		CornerDownRight,
 		Folder,
+		Check,
 	} from "lucide-svelte";
 	import { invoke } from "@tauri-apps/api/core";
 	import { addMessage } from "$lib/stores";
 	import { modsStore } from "../../stores/modStore";
-	import { modEnabledStore } from "../../stores/modStore";
+	import { modEnabledStore, selectedModsStore, toggleModSelection } from "../../stores/modStore";
 	import { cardScale, darkMode } from "../../stores/ui";
 	import { pickDarkPalette } from "../../utils/cardPalette";
 
@@ -21,17 +22,25 @@
 		mod: LocalModWithCatalog;
 		onUninstall: (mod: LocalModWithCatalog) => void;
 		onToggleEnabled?: () => Promise<void>;
+		showCheckbox?: boolean;
 	}
 
 	const {
 		mod,
 		onUninstall,
 		onToggleEnabled = undefined,
+		showCheckbox = false,
 	}: Props = $props();
 
 	// Local state for loading and enabled status
 	let isInstalling = $state(false);
 	let isEnabled = $state(true); // Default to enabled if not yet checked
+	let isSelected = $derived($selectedModsStore.has(mod.path));
+
+	function handleCheckboxClick(e: Event) {
+		e.stopPropagation();
+		toggleModSelection(mod.path);
+	}
 
 	// Sync local isEnabled state with the store
 	$effect(() => {
@@ -252,9 +261,22 @@
 	);
 </script>
 
-<div class="mod-card" class:compact={$cardScale <= 0.85} style="--bg-color: {cardColors.color1}; --bg-color-2: {cardColors.color2};">
+<div class="mod-card" class:compact={$cardScale <= 0.85} class:selected={isSelected} style="--bg-color: {cardColors.color1}; --bg-color-2: {cardColors.color2};">
 	<!-- Dark overlay to improve readability -->
 	<div class="overlay"></div>
+
+	{#if showCheckbox}
+		<button
+			class="select-checkbox"
+			class:checked={isSelected}
+			onclick={handleCheckboxClick}
+			title={isSelected ? "Deselect" : "Select"}
+		>
+			{#if isSelected}
+				<Check size={14} color="white" />
+			{/if}
+		</button>
+	{/if}
 
 	{#if mod.catalog_match}
 		<div class="catalog-badge">
@@ -751,5 +773,39 @@ h3 {
 		.mod-card {
 			width: 100%;
 		}
+	}
+
+	/* Selection checkbox */
+	.select-checkbox {
+		position: absolute;
+		top: 0.5rem;
+		left: 0.5rem;
+		width: 24px;
+		height: 24px;
+		border-radius: 4px;
+		border: 2px solid white;
+		background: rgba(0, 0, 0, 0.5);
+		cursor: pointer;
+		z-index: 10;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		transition: all 0.15s ease;
+		padding: 0;
+	}
+
+	.select-checkbox:hover {
+		border-color: white;
+		background: rgba(0, 0, 0, 0.7);
+	}
+
+	.select-checkbox.checked {
+		background: var(--ui-success);
+		border-color: white;
+	}
+
+	.mod-card.selected {
+		outline: 2px solid var(--ui-success);
+		outline-offset: -2px;
 	}
 </style>

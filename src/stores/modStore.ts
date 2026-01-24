@@ -64,6 +64,34 @@ export const updateAvailableStore = writable<{ [key: string]: boolean }>({});
 
 export const modEnabledStore = writable<Record<string, boolean>>({});
 
+// Multi-select state for bulk operations in Installed Mods view
+export const selectedModsStore = writable<Set<string>>(new Set());
+
+export function toggleModSelection(id: string): void {
+  selectedModsStore.update((set) => {
+    const newSet = new Set(set);
+    if (newSet.has(id)) {
+      newSet.delete(id);
+    } else {
+      newSet.add(id);
+    }
+    return newSet;
+  });
+}
+
+export function selectAllMods(ids: string[]): void {
+  selectedModsStore.set(new Set(ids));
+}
+
+export function clearSelection(): void {
+  selectedModsStore.set(new Set());
+}
+
+// Batch update helper for modEnabledStore - single store update, single re-render
+export function batchUpdateModEnabled(updates: Record<string, boolean>): void {
+  modEnabledStore.update((store) => ({ ...store, ...updates }));
+}
+
 export interface UninstallDialogState {
   show: boolean;
   modName: string;

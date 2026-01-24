@@ -1,11 +1,13 @@
 <script lang="ts">
     import type { Mod } from "../../stores/modStore";
-    import { Download, Trash2, RefreshCw, Layers } from "lucide-svelte";
+    import { Download, Trash2, RefreshCw, Layers, Check } from "lucide-svelte";
     import {
         installationStatus,
         loadingStates2 as loadingStates,
         modEnabledStore,
         updateAvailableStore,
+        selectedModsStore,
+        toggleModSelection,
     } from "../../stores/modStore";
     import { descriptionsStore } from "../../stores/descriptions";
     import { openCollectionPicker } from "../../stores/collections";
@@ -33,6 +35,7 @@
         searchSpacing?: boolean;
         hideDescription?: boolean;
         disableInstall?: boolean;
+        showCheckbox?: boolean;
     }
 
     let {
@@ -45,10 +48,12 @@
         searchSpacing = false,
         hideDescription = false,
         disableInstall = false,
+        showCheckbox = false,
     }: Props = $props();
 
     let isEnabled = $state(true); // Default to enabled if not yet checked
     let isLinux = false;
+    let isSelected = $derived($selectedModsStore.has(mod.title));
     let descriptionText = $derived(
         $descriptionsStore[mod.title] ?? mod.description ?? "",
     );
@@ -211,6 +216,11 @@
         if (onmodclick) onmodclick(mod);
     }
 
+    function handleCheckboxClick(e: Event) {
+        e.stopPropagation();
+        toggleModSelection(mod.title);
+    }
+
     async function fetchAndInstallLatestSteamodded() {
         try {
             const latestReleaseURL = await invoke<string>(
@@ -345,12 +355,25 @@
     class:desc-hidden={hideDescription}
     class:thumb-loading={!thumbLoaded}
     class:search-spacing={searchSpacing}
+    class:selected={isSelected}
     onclick={openModView}
     onkeydown={(e) => e.key === "Enter" && openModView()}
     role="button"
     tabindex="0"
     style="--orig-color1: {cardColors.color1}; --orig-color2: {cardColors.color2};"
 >
+    {#if showCheckbox}
+        <button
+            class="select-checkbox"
+            class:checked={isSelected}
+            onclick={handleCheckboxClick}
+            title={isSelected ? "Deselect" : "Select"}
+        >
+            {#if isSelected}
+                <Check size={14} color="white" />
+            {/if}
+        </button>
+    {/if}
     <div class="mod-image">
         <LazyImage
             src={mod.image}
@@ -862,5 +885,39 @@
         100% {
             transform: rotate(360deg);
         }
+    }
+
+    /* Selection checkbox */
+    .select-checkbox {
+        position: absolute;
+        top: 0.5rem;
+        left: 0.5rem;
+        width: 24px;
+        height: 24px;
+        border-radius: 4px;
+        border: 2px solid white;
+        background: rgba(0, 0, 0, 0.5);
+        cursor: pointer;
+        z-index: 10;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: all 0.15s ease;
+        padding: 0;
+    }
+
+    .select-checkbox:hover {
+        border-color: white;
+        background: rgba(0, 0, 0, 0.7);
+    }
+
+    .select-checkbox.checked {
+        background: var(--ui-success);
+        border-color: white;
+    }
+
+    .mod-card.selected {
+        outline: 2px solid var(--ui-success);
+        outline-offset: -2px;
     }
 </style>

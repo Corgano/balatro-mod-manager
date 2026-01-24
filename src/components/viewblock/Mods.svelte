@@ -82,13 +82,14 @@
     } from "../../stores/modStore";
     import ModCard from "./ModCard.svelte";
     import LocalModCard from "./LocalModCard.svelte";
+    import BulkActionBar from "../BulkActionBar.svelte";
     import {
         checkModInCache,
         fetchCachedMods,
         forceRefreshCache,
     } from "../../stores/modCache";
     import { updateAvailableStore } from "../../stores/modStore";
-    import { modEnabledStore } from "../../stores/modStore";
+    import { modEnabledStore, selectedModsStore, clearSelection } from "../../stores/modStore";
     import { browser } from "$app/environment";
     import { openExternal } from "$lib/opener";
 
@@ -156,6 +157,80 @@
     let filteredDisabledLocalMods = $derived(
         disabledLocalMods.filter((m) => matchesInstalledSearch(m.name, m.author))
     );
+
+    // Derived values for BulkActionBar
+    let catalogModIds = $derived([
+        ...filteredEnabledMods.map((m) => m.title),
+        ...filteredDisabledMods.map((m) => m.title),
+    ]);
+
+    let localModIds = $derived([
+        ...filteredEnabledLocalMods.map((m) => m.path),
+        ...filteredDisabledLocalMods.map((m) => m.path),
+    ]);
+
+    let allSelectableModIds = $derived([
+        ...catalogModIds,
+        ...localModIds,
+    ]);
+
+    let localModPathsMap = $derived(
+        new Map([
+            ...filteredEnabledLocalMods.map((m) => [m.path, m.path] as [string, string]),
+            ...filteredDisabledLocalMods.map((m) => [m.path, m.path] as [string, string]),
+        ])
+    );
+
+    let localModNamesMap = $derived(
+        new Map([
+            ...filteredEnabledLocalMods.map((m) => [m.path, m.name] as [string, string]),
+            ...filteredDisabledLocalMods.map((m) => [m.path, m.name] as [string, string]),
+        ])
+    );
+
+    async function handleBulkUninstall(ids: string[]) {
+        // For now, show a confirmation and uninstall each mod
+        // This could be enhanced to use the UninstallDialog for dependency checking
+        const confirmed = window.confirm(
+            `Are you sure you want to uninstall ${ids.length} mod${ids.length !== 1 ? "s" : ""}?`
+        );
+        if (!confirmed) return;
+
+        let successCount = 0;
+        let failCount = 0;
+
+        for (const id of ids) {
+            try {
+                const localPath = localModPathsMap.get(id);
+                if (localPath) {
+                    // Local mod - delete by path
+                    await invoke("delete_manual_mod", { path: localPath });
+                } else {
+                    // Catalog mod - remove by name
+                    await invoke("remove_installed_mod", { name: id });
+                    installationStatus.update((s) => {
+                        const newStatus = { ...s };
+                        delete newStatus[id];
+                        return newStatus;
+                    });
+                }
+                successCount++;
+            } catch (error) {
+                console.error(`Failed to uninstall ${id}:`, error);
+                failCount++;
+            }
+        }
+
+        if (failCount > 0) {
+            addMessage(`Uninstalled ${successCount} mods, ${failCount} failed`, "warning");
+        } else {
+            addMessage(`Uninstalled ${successCount} mods`, "success");
+        }
+
+        clearSelection();
+        getLocalMods();
+        refreshInstalledMods();
+    }
 
     // Animate the dots
     let dotInterval: number;
@@ -2191,6 +2266,10 @@
         scrollToTop();
         markPaginating();
         updateVirtualWindow();
+        // Clear selection when leaving Installed Mods view
+        if (category !== "Installed Mods") {
+            clearSelection();
+        }
     }
 
     function handleModsScroll() {
@@ -3493,6 +3572,7 @@
                                             {mod}
                                             onUninstall={handleModUninstalled}
                                             onToggleEnabled={handleModToggled}
+                                            showCheckbox={true}
                                         />
                                         </div>
                                     {/each}
@@ -3525,6 +3605,7 @@
                                             {mod}
                                             onUninstall={handleModUninstalled}
                                             onToggleEnabled={handleModToggled}
+                                            showCheckbox={true}
                                         />
                                         </div>
                                     {/each}
@@ -3588,6 +3669,7 @@
                                                 oninstallclick={installMod}
                                                 onuninstallclick={uninstallMod}
                                                 onToggleEnabled={handleModToggled}
+                                                showCheckbox={true}
                                             />
                                         </div>
                                     {/each}
@@ -3618,6 +3700,7 @@
                                                 oninstallclick={installMod}
                                                 onuninstallclick={uninstallMod}
                                                 onToggleEnabled={handleModToggled}
+                                                showCheckbox={true}
                                             />
                                         </div>
                                     {/each}
@@ -3636,6 +3719,7 @@
                                                 oninstallclick={installMod}
                                                 onuninstallclick={uninstallMod}
                                                 onToggleEnabled={handleModToggled}
+                                                showCheckbox={true}
                                             />
                                         </div>
                                     {/each}
@@ -3676,6 +3760,18 @@
         <ModView
             mod={$currentModView!}
             onCheckDependencies={handleDependencyCheck}
+        />
+    {/if}
+
+    {#if $currentCategory === "Installed Mods" && !$currentModView}
+        <BulkActionBar
+            allSelectableIds={allSelectableModIds}
+            catalogModIds={catalogModIds}
+            localModIds={localModIds}
+            localModPaths={localModPathsMap}
+            localModNames={localModNamesMap}
+            onBulkUninstall={handleBulkUninstall}
+            onRefresh={updateEnabledDisabledLists}
         />
     {/if}
 </div>
