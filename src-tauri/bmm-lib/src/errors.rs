@@ -67,6 +67,8 @@ pub enum AppError {
         mod_name: String,
         source: String,
     },
+    /// Reserved for future mod conflict detection
+    #[allow(dead_code)]
     ModConflict {
         mod_name: String,
         conflicts: Vec<String>,
@@ -75,6 +77,8 @@ pub enum AppError {
         mod_name: String,
         version: String,
     },
+    /// Reserved for future git-based mod repository features
+    #[allow(dead_code)]
     GitOperation(String),
     ArchiveTooLarge {
         reason: String,
@@ -89,6 +93,8 @@ pub enum AppError {
     InvalidApiResponse(String),
 
     // Platform specific
+    /// Reserved for future macOS-specific library loading features
+    #[allow(dead_code)]
     MacOsLibrary {
         lib_name: String,
         source: String,
