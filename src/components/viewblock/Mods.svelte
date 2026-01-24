@@ -484,11 +484,11 @@
     }
 
     function updateEnabledDisabledLists() {
-        // Filter catalog mods - explicitly check for boolean values
+        // Filter catalog mods - treat undefined as enabled (default state)
         enabledMods = paginatedMods.filter(
             (mod) =>
                 $installationStatus[mod.title] &&
-                $modEnabledStore[mod.title] === true,
+                $modEnabledStore[mod.title] !== false,
         );
         disabledMods = paginatedMods.filter(
             (mod) =>
