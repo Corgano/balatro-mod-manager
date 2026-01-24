@@ -633,23 +633,24 @@ async fn decode_json<T: DeserializeOwned>(
         let is_connection = e.is_connect() || err_str.contains("connection");
 
         let user_msg = if is_timeout {
-            format!(
-                "BMI {} request timed out while downloading (status {}). Your connection may be slow or unstable.",
-                context, status
-            )
+            format!("BMI {} timed out. Connection may be slow.", context)
         } else if is_connection {
+            format!("BMI {} connection failed. Check your internet.", context)
+        } else if err_str.contains("decoding") || err_str.contains("body") {
             format!(
-                "BMI {} connection interrupted while downloading (status {}). Please check your internet connection.",
-                context, status
+                "BMI {} received corrupted data. A firewall or antivirus may be interfering.",
+                context
             )
         } else {
-            format!(
-                "BMI {} failed to download response (status {}): {}",
-                context, status, err_str
-            )
+            format!("BMI {} download failed. Check your internet.", context)
         };
 
-        log::error!("{}", user_msg);
+        log::error!(
+            "BMI {} download error (status {}): {}",
+            context,
+            status,
+            err_str
+        );
         user_msg
     })?;
     serde_json::from_slice::<T>(&body).map_err(|e| {
