@@ -3852,8 +3852,19 @@
         display: flex;
         align-items: center;
         gap: 0.5rem;
-        padding: 0.4rem 2rem;
-        margin: 0.75rem 0 0.5rem 0;
+        padding: 0.5rem 2rem;
+        margin: 0.75rem 2rem 0.5rem 2rem;
+        border-radius: 6px;
+    }
+
+    .subsection-divider.enabled {
+        background: rgba(76, 175, 80, 0.15);
+        border: 1px solid rgba(76, 175, 80, 0.3);
+    }
+
+    .subsection-divider.disabled {
+        background: rgba(128, 128, 128, 0.15);
+        border: 1px solid rgba(128, 128, 128, 0.3);
     }
 
     .subsection-divider .status-dot {
