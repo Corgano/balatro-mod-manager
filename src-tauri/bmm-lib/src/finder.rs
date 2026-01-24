@@ -471,14 +471,16 @@ pub fn get_installed_mods() -> Vec<String> {
         }
     }
 
-    let res: Vec<String> = installed_mods_paths
+    installed_mods_paths
         .iter()
-        .filter_map(|p| p.to_str().map(|s| s.to_string()))
-        .collect();
-
-    res.iter()
-        .filter(|p| !p.contains(".lovely") && !p.contains("lovely") && !p.contains("bmm-compat"))
-        .cloned()
+        .filter_map(|p| {
+            // Filter out internal directories by exact folder name match (not substring)
+            let folder_name = p.file_name()?.to_str()?.to_lowercase();
+            if folder_name == ".lovely" || folder_name == "lovely" || folder_name == "bmm-compat" {
+                return None;
+            }
+            p.to_str().map(|s| s.to_string())
+        })
         .collect()
 }
 
