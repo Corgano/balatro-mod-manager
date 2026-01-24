@@ -34,6 +34,7 @@
 
 	// Local state for loading and enabled status
 	let isInstalling = $state(false);
+	let isToggling = $state(false);
 	let isEnabled = $state(true); // Default to enabled if not yet checked
 	let isSelected = $derived($selectedModsStore.has(mod.path));
 

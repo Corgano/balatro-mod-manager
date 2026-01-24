@@ -183,8 +183,8 @@
 
     let localModNamesMap = $derived(
         new Map([
-            ...filteredEnabledLocalMods.map((m) => [m.path, m.name] as [string, string]),
-            ...filteredDisabledLocalMods.map((m) => [m.path, m.name] as [string, string]),
+            ...filteredEnabledLocalMods.map((m) => [m.path, m.path.split(/[\\/]/).pop() || m.name] as [string, string]),
+            ...filteredDisabledLocalMods.map((m) => [m.path, m.path.split(/[\\/]/).pop() || m.name] as [string, string]),
         ])
     );
 
@@ -571,19 +571,10 @@
                 $modEnabledStore[mod.title] === false,
         );
 
-        // Filter local mods - explicitly check for boolean values
+        // Filter local mods - check by folder name first since backend uses folder name for local mods
         const enabled: LocalMod[] = [];
         const disabled: LocalMod[] = [];
         for (const mod of localMods) {
-            const direct = $modEnabledStore[mod.name];
-            if (direct === true) {
-                enabled.push(mod);
-                continue;
-            }
-            if (direct === false) {
-                disabled.push(mod);
-                continue;
-            }
             const folderName = mod.path.split(/[\\/]/).pop();
             const byPath =
                 folderName && folderName in $modEnabledStore
@@ -592,6 +583,7 @@
             if (byPath === false) {
                 disabled.push(mod);
             } else {
+                // byPath is true or undefined - default to enabled
                 enabled.push(mod);
             }
         }
@@ -3533,37 +3525,22 @@
                 >
                     {#if $currentCategory === "Installed Mods"}
                         {#if showLoadingLocalMods}
-                            <div class="section-header">
-                                <h3>Local Mods</h3>
-                                <p>
-                                    Loading local mods{".".repeat($loadingDots)}
-                                </p>
+                            <div class="section-divider">
+                                <span class="section-label">Local Mods</span>
+                                <span class="section-info">Loading{".".repeat($loadingDots)}</span>
                             </div>
                         {:else if localMods.length > 0}
-                            <div class="section-header">
-                                <div class="section-header-content">
-                                    <h3>Local Mods</h3>
-                                    <p>
-                                        These mods were installed manually
-                                        (outside the mod manager)
-                                    </p>
-                                </div>
-                                <!-- Removed Open Mods Folder button for Local Mods section -->
+                            <div class="section-divider">
+                                <span class="section-label">Local Mods</span>
+                                <span class="section-count">{localMods.length}</span>
                             </div>
 
                             <!-- Enabled Local Mods -->
                             {#if filteredEnabledLocalMods.length > 0}
-                                <div
-                                    class="subsection-header enabled"
-                                    class:top-margin={localMods.length === 0}
-                                >
-                                    <h4>Enabled Local Mods</h4>
-                                    <p>
-                                        {filteredEnabledLocalMods.length} mod{filteredEnabledLocalMods.length !==
-                                        1
-                                            ? "s"
-                                            : ""} active
-                                    </p>
+                                <div class="subsection-divider enabled">
+                                    <span class="status-dot enabled"></span>
+                                    <span class="subsection-label">Enabled</span>
+                                    <span class="subsection-count">{filteredEnabledLocalMods.length} active</span>
                                 </div>
                                 <div class="mods-grid local-mods-grid">
                                     {#each visibleEnabledLocal as mod, index (`${animationNonce}-local-enabled-${mod.name}`)}
@@ -3586,17 +3563,10 @@
 
                             <!-- Disabled Local Mods -->
                             {#if filteredDisabledLocalMods.length > 0}
-                                <div
-                                    class="subsection-header disabled"
-                                    class:top-margin={localMods.length === 0}
-                                >
-                                    <h4>Disabled Local Mods</h4>
-                                    <p>
-                                        {filteredDisabledLocalMods.length} mod{filteredDisabledLocalMods.length !==
-                                        1
-                                            ? "s"
-                                            : ""} inactive
-                                    </p>
+                                <div class="subsection-divider disabled">
+                                    <span class="status-dot disabled"></span>
+                                    <span class="subsection-label">Disabled</span>
+                                    <span class="subsection-count">{filteredDisabledLocalMods.length} inactive</span>
                                 </div>
                                 <div class="mods-grid local-mods-grid">
                                     {#each visibleDisabledLocal as mod, index (`${animationNonce}-local-disabled-${mod.name}`)}
@@ -3618,15 +3588,9 @@
                             {/if}
 
                             <!-- Mod Manager Catalog Section Header -->
-                            <div class="section-header">
-                                <div class="section-header-content">
-                                    <h3>Mod Manager Catalog</h3>
-                                    <p>
-                                        These mods are available from the online
-                                        catalog
-                                    </p>
-                                </div>
-                                <!-- Removed Open Mods Folder button for Mod Manager Catalog section -->
+                            <div class="section-divider catalog">
+                                <span class="section-label">Catalog</span>
+                                <span class="section-count">{paginatedMods.length}</span>
                             </div>
                         {:else if !isLoadingLocalMods && localMods.length === 0 && paginatedMods.length === 0}
                             <div class="no-mods-message">
@@ -3647,14 +3611,10 @@
                         {#if paginatedMods.length > 0}
                             <!-- Enabled Catalog Mods -->
                             {#if filteredEnabledMods.length > 0}
-                                <div class="subsection-header enabled">
-                                    <h4>Enabled Catalog Mods</h4>
-                                    <p>
-                                        {filteredEnabledMods.length} mod{filteredEnabledMods.length !==
-                                        1
-                                            ? "s"
-                                            : ""} active
-                                    </p>
+                                <div class="subsection-divider enabled">
+                                    <span class="status-dot enabled"></span>
+                                    <span class="subsection-label">Enabled</span>
+                                    <span class="subsection-count">{filteredEnabledMods.length} active</span>
                                 </div>
                                 <div
                                     class="mods-grid"
@@ -3678,14 +3638,10 @@
 
                             <!-- Disabled Catalog Mods -->
                             {#if filteredDisabledMods.length > 0}
-                                <div class="subsection-header disabled">
-                                    <h4>Disabled Catalog Mods</h4>
-                                    <p>
-                                        {filteredDisabledMods.length} mod{filteredDisabledMods.length !==
-                                        1
-                                            ? "s"
-                                            : ""} inactive
-                                    </p>
+                                <div class="subsection-divider disabled">
+                                    <span class="status-dot disabled"></span>
+                                    <span class="subsection-label">Disabled</span>
+                                    <span class="subsection-count">{filteredDisabledMods.length} inactive</span>
                                 </div>
                                 <div
                                     class="mods-grid"
@@ -3854,52 +3810,80 @@
         flex-wrap: wrap;
     }
 
-    .section-header {
+    /* Compact section dividers */
+    .section-divider {
         display: flex;
-        justify-content: space-between;
         align-items: center;
-        flex-wrap: wrap;
-        gap: 1rem;
+        position: relative;
+        justify-content: center;
+        gap: 0.75rem;
+        padding: 0.5rem 2rem;
+        margin: 1rem 0 0.5rem 0;
+        border-bottom: 2px solid var(--ui-mod-panel-border);
     }
 
-    .section-header-content {
-        flex: 1;
-        min-width: 200px;
+    .section-divider .section-label {
+        font-family: "M6X11", sans-serif;
+        font-size: 1.2rem;
+        color: var(--ui-heading);
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
     }
 
-    .subsection-header {
-        display: flex;
-        flex-direction: column;
-        background: var(--ui-mod-panel);
-        border: 2px solid var(--ui-mod-panel-border); /*Full white border like section header*/
-        padding: 0.7rem 1.5rem;
-        margin: 0 2rem 1rem 2rem;
-        border-radius: 8px; /*Matching border-radius*/
-        box-shadow: 0 4px 12px var(--ui-mod-panel-shadow); /*Matching box-shadow*/
-    }
-
-    .subsection-header.enabled {
-        background: var(--ui-success-strong);
-        border: 2px solid var(--ui-mod-panel-border);
-    }
-
-    .subsection-header.disabled {
-        background: var(--ui-neutral);
-        border: 2px solid var(--ui-mod-panel-border);
-    }
-
-    .subsection-header h4 {
-        margin: 0;
-        font-size: 1.3rem;
+    .section-divider .section-count {
+        font-family: "M6X11", sans-serif;
+        font-size: 0.9rem;
         color: var(--ui-text);
-        text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.5);
+        opacity: 0.7;
+        position: absolute;
+        right: 2rem;
     }
 
-    .subsection-header p {
-        margin: 0.2rem 0 0 0;
+    .section-divider .section-info {
+        font-family: "M6X11", sans-serif;
+        font-size: 0.9rem;
+        color: var(--ui-text);
+        opacity: 0.7;
+        margin-left: auto;
+    }
+
+    /* Compact subsection dividers */
+    .subsection-divider {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.4rem 2rem;
+        margin: 0.75rem 0 0.5rem 0;
+    }
+
+    .subsection-divider .status-dot {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        flex-shrink: 0;
+    }
+
+    .subsection-divider .status-dot.enabled {
+        background: var(--ui-success-strong);
+        box-shadow: 0 0 6px var(--ui-success-strong);
+    }
+
+    .subsection-divider .status-dot.disabled {
+        background: var(--ui-neutral);
+    }
+
+    .subsection-divider .subsection-label {
+        font-family: "M6X11", sans-serif;
         font-size: 1rem;
         color: var(--ui-text);
-        opacity: 0.9;
+    }
+
+    .subsection-divider .subsection-count {
+        font-family: "M6X11", sans-serif;
+        font-size: 0.85rem;
+        color: var(--ui-text);
+        opacity: 0.6;
+        margin-left: auto;
     }
 
     /*Adjustments for grid spacing when using subsections*/
@@ -4007,41 +3991,6 @@
 
     .open-folder-button:active {
         transform: translateY(1px);
-    }
-
-    .section-header {
-        background: var(--ui-danger);
-        border: 2px solid var(--ui-mod-panel-border);
-        border-radius: 8px;
-        padding: 1rem 2rem;
-        margin: 0 2rem 1rem 2rem;
-        margin-top: 2rem;
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-    }
-
-    .section-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        flex-wrap: wrap;
-        gap: 1rem;
-    }
-
-    .section-header-content {
-        flex: 1;
-    }
-
-    .section-header h3 {
-        margin: 0;
-        font-size: 1.8rem;
-        color: var(--ui-text);
-        text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.5);
-    }
-
-    .section-header p {
-        margin: 0.5rem 0 0 0;
-        font-size: 1.1rem;
-        color: var(--ui-text);
     }
 
     .mods-container {
@@ -4682,14 +4631,6 @@
         transform: translateZ(0);
         will-change: scroll-position;
         overscroll-behavior: contain;
-    }
-
-    .mods-scroll-container.no-local-mods .subsection-header:first-of-type {
-        margin-top: 3rem; /*Add spacing at the top when there are no local mods*/
-    }
-
-    .top-margin {
-        margin-top: 3rem !important;
     }
 
     .mods-grid {
