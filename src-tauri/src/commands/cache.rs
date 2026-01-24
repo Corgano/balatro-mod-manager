@@ -139,13 +139,13 @@ pub async fn clear_cache() -> Result<(), String> {
 
 #[tauri::command]
 pub async fn get_last_fetched(state: tauri::State<'_, AppState>) -> Result<u64, String> {
-    let db = state.db.lock().await;
+    let db = state.db.lock().unwrap_or_else(|e| e.into_inner());
     db.get_last_fetched().map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub async fn update_last_fetched(state: tauri::State<'_, AppState>) -> Result<(), String> {
-    let db = state.db.lock().await;
+    let db = state.db.lock().unwrap_or_else(|e| e.into_inner());
     db.set_last_fetched(
         SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -160,10 +160,11 @@ pub async fn mod_update_available(
     mod_name: String,
     state: tauri::State<'_, AppState>,
 ) -> Result<bool, String> {
-    let db = state.db.lock().await;
-    let last_installed_version = db
-        .get_last_installed_version(&mod_name)
-        .map_err(|e| e.to_string())?;
+    let last_installed_version = {
+        let db = state.db.lock().unwrap_or_else(|e| e.into_inner());
+        db.get_last_installed_version(&mod_name)
+            .map_err(|e| e.to_string())?
+    }; // guard dropped here
 
     if last_installed_version.is_empty() {
         return Ok(false);
@@ -191,8 +192,10 @@ pub async fn mod_update_available(
 pub async fn mods_updates_map(
     state: tauri::State<'_, AppState>,
 ) -> Result<std::collections::HashMap<String, bool>, String> {
-    let db = state.db.lock().await;
-    let installed = db.get_installed_mods().map_err(|e| e.to_string())?;
+    let installed = {
+        let db = state.db.lock().unwrap_or_else(|e| e.into_inner());
+        db.get_installed_mods().map_err(|e| e.to_string())?
+    }; // guard dropped here
 
     let cached_mods = match load_mods_cache_shared().await? {
         Some(mods) => mods,
@@ -255,8 +258,10 @@ pub async fn mods_state_summary(
     use std::collections::HashMap;
     use std::path::PathBuf;
 
-    let db = state.db.lock().await;
-    let installed_mods = db.get_installed_mods().map_err(|e| e.to_string())?;
+    let installed_mods = {
+        let db = state.db.lock().unwrap_or_else(|e| e.into_inner());
+        db.get_installed_mods().map_err(|e| e.to_string())?
+    }; // guard dropped here
 
     // Installed list and enabled map (DB mods)
     let mut installed_list: Vec<InstalledSummary> = Vec::with_capacity(installed_mods.len());
@@ -306,9 +311,11 @@ pub async fn mods_state_summary(
     let mut updates: HashMap<String, bool> = HashMap::new();
     for m in &installed_list {
         let key = m.name.to_lowercase();
-        let installed_version = db
-            .get_last_installed_version(&m.name)
-            .map_err(|e| e.to_string())?;
+        let installed_version = {
+            let db = state.db.lock().unwrap_or_else(|e| e.into_inner());
+            db.get_last_installed_version(&m.name)
+                .map_err(|e| e.to_string())?
+        }; // guard dropped here
         if installed_version.is_empty() {
             updates.insert(m.name.clone(), false);
             continue;

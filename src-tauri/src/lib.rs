@@ -9,7 +9,6 @@ mod thumb_queue;
 mod util;
 
 use std::path::PathBuf;
-use tokio::sync::Mutex;
 
 use tauri::{Emitter, Manager};
 use tauri_plugin_window_state::StateFlags;
@@ -98,8 +97,8 @@ pub fn run() {
             }
 
             app.manage(AppState {
-                db: Mutex::new(db),
-                discord_rpc: Mutex::new(discord_rpc),
+                db: std::sync::Mutex::new(db),
+                discord_rpc: tokio::sync::Mutex::new(discord_rpc),
                 thumbs: crate::thumb_queue::ThumbnailManager::new(),
             });
 

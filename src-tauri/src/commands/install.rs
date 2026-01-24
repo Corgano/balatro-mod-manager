@@ -66,7 +66,7 @@ const INSTALL_MAX_RETRIES: u32 = 3;
 
 async fn sync_compat_helper_after_mod_change(state: &tauri::State<'_, AppState>) {
     let enabled = {
-        let db = state.db.lock().await;
+        let db = state.db.lock().unwrap_or_else(|e| e.into_inner());
         db.is_compat_helper_enabled().unwrap_or(false)
     };
     if let Err(err) = compat_helper::sync_compat_helper(enabled) {
@@ -98,7 +98,7 @@ fn refresh_mod_detection_cache() {
 #[tauri::command]
 pub async fn launch_balatro(state: tauri::State<'_, AppState>) -> Result<(), String> {
     let (path_str, lovely_console_enabled, launch_mode) = {
-        let db = state.db.lock().await;
+        let db = state.db.lock().unwrap_or_else(|e| e.into_inner());
         let install_path = db
             .get_installation_path()
             .map_err(|e| e.to_string())?
@@ -412,7 +412,7 @@ pub async fn launch_balatro(state: tauri::State<'_, AppState>) -> Result<(), Str
     const CREATE_NO_WINDOW: u32 = 0x08000000;
 
     let (path_str, lovely_console_enabled, launch_mode, db_lovely_version) = {
-        let db = state.db.lock().await;
+        let db = state.db.lock().unwrap_or_else(|e| e.into_inner());
         let install_path = db
             .get_installation_path()
             .map_err(|e| e.to_string())?
@@ -488,7 +488,7 @@ pub async fn launch_balatro(_state: tauri::State<'_, AppState>) -> Result<(), St
 pub async fn launch_balatro(state: tauri::State<'_, AppState>) -> Result<(), String> {
     // Prefer stored install path; fall back to discovered path if missing
     let install_path = {
-        let db = state.db.lock().await;
+        let db = state.db.lock().unwrap_or_else(|e| e.into_inner());
         match db.get_installation_path() {
             Ok(Some(p)) => Some(PathBuf::from(p)),
             _ => None,
@@ -504,7 +504,7 @@ pub async fn launch_balatro(state: tauri::State<'_, AppState>) -> Result<(), Str
         .ok_or_else(|| "No Balatro installation path is configured or detected".to_string())?;
 
     let (lovely_console_enabled, linux_prefix, launch_mode, db_lovely_version) = {
-        let db = state.db.lock().await;
+        let db = state.db.lock().unwrap_or_else(|e| e.into_inner());
         let lovely = db.is_lovely_console_enabled().map_err(|e| e.to_string())?;
         let prefix = db
             .get_linux_prefix()
@@ -713,7 +713,7 @@ pub async fn launch_balatro(state: tauri::State<'_, AppState>) -> Result<(), Str
         // Ensure Lovely's liblovely.so is present for native LOVE injection
         // Refresh Lovely if a newer version is available
         if let Ok(latest) = get_latest_lovely_version().await {
-            let db = state.db.lock().await;
+            let db = state.db.lock().unwrap_or_else(|e| e.into_inner());
             if let Ok(current) = db.get_lovely_version()
                 && current.as_deref() != Some(latest.as_str())
             {
@@ -956,7 +956,7 @@ pub async fn cascade_uninstall(
 ) -> Result<(), String> {
     // Collect all mods to uninstall while holding the lock
     let mods_to_remove: Vec<(String, PathBuf)> = {
-        let db = state.db.lock().await;
+        let db = state.db.lock().unwrap_or_else(|e| e.into_inner());
         let mut to_uninstall = vec![root_mod.clone()];
         let mut processed = std::collections::HashSet::new();
         let mut result = Vec::new();
@@ -982,7 +982,7 @@ pub async fn cascade_uninstall(
         if mod_path.exists() {
             map_error(bmm_lib::installer::uninstall_mod(mod_path.clone()).await)?;
         }
-        let db = state.db.lock().await;
+        let db = state.db.lock().unwrap_or_else(|e| e.into_inner());
         map_error(db.remove_installed_mod_by_name_or_path(mod_name, &mod_path.to_string_lossy()))?;
     }
 
@@ -1007,7 +1007,7 @@ pub async fn force_remove_mod(
         }
     }
     {
-        let db = state.db.lock().await;
+        let db = state.db.lock().unwrap_or_else(|e| e.into_inner());
         map_error(db.remove_installed_mod_by_name_or_path(&name, &path))?;
     }
     sync_compat_helper_after_mod_change(&state).await;
@@ -1025,7 +1025,7 @@ pub async fn remove_installed_mod(
 ) -> Result<(), String> {
     // Check for framework dependents while holding the lock
     {
-        let db = state.db.lock().await;
+        let db = state.db.lock().unwrap_or_else(|e| e.into_inner());
 
         let is_framework = name.to_lowercase() == "steamodded" || name.to_lowercase() == "talisman";
         if is_framework {
@@ -1052,7 +1052,7 @@ pub async fn remove_installed_mod(
 
     // Remove from database
     {
-        let db = state.db.lock().await;
+        let db = state.db.lock().unwrap_or_else(|e| e.into_inner());
         map_error(db.remove_installed_mod_by_name_or_path(&name, &path))?;
     }
 
@@ -1151,7 +1151,7 @@ fn is_rate_limit_error(error: &str) -> bool {
 pub async fn get_installed_mods_from_db(
     state: tauri::State<'_, AppState>,
 ) -> Result<Vec<InstalledMod>, String> {
-    let db = state.db.lock().await;
+    let db = state.db.lock().unwrap_or_else(|e| e.into_inner());
     map_error(db.get_installed_mods())
 }
 
@@ -1165,7 +1165,7 @@ pub async fn add_installed_mod(
     current_version: String,
 ) -> Result<(), String> {
     {
-        let db = state.db.lock().await;
+        let db = state.db.lock().unwrap_or_else(|e| e.into_inner());
         let current_version = if current_version.is_empty() {
             None
         } else {

@@ -28,9 +28,11 @@ pub async fn check_mod_installation(mod_type: String) -> Result<bool, String> {
 
 #[tauri::command]
 pub async fn refresh_mods_folder(state: tauri::State<'_, AppState>) -> Result<(), String> {
-    let db = state.db.lock().await;
+    let installed = {
+        let db = state.db.lock().unwrap_or_else(|e| e.into_inner());
+        map_error(db.get_installed_mods())?
+    }; // guard dropped here
 
-    let installed = map_error(db.get_installed_mods())?;
     for m in installed {
         let mod_dir = PathBuf::from(&m.path);
         if tokio::fs::metadata(&mod_dir).await.is_ok() {
@@ -83,7 +85,7 @@ pub async fn reindex_mods(
     state: tauri::State<'_, AppState>,
     app_handle: tauri::AppHandle,
 ) -> Result<(usize, usize), String> {
-    let db = state.db.lock().await;
+    let db = state.db.lock().unwrap_or_else(|e| e.into_inner());
 
     let result = reindex_db(&db);
     match &result {

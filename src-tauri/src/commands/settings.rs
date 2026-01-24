@@ -5,7 +5,7 @@ use bmm_lib::lovely;
 
 #[tauri::command]
 pub async fn get_lovely_console_status(state: tauri::State<'_, AppState>) -> Result<bool, String> {
-    let db = state.db.lock().await;
+    let db = state.db.lock().unwrap_or_else(|e| e.into_inner());
     map_error(db.is_lovely_console_enabled())
 }
 
@@ -14,13 +14,13 @@ pub async fn set_lovely_console_status(
     state: tauri::State<'_, AppState>,
     enabled: bool,
 ) -> Result<(), String> {
-    let db = state.db.lock().await;
+    let db = state.db.lock().unwrap_or_else(|e| e.into_inner());
     map_error(db.set_lovely_console_status(enabled))
 }
 
 #[tauri::command]
 pub async fn get_discord_rpc_status(state: tauri::State<'_, AppState>) -> Result<bool, String> {
-    let db = state.db.lock().await;
+    let db = state.db.lock().unwrap_or_else(|e| e.into_inner());
     db.is_discord_rpc_enabled().map_err(|e| e.to_string())
 }
 
@@ -29,10 +29,11 @@ pub async fn set_discord_rpc_status(
     state: tauri::State<'_, AppState>,
     enabled: bool,
 ) -> Result<(), String> {
-    let db = state.db.lock().await;
-
-    db.set_discord_rpc_enabled(enabled)
-        .map_err(|e| e.to_string())?;
+    {
+        let db = state.db.lock().unwrap_or_else(|e| e.into_inner());
+        db.set_discord_rpc_enabled(enabled)
+            .map_err(|e| e.to_string())?;
+    } // guard dropped here
 
     // update the runtime status so changes take effect immediately
     let discord_rpc = state.discord_rpc.lock().await;
@@ -42,7 +43,7 @@ pub async fn set_discord_rpc_status(
 
 #[tauri::command]
 pub async fn get_background_state(state: tauri::State<'_, AppState>) -> Result<bool, String> {
-    let db = state.db.lock().await;
+    let db = state.db.lock().unwrap_or_else(|e| e.into_inner());
     map_error(db.get_background_enabled())
 }
 
@@ -51,13 +52,13 @@ pub async fn set_background_state(
     state: tauri::State<'_, AppState>,
     enabled: bool,
 ) -> Result<(), String> {
-    let db = state.db.lock().await;
+    let db = state.db.lock().unwrap_or_else(|e| e.into_inner());
     map_error(db.set_background_enabled(enabled))
 }
 
 #[tauri::command]
 pub async fn get_compat_helper_status(state: tauri::State<'_, AppState>) -> Result<bool, String> {
-    let db = state.db.lock().await;
+    let db = state.db.lock().unwrap_or_else(|e| e.into_inner());
     map_error(db.is_compat_helper_enabled())
 }
 
@@ -66,7 +67,7 @@ pub async fn set_compat_helper_status(
     state: tauri::State<'_, AppState>,
     enabled: bool,
 ) -> Result<(), String> {
-    let db = state.db.lock().await;
+    let db = state.db.lock().unwrap_or_else(|e| e.into_inner());
     map_error(db.set_compat_helper_enabled(enabled))?;
     compat_helper::sync_compat_helper(enabled)?;
     Ok(())
@@ -77,13 +78,13 @@ pub async fn set_linux_prefix(
     state: tauri::State<'_, AppState>,
     value: String,
 ) -> Result<(), String> {
-    let db = state.db.lock().await;
+    let db = state.db.lock().unwrap_or_else(|e| e.into_inner());
     map_error(db.set_linux_prefix(&value))
 }
 
 #[tauri::command]
 pub async fn get_linux_prefix(state: tauri::State<'_, AppState>) -> Result<String, String> {
-    let db = state.db.lock().await;
+    let db = state.db.lock().unwrap_or_else(|e| e.into_inner());
     Ok(db
         .get_linux_prefix()
         .map_err(|e| e.to_string())?
@@ -94,7 +95,7 @@ pub async fn get_linux_prefix(state: tauri::State<'_, AppState>) -> Result<Strin
 pub async fn is_security_warning_acknowledged(
     state: tauri::State<'_, AppState>,
 ) -> Result<bool, String> {
-    let db = state.db.lock().await;
+    let db = state.db.lock().unwrap_or_else(|e| e.into_inner());
     map_error(db.is_security_warning_acknowledged())
 }
 
@@ -103,13 +104,13 @@ pub async fn set_security_warning_acknowledged(
     state: tauri::State<'_, AppState>,
     acknowledged: bool,
 ) -> Result<(), String> {
-    let db = state.db.lock().await;
+    let db = state.db.lock().unwrap_or_else(|e| e.into_inner());
     map_error(db.set_security_warning_acknowledged(acknowledged))
 }
 
 #[tauri::command]
 pub async fn get_launch_mode(state: tauri::State<'_, AppState>) -> Result<String, String> {
-    let db = state.db.lock().await;
+    let db = state.db.lock().unwrap_or_else(|e| e.into_inner());
     map_error(db.get_launch_mode())
 }
 
@@ -131,7 +132,7 @@ pub async fn set_launch_mode(
     map_error(lovely::set_injector_enabled(enable_injector))?;
 
     // Save the preference to database
-    let db = state.db.lock().await;
+    let db = state.db.lock().unwrap_or_else(|e| e.into_inner());
     map_error(db.set_launch_mode(&mode))
 }
 

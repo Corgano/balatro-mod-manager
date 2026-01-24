@@ -26,35 +26,37 @@ pub struct AppInitData {
 /// This batches 6 separate calls into 1, reducing startup IPC overhead.
 #[tauri::command]
 pub async fn get_app_init_data(state: tauri::State<'_, AppState>) -> Result<AppInitData, String> {
-    let db = state.db.lock().await;
-
     // 1. App version (compile-time constant, no DB access needed)
     let version = env!("CARGO_PKG_VERSION").to_string();
 
-    // 2. Check existing installation
-    let existing_installation = if let Some(path) = db.get_installation_path()? {
-        let path_buf = PathBuf::from(&path);
-        if bmm_lib::balamod::Balatro::from_custom_path(path_buf).is_some() {
-            Some(path)
+    // 2-5. Extract all DB values in one scoped block
+    let (existing_installation, security_acknowledged, lovely_installed, launch_mode) = {
+        let db = state.db.lock().unwrap_or_else(|e| e.into_inner());
+
+        // 2. Check existing installation
+        let existing_installation = if let Some(path) = db.get_installation_path()? {
+            let path_buf = PathBuf::from(&path);
+            if bmm_lib::balamod::Balatro::from_custom_path(path_buf).is_some() {
+                Some(path)
+            } else {
+                map_error(db.remove_installation_path())?;
+                None
+            }
         } else {
-            map_error(db.remove_installation_path())?;
             None
-        }
-    } else {
-        None
-    };
+        };
 
-    // 3. Security warning acknowledged
-    let security_acknowledged = map_error(db.is_security_warning_acknowledged())?;
+        // 3. Security warning acknowledged
+        let security_acknowledged = map_error(db.is_security_warning_acknowledged())?;
 
-    // 4. Is lovely installed
-    let lovely_installed = check_lovely_installed_inner(&db, &existing_installation)?;
+        // 4. Is lovely installed
+        let lovely_installed = check_lovely_installed_inner(&db, &existing_installation)?;
 
-    // 5. Launch mode
-    let launch_mode = map_error(db.get_launch_mode())?;
+        // 5. Launch mode
+        let launch_mode = map_error(db.get_launch_mode())?;
 
-    // Drop DB lock before network call
-    drop(db);
+        (existing_installation, security_acknowledged, lovely_installed, launch_mode)
+    }; // guard dropped here
 
     // 6. Check lovely update (network call)
     let lovely_update_available = check_lovely_update_inner(&state).await?;
@@ -86,7 +88,7 @@ pub struct AllSettings {
 /// This batches 6 separate calls into 1.
 #[tauri::command]
 pub async fn get_all_settings(state: tauri::State<'_, AppState>) -> Result<AllSettings, String> {
-    let db = state.db.lock().await;
+    let db = state.db.lock().unwrap_or_else(|e| e.into_inner());
 
     let discord_rpc = db.is_discord_rpc_enabled().map_err(|e| e.to_string())?;
     let lovely_console = map_error(db.is_lovely_console_enabled())?;
@@ -244,7 +246,7 @@ async fn check_lovely_update_inner(
             .map_err(|e| e.to_string())?;
 
         // Compare to DB-stored version
-        let db = state.db.lock().await;
+        let db = state.db.lock().unwrap_or_else(|e| e.into_inner());
         match db.get_lovely_version() {
             Ok(Some(installed)) => {
                 if installed.trim() != latest {

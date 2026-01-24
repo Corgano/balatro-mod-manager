@@ -13,7 +13,7 @@ use bmm_lib::errors::AppError;
 
 async fn sync_compat_helper_after_mod_change(state: &tauri::State<'_, AppState>) {
     let enabled = {
-        let db = state.db.lock().await;
+        let db = state.db.lock().unwrap_or_else(|e| e.into_inner());
         db.is_compat_helper_enabled().unwrap_or(false)
     };
     if let Err(err) = compat_helper::sync_compat_helper(enabled) {

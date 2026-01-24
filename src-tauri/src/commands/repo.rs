@@ -282,7 +282,7 @@ pub async fn get_cached_installed_thumbnail(
     state: tauri::State<'_, crate::state::AppState>,
 ) -> Result<Option<String>, String> {
     let installed = {
-        let db = state.db.lock().await;
+        let db = state.db.lock().unwrap_or_else(|e| e.into_inner());
         db.get_installed_mods()
             .map_err(|e| e.to_string())?
             .into_iter()
