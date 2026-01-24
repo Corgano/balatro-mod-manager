@@ -627,18 +627,42 @@ async fn decode_json<T: DeserializeOwned>(
     context: &str,
 ) -> Result<T, String> {
     let status = resp.status();
-    let body = resp.bytes().await.map_err(|e| e.to_string())?;
+    let body = resp.bytes().await.map_err(|e| {
+        let err_str = e.to_string();
+        let is_timeout = e.is_timeout() || err_str.contains("timed out");
+        let is_connection = e.is_connect() || err_str.contains("connection");
+
+        let user_msg = if is_timeout {
+            format!(
+                "BMI {} request timed out while downloading (status {}). Your connection may be slow or unstable.",
+                context, status
+            )
+        } else if is_connection {
+            format!(
+                "BMI {} connection interrupted while downloading (status {}). Please check your internet connection.",
+                context, status
+            )
+        } else {
+            format!(
+                "BMI {} failed to download response (status {}): {}",
+                context, status, err_str
+            )
+        };
+
+        log::error!("{}", user_msg);
+        user_msg
+    })?;
     serde_json::from_slice::<T>(&body).map_err(|e| {
         let payload = payload_preview(&body);
         log::error!(
-            "BMI {} decode failed (status {}): {}; payload={}",
+            "BMI {} JSON parse failed (status {}): {}; payload={}",
             context,
             status,
             e,
             payload
         );
         format!(
-            "BMI {} decode failed (status {}): {}",
+            "BMI {} JSON parse failed (status {}): {}",
             context,
             status,
             preview_bytes(&body)
