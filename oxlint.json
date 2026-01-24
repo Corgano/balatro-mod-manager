@@ -1,0 +1,17 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "ignorePatterns": [
+    "node_modules/",
+    "build/",
+    ".svelte-kit/",
+    "dist/",
+    ".flatpak-builder/",
+    "src-tauri/target/",
+    "target/"
+  ],
+  "rules": {
+    "no-unused-vars": ["warn", { "argsIgnorePattern": "^_", "varsIgnorePattern": "^_", "caughtErrorsIgnorePattern": "^_" }],
+    "no-unassigned-vars": "off",
+    "no-unused-expressions": "off"
+  }
+}

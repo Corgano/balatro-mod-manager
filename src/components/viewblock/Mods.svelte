@@ -1670,7 +1670,7 @@
       }
     }
     await Promise.all(
-      new Array(Math.min(limit, mods.length)).fill(0).map(worker),
+      Array.from({ length: Math.min(limit, mods.length) }, worker),
     );
     applyBatch();
   }
@@ -1732,7 +1732,7 @@
       }
     }
     await Promise.all(
-      new Array(Math.min(limit, candidates.length)).fill(0).map(() => worker()),
+      Array.from({ length: Math.min(limit, candidates.length) }, () => worker()),
     );
     applyBatch();
     visibleFirstRunning = false;
@@ -1770,7 +1770,7 @@
       }
     }
     await Promise.all(
-      new Array(Math.min(limit, mods.length)).fill(0).map(() => worker()),
+      Array.from({ length: Math.min(limit, mods.length) }, () => worker()),
     );
     applyBatch();
   }
@@ -1815,7 +1815,7 @@
       }
     }
     await Promise.all(
-      new Array(Math.min(limit, candidates.length)).fill(0).map(() => worker()),
+      Array.from({ length: Math.min(limit, candidates.length) }, () => worker()),
     );
     applyBatch();
   }
@@ -1861,7 +1861,7 @@
       }
     };
     await Promise.all(
-      new Array(Math.min(limit, mods.length)).fill(0).map(() => client()),
+      Array.from({ length: Math.min(limit, mods.length) }, () => client()),
     );
   }
 
