@@ -165,17 +165,17 @@
 
 	async function handleLinuxPrefixChange() {
 		const newValue = linuxPrefix.replace(/\s+/g, " ").trim();
-		if (!newValue) {
-			addMessage("Linux prefix is empty", "error");
-			return;
-		}
-		if (newValue !== linuxPrefix) {
+		if (newValue && newValue !== linuxPrefix) {
 			linuxPrefix = newValue;
 			addMessage("Linux prefix had extra spaces and was normalized", "warning");
 		}
 		try {
 			await invoke("set_linux_prefix", { value: newValue });
-			addMessage(`Linux prefix set to ${newValue}`, "success");
+			if (newValue) {
+				addMessage(`Linux prefix set to ${newValue}`, "success");
+			} else {
+				addMessage("Linux prefix cleared (will use native LOVE)", "success");
+			}
 		} catch (error) {
 			console.error("Failed to set prefix:", error);
 			addMessage("Failed to update Linux prefix", "error");
