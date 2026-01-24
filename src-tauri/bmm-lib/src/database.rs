@@ -585,6 +585,33 @@ impl Database {
         Ok(dependents)
     }
 
+    /// Get all mods that depend on any of the given mod names.
+    /// More efficient than calling get_dependents() for each mod individually.
+    pub fn get_dependents_batch(&self, mod_names: &[&str]) -> Result<std::collections::HashMap<String, Vec<String>>, AppError> {
+        use std::collections::HashMap;
+
+        if mod_names.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        // Build a map of mod_name -> list of dependents
+        let mut result: HashMap<String, Vec<String>> =
+            mod_names.iter().map(|&n| (n.to_string(), Vec::new())).collect();
+
+        // Query all installed mods once
+        let all_mods = self.get_installed_mods()?;
+
+        for installed_mod in all_mods {
+            for dep in &installed_mod.dependencies {
+                if let Some(dependents) = result.get_mut(dep) {
+                    dependents.push(installed_mod.name.clone());
+                }
+            }
+        }
+
+        Ok(result)
+    }
+
     pub fn remove_installed_mod(&self, name: &str) -> Result<(), AppError> {
         self.conn
             .execute("DELETE FROM installed_mods WHERE name = ?1", [name])?;
@@ -913,6 +940,23 @@ mod tests {
         let mods = db.get_installed_mods()?;
         assert_eq!(mods.len(), 1);
         assert_eq!(mods[0].path, "/path/v2");
+        Ok(())
+    }
+
+    #[test]
+    fn test_get_dependents_batch() -> Result<(), AppError> {
+        let db = create_memory_db()?;
+
+        db.add_installed_mod("Steamodded", "/path/steamodded", &[], None)?;
+        db.add_installed_mod("ModA", "/path/moda", &["Steamodded".to_string()], None)?;
+        db.add_installed_mod("ModB", "/path/modb", &["Steamodded".to_string(), "Talisman".to_string()], None)?;
+        db.add_installed_mod("Talisman", "/path/talisman", &[], None)?;
+
+        let deps = db.get_dependents_batch(&["Steamodded", "Talisman"])?;
+
+        assert_eq!(deps.get("Steamodded").unwrap().len(), 2); // ModA and ModB
+        assert_eq!(deps.get("Talisman").unwrap().len(), 1);   // ModB
+
         Ok(())
     }
 }
