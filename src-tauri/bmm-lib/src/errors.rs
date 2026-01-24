@@ -76,6 +76,9 @@ pub enum AppError {
         version: String,
     },
     GitOperation(String),
+    ArchiveTooLarge {
+        reason: String,
+    },
 
     // Network/API
     NetworkRequest {
@@ -203,6 +206,9 @@ impl fmt::Display for AppError {
                 }
             }
             AppError::GitOperation(msg) => write!(f, "Git operation failed: {msg}"),
+            AppError::ArchiveTooLarge { reason } => {
+                write!(f, "Archive extraction aborted: {reason}")
+            }
 
             // Network/API
             AppError::NetworkRequest { url: _, source } => {

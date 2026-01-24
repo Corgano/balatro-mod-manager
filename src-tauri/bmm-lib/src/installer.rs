@@ -27,7 +27,7 @@ use reqwest::Client;
 use reqwest::header::{CONTENT_DISPOSITION, CONTENT_TYPE};
 use std::fs::{self, File};
 use std::io::Read;
-use std::io::{self, BufReader};
+use std::io::{self, BufReader, Write};
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -40,6 +40,12 @@ use zip::ZipArchive;
 
 /// Atomic counter to generate unique temp file names for concurrent downloads.
 static DOWNLOAD_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+/// Maximum total decompressed size allowed (2 GB)
+const MAX_DECOMPRESSED_SIZE: u64 = 2 * 1024 * 1024 * 1024;
+
+/// Maximum number of files allowed in an archive
+const MAX_ARCHIVE_FILES: usize = 10_000;
 
 /// Downloads and installs a mod from the given URL.
 ///
@@ -513,10 +519,18 @@ fn extract_zip_root<R: Read + io::Seek>(
     zip: &mut ZipArchive<R>,
     path: &PathBuf,
 ) -> Result<(), AppError> {
+    if zip.len() > MAX_ARCHIVE_FILES {
+        return Err(AppError::ArchiveTooLarge {
+            reason: format!("Archive contains {} files, exceeds limit of {}", zip.len(), MAX_ARCHIVE_FILES),
+        });
+    }
+
     fs::create_dir_all(path).map_err(|e| AppError::DirCreate {
         path: path.clone(),
         source: e.to_string(),
     })?;
+
+    let mut total_decompressed: u64 = 0;
 
     for i in 0..zip.len() {
         let mut file = zip.by_index(i).map_err(|e| AppError::FileRead {
@@ -545,7 +559,9 @@ fn extract_zip_root<R: Read + io::Seek>(
             })?;
         } else {
             create_parent_dir(&entry_path)?;
-            copy_file_contents(&mut file, &entry_path)?;
+            let remaining = MAX_DECOMPRESSED_SIZE.saturating_sub(total_decompressed);
+            let bytes_written = copy_file_contents_limited(&mut file, &entry_path, remaining)?;
+            total_decompressed += bytes_written;
         }
     }
     Ok(())
@@ -571,6 +587,14 @@ fn extract_zip<R: Read + io::Seek>(
     zip: &mut ZipArchive<R>,
     mod_dir: &Path,
 ) -> Result<(), AppError> {
+    if zip.len() > MAX_ARCHIVE_FILES {
+        return Err(AppError::ArchiveTooLarge {
+            reason: format!("Archive contains {} files, exceeds limit of {}", zip.len(), MAX_ARCHIVE_FILES),
+        });
+    }
+
+    let mut total_decompressed: u64 = 0;
+
     for i in 0..zip.len() {
         let mut file = zip.by_index(i).map_err(|e| AppError::FileRead {
             path: mod_dir.to_path_buf(),
@@ -598,7 +622,9 @@ fn extract_zip<R: Read + io::Seek>(
             })?;
         } else {
             create_parent_dir(&entry_path)?;
-            copy_file_contents(&mut file, &entry_path)?;
+            let remaining = MAX_DECOMPRESSED_SIZE.saturating_sub(total_decompressed);
+            let bytes_written = copy_file_contents_limited(&mut file, &entry_path, remaining)?;
+            total_decompressed += bytes_written;
         }
     }
     Ok(())
@@ -641,11 +667,21 @@ fn extract_tar(
         source: format!("Tar entry error: {e}"),
     })?;
 
+    let mut total_decompressed: u64 = 0;
+    let mut file_count: usize = 0;
+
     for entry in entries {
         let mut entry = entry.map_err(|e| AppError::FileRead {
             path: mod_dir.to_path_buf(),
             source: format!("Tar entry error: {e}"),
         })?;
+
+        file_count += 1;
+        if file_count > MAX_ARCHIVE_FILES {
+            return Err(AppError::ArchiveTooLarge {
+                reason: format!("Archive contains more than {} files", MAX_ARCHIVE_FILES),
+            });
+        }
 
         let entry_path = entry.path().map_err(|e| AppError::FileRead {
             path: mod_dir.to_path_buf(),
@@ -669,7 +705,9 @@ fn extract_tar(
             })?;
         } else {
             create_parent_dir(&path)?;
-            copy_file_contents(&mut entry, &path)?;
+            let remaining = MAX_DECOMPRESSED_SIZE.saturating_sub(total_decompressed);
+            let bytes_written = copy_file_contents_limited(&mut entry, &path, remaining)?;
+            total_decompressed += bytes_written;
         }
     }
 
@@ -687,18 +725,47 @@ fn create_parent_dir(path: &Path) -> Result<(), AppError> {
     }
 }
 
-fn copy_file_contents(reader: &mut impl io::Read, path: &PathBuf) -> Result<(), AppError> {
+/// Copy file contents with size limit enforcement.
+/// Returns the number of bytes written.
+fn copy_file_contents_limited(
+    reader: &mut impl io::Read,
+    path: &PathBuf,
+    max_bytes: u64,
+) -> Result<u64, AppError> {
     let mut output = fs::File::create(path).map_err(|e| AppError::FileWrite {
         path: path.clone(),
         source: e.to_string(),
     })?;
 
-    io::copy(reader, &mut output).map_err(|e| AppError::FileWrite {
-        path: path.clone(),
-        source: e.to_string(),
-    })?;
+    let mut total: u64 = 0;
+    let mut buffer = [0u8; 8192];
 
-    Ok(())
+    loop {
+        let bytes_read = reader.read(&mut buffer).map_err(|e| AppError::FileRead {
+            path: path.clone(),
+            source: e.to_string(),
+        })?;
+
+        if bytes_read == 0 {
+            break;
+        }
+
+        total += bytes_read as u64;
+        if total > max_bytes {
+            drop(output);
+            let _ = fs::remove_file(path);
+            return Err(AppError::ArchiveTooLarge {
+                reason: format!("Decompressed size exceeds {} MB limit", max_bytes / 1024 / 1024),
+            });
+        }
+
+        output.write_all(&buffer[..bytes_read]).map_err(|e| AppError::FileWrite {
+            path: path.clone(),
+            source: e.to_string(),
+        })?;
+    }
+
+    Ok(total)
 }
 
 fn ensure_safe_path(base: &Path, path: &Path) -> Result<(), AppError> {
