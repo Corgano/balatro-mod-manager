@@ -40,8 +40,8 @@ use winreg::RegKey;
 #[cfg(target_os = "windows")]
 use winreg::enums::*;
 
-/// TTL for the Balatro paths cache (60 seconds).
-const BALATRO_PATHS_CACHE_TTL: Duration = Duration::from_secs(60);
+/// TTL for the Balatro paths cache (5 minutes).
+const BALATRO_PATHS_CACHE_TTL: Duration = Duration::from_secs(300);
 
 /// Cached Balatro installation paths with timestamp.
 struct CachedPaths {
