@@ -318,6 +318,38 @@ fn sanitize_mod_name(name: &str) -> String {
     collapsed.trim_matches(|c| c == ' ' || c == '.').to_string()
 }
 
+/// Sanitize an archive entry path to prevent path traversal attacks.
+/// Removes `.` and `..` components and ensures the path is relative.
+fn sanitize_archive_path(entry_name: &str) -> Option<PathBuf> {
+    let path = std::path::Path::new(entry_name);
+    let mut result = PathBuf::new();
+
+    for component in path.components() {
+        match component {
+            std::path::Component::Normal(name) => {
+                result.push(name);
+            }
+            std::path::Component::CurDir => {
+                // Skip "." components
+            }
+            std::path::Component::ParentDir => {
+                // Reject paths with ".." - this is a traversal attempt
+                return None;
+            }
+            std::path::Component::Prefix(_) | std::path::Component::RootDir => {
+                // Reject absolute paths
+                return None;
+            }
+        }
+    }
+
+    if result.as_os_str().is_empty() {
+        None
+    } else {
+        Some(result)
+    }
+}
+
 fn has_zip_magic(bytes: &bytes::Bytes) -> bool {
     bytes.len() >= 4
         && ((bytes[0] == 0x50 && bytes[1] == 0x4B && bytes[2] == 0x03 && bytes[3] == 0x04)
@@ -496,7 +528,14 @@ fn extract_zip_root<R: Read + io::Seek>(
             continue;
         }
 
-        let entry_path = path.join(file.name());
+        let sanitized = match sanitize_archive_path(file.name()) {
+            Some(p) => p,
+            None => {
+                log::warn!("Skipping suspicious archive entry: {}", file.name());
+                continue;
+            }
+        };
+        let entry_path = path.join(&sanitized);
         ensure_safe_path(path, &entry_path)?;
 
         if file.is_dir() {
@@ -542,7 +581,14 @@ fn extract_zip<R: Read + io::Seek>(
             continue;
         }
 
-        let entry_path = mod_dir.join(file.mangled_name());
+        let sanitized = match sanitize_archive_path(&file.mangled_name().to_string_lossy()) {
+            Some(p) => p,
+            None => {
+                log::warn!("Skipping suspicious archive entry: {:?}", file.mangled_name());
+                continue;
+            }
+        };
+        let entry_path = mod_dir.join(&sanitized);
         ensure_safe_path(mod_dir, &entry_path)?;
 
         if file.is_dir() {
@@ -606,8 +652,14 @@ fn extract_tar(
             source: format!("Invalid path in tar: {e}"),
         })?;
 
-        // Extract to the target directory instead of mod_dir
-        let path = target_dir.join(entry_path);
+        let sanitized = match sanitize_archive_path(&entry_path.to_string_lossy()) {
+            Some(p) => p,
+            None => {
+                log::warn!("Skipping suspicious tar entry: {:?}", entry_path);
+                continue;
+            }
+        };
+        let path = target_dir.join(&sanitized);
         ensure_safe_path(&target_dir, &path)?;
 
         if entry.header().entry_type().is_dir() {
@@ -947,5 +999,23 @@ mod tests {
         assert!(mod_dir.join("sub2/.lovelyignore").exists());
         // Nested directories aren't touched directly; parent markers should suffice
         assert!(!mod_dir.join("sub2/nested/.lovelyignore").exists());
+    }
+
+    #[test]
+    fn sanitize_archive_path_blocks_traversal() {
+        assert!(sanitize_archive_path("../etc/passwd").is_none());
+        assert!(sanitize_archive_path("foo/../../../etc/passwd").is_none());
+        assert!(sanitize_archive_path("/etc/passwd").is_none());
+        assert!(sanitize_archive_path("..").is_none());
+
+        // Valid paths should work
+        assert_eq!(
+            sanitize_archive_path("mod/init.lua"),
+            Some(PathBuf::from("mod/init.lua"))
+        );
+        assert_eq!(
+            sanitize_archive_path("./mod/init.lua"),
+            Some(PathBuf::from("mod/init.lua"))
+        );
     }
 }
