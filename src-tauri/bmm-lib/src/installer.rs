@@ -261,6 +261,8 @@ pub async fn install_mod(url: String, folder_name: Option<String>) -> Result<Pat
     log::info!("Installing mod: {url}");
 
     // Run CPU-bound archive extraction in a blocking task
+    // Clone these values for the blocking task - they're used after spawn_blocking returns
+    // (for was_disabled logic and error reporting), so we can't move them into the closure.
     let mod_dir_clone = mod_dir.clone();
     let mod_name_clone = mod_name.clone();
     let temp_path_clone = temp_file_path.clone();
