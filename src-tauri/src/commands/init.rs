@@ -55,7 +55,12 @@ pub async fn get_app_init_data(state: tauri::State<'_, AppState>) -> Result<AppI
         // 5. Launch mode
         let launch_mode = map_error(db.get_launch_mode())?;
 
-        (existing_installation, security_acknowledged, lovely_installed, launch_mode)
+        (
+            existing_installation,
+            security_acknowledged,
+            lovely_installed,
+            launch_mode,
+        )
     }; // guard dropped here
 
     // 6. Check lovely update (network call)

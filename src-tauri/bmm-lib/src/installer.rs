@@ -547,7 +547,11 @@ fn extract_zip_root<R: Read + io::Seek>(
 ) -> Result<(), AppError> {
     if zip.len() > MAX_ARCHIVE_FILES {
         return Err(AppError::ArchiveTooLarge {
-            reason: format!("Archive contains {} files, exceeds limit of {}", zip.len(), MAX_ARCHIVE_FILES),
+            reason: format!(
+                "Archive contains {} files, exceeds limit of {}",
+                zip.len(),
+                MAX_ARCHIVE_FILES
+            ),
         });
     }
 
@@ -615,7 +619,11 @@ fn extract_zip<R: Read + io::Seek>(
 ) -> Result<(), AppError> {
     if zip.len() > MAX_ARCHIVE_FILES {
         return Err(AppError::ArchiveTooLarge {
-            reason: format!("Archive contains {} files, exceeds limit of {}", zip.len(), MAX_ARCHIVE_FILES),
+            reason: format!(
+                "Archive contains {} files, exceeds limit of {}",
+                zip.len(),
+                MAX_ARCHIVE_FILES
+            ),
         });
     }
 
@@ -634,7 +642,10 @@ fn extract_zip<R: Read + io::Seek>(
         let sanitized = match sanitize_archive_path(&file.mangled_name().to_string_lossy()) {
             Some(p) => p,
             None => {
-                log::warn!("Skipping suspicious archive entry: {:?}", file.mangled_name());
+                log::warn!(
+                    "Skipping suspicious archive entry: {:?}",
+                    file.mangled_name()
+                );
                 continue;
             }
         };
@@ -781,14 +792,19 @@ fn copy_file_contents_limited(
             drop(output);
             let _ = fs::remove_file(path);
             return Err(AppError::ArchiveTooLarge {
-                reason: format!("Decompressed size exceeds {} MB limit", max_bytes / 1024 / 1024),
+                reason: format!(
+                    "Decompressed size exceeds {} MB limit",
+                    max_bytes / 1024 / 1024
+                ),
             });
         }
 
-        output.write_all(&buffer[..bytes_read]).map_err(|e| AppError::FileWrite {
-            path: path.clone(),
-            source: e.to_string(),
-        })?;
+        output
+            .write_all(&buffer[..bytes_read])
+            .map_err(|e| AppError::FileWrite {
+                path: path.clone(),
+                source: e.to_string(),
+            })?;
     }
 
     Ok(total)
