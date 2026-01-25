@@ -183,6 +183,18 @@
 
   let allSelectableModIds = $derived([...catalogModIds, ...localModIds]);
 
+  // Map catalog mod titles to their installed paths
+  let catalogModPathsMap = $derived(
+    new Map([
+      ...filteredEnabledMods
+        .filter((m) => m._installedPath)
+        .map((m) => [m.title, m._installedPath!] as [string, string]),
+      ...filteredDisabledMods
+        .filter((m) => m._installedPath)
+        .map((m) => [m.title, m._installedPath!] as [string, string]),
+    ]),
+  );
+
   let localModPathsMap = $derived(
     new Map([
       ...filteredEnabledLocalMods.map(
@@ -208,15 +220,11 @@
   );
 
   async function handleBulkUninstall(ids: string[]) {
-    // For now, show a confirmation and uninstall each mod
-    // This could be enhanced to use the UninstallDialog for dependency checking
-    const confirmed = window.confirm(
-      `Are you sure you want to uninstall ${ids.length} mod${ids.length !== 1 ? "s" : ""}?`,
-    );
-    if (!confirmed) return;
-
     let successCount = 0;
     let failCount = 0;
+
+    // Fetch installed mods from database to get correct paths (like uninstallMod does)
+    await getAllInstalledMods();
 
     for (const id of ids) {
       try {
@@ -225,8 +233,19 @@
           // Local mod - delete by path
           await invoke("delete_manual_mod", { path: localPath });
         } else {
-          // Catalog mod - remove by name
-          await invoke("remove_installed_mod", { name: id });
+          // Catalog mod - find the installed mod to get the correct path
+          const installedMod = installedMods.find(
+            (m) => m.name.toLowerCase() === id.toLowerCase(),
+          );
+          if (!installedMod) {
+            console.warn(`Mod ${id} not found in installed mods`);
+            failCount++;
+            continue;
+          }
+          await invoke("remove_installed_mod", {
+            name: id,
+            path: installedMod.path,
+          });
           installationStatus.update((s) => {
             const newStatus = { ...s };
             delete newStatus[id];
@@ -1732,7 +1751,9 @@
       }
     }
     await Promise.all(
-      Array.from({ length: Math.min(limit, candidates.length) }, () => worker()),
+      Array.from({ length: Math.min(limit, candidates.length) }, () =>
+        worker(),
+      ),
     );
     applyBatch();
     visibleFirstRunning = false;
@@ -1815,7 +1836,9 @@
       }
     }
     await Promise.all(
-      Array.from({ length: Math.min(limit, candidates.length) }, () => worker()),
+      Array.from({ length: Math.min(limit, candidates.length) }, () =>
+        worker(),
+      ),
     );
     applyBatch();
   }
