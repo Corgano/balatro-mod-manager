@@ -7,6 +7,8 @@ mod models;
 mod state;
 mod thumb_queue;
 mod util;
+#[cfg(target_os = "linux")]
+pub mod wayland_session;
 
 use std::path::PathBuf;
 
@@ -473,6 +475,10 @@ pub fn run() {
         Ok(app) => {
             app.run(|app_handle, event| {
                 if let tauri::RunEvent::Exit = event {
+                    // Mark Wayland session as clean (Linux only)
+                    #[cfg(target_os = "linux")]
+                    crate::wayland_session::mark_clean();
+
                     // Checkpoint WAL on shutdown for a clean database state
                     if let Some(state) = app_handle.try_state::<AppState>()
                         && let Ok(db) = state.db.try_lock()
