@@ -484,3 +484,227 @@ impl std::fmt::Display for FrontendError {
         write!(f, "{}", self.message)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_database_init_display() {
+        let err = AppError::DatabaseInit("connection failed".to_string());
+        assert_eq!(
+            err.to_string(),
+            "Database initialization failed: connection failed"
+        );
+    }
+
+    #[test]
+    fn test_database_query_display() {
+        let err = AppError::DatabaseQuery("syntax error".to_string());
+        assert_eq!(err.to_string(), "Database error: syntax error");
+    }
+
+    #[test]
+    fn test_file_read_display() {
+        let err = AppError::FileRead {
+            path: PathBuf::from("/test/file.txt"),
+            source: "permission denied".to_string(),
+        };
+        assert!(err.to_string().contains("/test/file.txt"));
+        assert!(err.to_string().contains("permission denied"));
+    }
+
+    #[test]
+    fn test_file_copy_display() {
+        let err = AppError::FileCopy {
+            source: "/src".to_string(),
+            dest: "/dst".to_string(),
+            source_error: "disk full".to_string(),
+        };
+        let msg = err.to_string();
+        assert!(msg.contains("/src"));
+        assert!(msg.contains("/dst"));
+        assert!(msg.contains("disk full"));
+    }
+
+    #[test]
+    fn test_dir_not_found_display() {
+        let err = AppError::DirNotFound(PathBuf::from("/missing/dir"));
+        assert!(err.to_string().contains("/missing/dir"));
+    }
+
+    #[test]
+    fn test_mod_install_display() {
+        let err = AppError::ModInstall {
+            mod_name: "Steamodded".to_string(),
+            source: "download failed".to_string(),
+        };
+        let msg = err.to_string();
+        assert!(msg.contains("Steamodded"));
+        assert!(msg.contains("download failed"));
+    }
+
+    #[test]
+    fn test_mod_not_found_with_version() {
+        let err = AppError::ModNotFound {
+            mod_name: "TestMod".to_string(),
+            version: "1.0.0".to_string(),
+        };
+        let msg = err.to_string();
+        assert!(msg.contains("TestMod"));
+        assert!(msg.contains("1.0.0"));
+    }
+
+    #[test]
+    fn test_mod_not_found_without_version() {
+        let err = AppError::ModNotFound {
+            mod_name: "TestMod".to_string(),
+            version: String::new(),
+        };
+        let msg = err.to_string();
+        assert!(msg.contains("TestMod"));
+        assert!(!msg.contains("version"));
+    }
+
+    #[test]
+    fn test_api_limit_exceeded_display() {
+        let err = AppError::ApiLimitExceeded;
+        assert!(err.to_string().contains("rate limit"));
+    }
+
+    #[test]
+    fn test_archive_too_large_display() {
+        let err = AppError::ArchiveTooLarge {
+            reason: "exceeds 100MB limit".to_string(),
+        };
+        assert!(err.to_string().contains("100MB"));
+    }
+
+    #[test]
+    fn test_invalid_path_constructor() {
+        let err = AppError::invalid_path("/bad/path", "contains invalid characters");
+        match err {
+            AppError::PathValidation { path, reason } => {
+                assert_eq!(path, PathBuf::from("/bad/path"));
+                assert_eq!(reason, "contains invalid characters");
+            }
+            _ => panic!("Expected PathValidation variant"),
+        }
+    }
+
+    #[test]
+    fn test_mod_install_error_constructor() {
+        let err = AppError::mod_install_error("MyMod", "network timeout");
+        match err {
+            AppError::ModInstall { mod_name, source } => {
+                assert_eq!(mod_name, "MyMod");
+                assert_eq!(source, "network timeout");
+            }
+            _ => panic!("Expected ModInstall variant"),
+        }
+    }
+
+    #[test]
+    fn test_config_error_constructor() {
+        let err = AppError::config_error("theme", "invalid value");
+        match err {
+            AppError::InvalidConfig { key, value } => {
+                assert_eq!(key, "theme");
+                assert_eq!(value, "invalid value");
+            }
+            _ => panic!("Expected InvalidConfig variant"),
+        }
+    }
+
+    #[test]
+    fn test_from_rusqlite_error() {
+        let sqlite_err = rusqlite::Error::InvalidQuery;
+        let app_err: AppError = sqlite_err.into();
+        match app_err {
+            AppError::DatabaseQuery(_) => {}
+            _ => panic!("Expected DatabaseQuery variant"),
+        }
+    }
+
+    #[test]
+    fn test_from_io_error() {
+        let io_err = std::io::Error::new(std::io::ErrorKind::NotFound, "file missing");
+        let app_err: AppError = io_err.into();
+        match app_err {
+            AppError::FileRead { .. } => {}
+            _ => panic!("Expected FileRead variant"),
+        }
+    }
+
+    #[test]
+    fn test_app_error_to_string_conversion() {
+        let err = AppError::Unknown("test error".to_string());
+        let s: String = err.into();
+        assert!(s.contains("test error"));
+    }
+
+    #[test]
+    fn test_frontend_error_network_category() {
+        let err = AppError::NetworkRequest {
+            url: "https://example.com".to_string(),
+            source: "connection refused".to_string(),
+        };
+        let frontend = err.to_frontend_error();
+        assert_eq!(frontend.category, ErrorCategory::Network);
+        assert!(frontend.retryable);
+        assert!(frontend.details.is_some());
+    }
+
+    #[test]
+    fn test_frontend_error_rate_limit() {
+        let err = AppError::ApiLimitExceeded;
+        let frontend = err.to_frontend_error();
+        assert_eq!(frontend.category, ErrorCategory::RateLimit);
+        assert!(frontend.retryable);
+    }
+
+    #[test]
+    fn test_frontend_error_filesystem() {
+        let err = AppError::DirNotFound(PathBuf::from("/missing"));
+        let frontend = err.to_frontend_error();
+        assert_eq!(frontend.category, ErrorCategory::FileSystem);
+        assert!(!frontend.retryable);
+    }
+
+    #[test]
+    fn test_frontend_error_database() {
+        let err = AppError::DatabaseQuery("syntax error".to_string());
+        let frontend = err.to_frontend_error();
+        assert_eq!(frontend.category, ErrorCategory::Database);
+        assert!(!frontend.retryable);
+    }
+
+    #[test]
+    fn test_frontend_error_mod_install() {
+        let err = AppError::ModInstall {
+            mod_name: "Test".to_string(),
+            source: "failed".to_string(),
+        };
+        let frontend = err.to_frontend_error();
+        assert_eq!(frontend.category, ErrorCategory::ModInstall);
+        assert!(frontend.retryable);
+    }
+
+    #[test]
+    fn test_frontend_error_unknown_fallback() {
+        let err = AppError::WindowCreation("window failed".to_string());
+        let frontend = err.to_frontend_error();
+        assert_eq!(frontend.category, ErrorCategory::Unknown);
+    }
+
+    #[test]
+    fn test_frontend_error_display() {
+        let frontend = FrontendError {
+            category: ErrorCategory::Network,
+            message: "Connection failed".to_string(),
+            details: None,
+            retryable: true,
+        };
+        assert_eq!(frontend.to_string(), "Connection failed");
+    }
+}

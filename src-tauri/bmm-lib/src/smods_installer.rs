@@ -1,3 +1,25 @@
+//! Steamodded and Talisman mod framework installer.
+//!
+//! This module provides functionality to install, uninstall, and manage
+//! the Steamodded and Talisman mod frameworks for Balatro. These frameworks
+//! are required dependencies for many community mods.
+//!
+//! # Features
+//!
+//! - Fetch available versions from GitHub releases
+//! - Install specific versions or the latest from the default branch
+//! - Detect existing installations
+//! - Uninstall mod frameworks
+//! - Rate limiting for GitHub API requests
+//!
+//! # Example
+//!
+//! ```ignore
+//! let installer = ModInstaller::new(ModType::Steamodded);
+//! let versions = installer.get_available_versions().await?;
+//! installer.install_version(&versions[0]).await?;
+//! ```
+
 use anyhow::{Context, Result, anyhow};
 use log::info;
 use reqwest::header::{HeaderMap, HeaderValue, USER_AGENT};

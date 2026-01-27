@@ -138,10 +138,11 @@ tasks:
         vars:
           INCOMPATIBLE: "{{.INCOMPATIBLE}}"
   check:
-    desc: Typecheck frontend + lint/test Rust
+    desc: Typecheck frontend + lint/test Rust + frontend tests
     cmds:
       - cmd: bun run check
       - cmd: bun run lint
+      - cmd: bun run test
       - cmd: cd ./src-tauri && cargo fmt --all --check
       - cmd: cd ./src-tauri && cargo clippy -- -D warnings
       - cmd: cd ./src-tauri && cargo test -q -- --test-threads=1

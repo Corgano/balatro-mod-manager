@@ -274,7 +274,7 @@
   }
 
   // Animate the dots
-  let dotInterval: number;
+  let dotInterval: ReturnType<typeof setInterval>;
   let paginating = $state(false);
   let paginationIdleTimer: number | null = null;
   let hydrationTimer: number | null = null;

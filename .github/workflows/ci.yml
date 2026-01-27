@@ -27,6 +27,12 @@ jobs:
       - name: Typecheck (Svelte/TS)
         run: bun run check
 
+      - name: Lint
+        run: bun run lint
+
+      - name: Run frontend tests
+        run: bun run test
+
       - name: Build UI
         run: bun run build
 

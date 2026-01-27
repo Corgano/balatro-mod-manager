@@ -1,3 +1,28 @@
+//! Logging infrastructure for the Balatro Mod Manager.
+//!
+//! This module sets up a dual-output logging system that writes to both
+//! stdout (with ANSI colors) and a rotating log file.
+//!
+//! # Features
+//!
+//! - Colorized console output with level-based highlighting
+//! - Automatic log file rotation (keeps last 10 logs)
+//! - Timestamped log entries
+//! - Thread-safe initialization guard
+//!
+//! # Log Location
+//!
+//! Logs are stored in `<config_dir>/Balatro/logs/bmm_<timestamp>.log`
+//!
+//! # Example
+//!
+//! ```ignore
+//! use bmm_lib::logging::init_logger;
+//!
+//! init_logger()?;
+//! log::info!("Application started");
+//! ```
+
 use crate::errors::AppError;
 use chrono::Local;
 use log::LevelFilter;

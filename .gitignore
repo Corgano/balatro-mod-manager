@@ -18,3 +18,6 @@ vite.config.ts.timestamp-*
 git-ignore/
 aur-package/
 build-dir
+
+# Test coverage
+coverage/
