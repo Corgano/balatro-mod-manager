@@ -106,6 +106,7 @@
       class="dep-modal"
       role="dialog"
       aria-modal="true"
+      tabindex="-1"
       transition:scale={{ duration: 200, start: 0.9, opacity: 0 }}
       onpointerdown={(e) => e.stopPropagation()}
     >

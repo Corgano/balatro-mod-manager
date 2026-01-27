@@ -193,6 +193,100 @@ fn sync_proton_mods(host_mods: &Path, compat_mods: &Path) -> Result<(), String> 
     Ok(())
 }
 
+/// Flatpak-specific version of sync_proton_mods that uses flatpak-spawn to create symlinks on the host.
+#[cfg(target_os = "linux")]
+fn sync_proton_mods_flatpak(host_mods: &Path, compat_mods: &Path) -> Result<(), String> {
+    use std::process::Command;
+
+    // List entries in host_mods directory via flatpak-spawn
+    let ls_result = Command::new("flatpak-spawn")
+        .args(["--host", "ls", "-1", &host_mods.to_string_lossy()])
+        .output();
+
+    let entries = match ls_result {
+        Ok(output) if output.status.success() => String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .map(|s| s.to_string())
+            .collect::<Vec<_>>(),
+        Ok(_) => {
+            // Directory might not exist or is empty
+            return Ok(());
+        }
+        Err(e) => {
+            warn!("Failed to list host mods directory: {}", e);
+            return Ok(());
+        }
+    };
+
+    for entry in entries {
+        let entry = entry.trim();
+        if entry.is_empty() {
+            continue;
+        }
+
+        let src = host_mods.join(entry);
+        let dest = compat_mods.join(entry);
+
+        // Check if source is a directory
+        let is_dir = Command::new("flatpak-spawn")
+            .args(["--host", "test", "-d", &src.to_string_lossy()])
+            .status();
+
+        if !matches!(is_dir, Ok(status) if status.success()) {
+            continue;
+        }
+
+        // Check if destination already exists
+        let dest_exists = Command::new("flatpak-spawn")
+            .args(["--host", "test", "-e", &dest.to_string_lossy()])
+            .status();
+
+        if matches!(dest_exists, Ok(status) if status.success()) {
+            continue;
+        }
+
+        // Create symlink from compat_mods/entry -> host_mods/entry
+        let symlink_result = Command::new("flatpak-spawn")
+            .args([
+                "--host",
+                "ln",
+                "-s",
+                &src.to_string_lossy(),
+                &dest.to_string_lossy(),
+            ])
+            .output();
+
+        match symlink_result {
+            Ok(output) if output.status.success() => {
+                info!(
+                    "Linked Proton mod via flatpak-spawn: {} -> {}",
+                    dest.display(),
+                    src.display()
+                );
+            }
+            Ok(output) => {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                warn!(
+                    "Failed to link Proton mod {} -> {}: {}",
+                    dest.display(),
+                    src.display(),
+                    stderr.trim()
+                );
+            }
+            Err(e) => {
+                warn!(
+                    "Failed to run flatpak-spawn for mod symlink {} -> {}: {}",
+                    dest.display(),
+                    src.display(),
+                    e
+                );
+            }
+        }
+    }
+
+    Ok(())
+}
+
 /// Ensures symlinks exist so that mods installed to the host data directory
 /// are visible to Proton/Wine when running Balatro via Steam.
 ///
@@ -401,6 +495,8 @@ fn ensure_proton_mod_dir_link_flatpak() -> Result<(), String> {
             "Proton Mods path exists as directory, not creating symlink: {}",
             compat_mods.display()
         );
+        // Sync individual mod folders instead
+        sync_proton_mods_flatpak(&host_mods, &compat_mods)?;
         return Ok(());
     }
 
