@@ -49,54 +49,8 @@ pub fn run() {
         .setup(|app| {
             let db = map_error(Database::new())?;
 
-            // One-time migration for 0.3.7: disable compat helper for all users
-            // due to reported performance issues (GitHub issue #348)
-            if !db.is_compat_helper_037_migrated().unwrap_or(true) {
-                log::info!("Applying 0.3.7 migration: disabling compatibility helper");
-                if let Err(e) = db.set_compat_helper_enabled(false) {
-                    log::warn!("Failed to disable compat helper during migration: {}", e);
-                }
-                if let Err(e) = db.set_compat_helper_037_migrated() {
-                    log::warn!("Failed to mark 0.3.7 migration as complete: {}", e);
-                }
-            }
-
-            // One-time migration for Lovely 0.9.0: move mods from ~/.config/Balatro/Mods
-            // to ~/.local/share/Balatro/Mods (Linux only)
-            #[cfg(target_os = "linux")]
-            {
-                match local_mod_detection::migrate_legacy_mods_dir() {
-                    Ok(true) => {
-                        log::info!("Successfully migrated mods to new Lovely 0.9.0 location")
-                    }
-                    Ok(false) => {} // No migration needed
-                    Err(e) => log::warn!("Failed to migrate legacy mods directory: {}", e),
-                }
-            }
-
-            let compat_enabled = db.is_compat_helper_enabled().unwrap_or(false);
+            // Initialize Discord RPC manager (lightweight, no network calls)
             let discord_rpc = DiscordRpcManager::new();
-            let discord_rpc_enabled = db.is_discord_rpc_enabled().unwrap_or(true);
-            discord_rpc.set_enabled(discord_rpc_enabled);
-
-            // Sync launch mode: ensure injector file state matches saved preference
-            // (must happen before db is moved into AppState)
-            match db.get_launch_mode() {
-                Ok(mode) => {
-                    let enable_injector = mode == "modded";
-                    if let Err(e) = lovely::set_injector_enabled(enable_injector) {
-                        log::warn!(
-                            "Failed to sync launch mode injector state on startup: {}",
-                            e
-                        );
-                    } else {
-                        log::debug!("Launch mode synced on startup: {}", mode);
-                    }
-                }
-                Err(e) => {
-                    log::warn!("Failed to read launch mode on startup: {}", e);
-                }
-            }
 
             app.manage(AppState {
                 db: std::sync::Mutex::new(db),
@@ -104,50 +58,111 @@ pub fn run() {
                 thumbs: crate::thumb_queue::ThumbnailManager::new(),
             });
 
-            // Remove legacy GitHub-based local clone directory if it exists.
-            if let Some(cfg_dir) = dirs::config_dir() {
-                let legacy_repo = cfg_dir.join("Balatro").join("mod_index");
-                if legacy_repo.exists() {
-                    match std::fs::remove_dir_all(&legacy_repo) {
-                        Ok(()) => log::info!(
-                            "Removed legacy GitHub repo directory: {}",
-                            legacy_repo.display()
-                        ),
-                        Err(e) => log::warn!(
-                            "Failed to remove legacy repo directory {}: {}",
-                            legacy_repo.display(),
-                            e
-                        ),
-                    }
-                }
-            }
-
-            // Ensure the Mods directory exists so installs and detection work on fresh setups.
-            if let Some(cfg_dir) = dirs::config_dir() {
-                let mods_dir = cfg_dir.join("Balatro").join("Mods");
-                if let Err(e) = std::fs::create_dir_all(&mods_dir) {
-                    log::warn!(
-                        "Failed to create mods directory at {}: {}",
-                        mods_dir.display(),
-                        e
-                    );
-                }
-            } else {
-                log::warn!("Could not resolve config directory to create Mods folder");
-            }
-
-            if let Err(e) = crate::compat_helper::sync_compat_helper(compat_enabled) {
-                log::warn!("Failed to sync compatibility helper: {}", e);
-            }
-
+            // Spawn deferred startup tasks - these run after window is visible
+            // to improve perceived startup performance
+            let app_handle = app.app_handle().clone();
             tauri::async_runtime::spawn(async move {
+                use std::time::Duration;
+                use tokio::time::sleep;
+
+                // Small delay to let the window render first
+                sleep(Duration::from_millis(100)).await;
+
+                // Open a separate DB connection for background tasks
                 let db = match Database::new() {
                     Ok(db) => db,
                     Err(e) => {
-                        log::warn!("Lovely check: failed to open DB: {e}");
+                        log::warn!("Deferred startup: failed to open DB: {e}");
                         return;
                     }
                 };
+
+                // One-time migration for 0.3.7: disable compat helper for all users
+                if !db.is_compat_helper_037_migrated().unwrap_or(true) {
+                    log::info!("Applying 0.3.7 migration: disabling compatibility helper");
+                    if let Err(e) = db.set_compat_helper_enabled(false) {
+                        log::warn!("Failed to disable compat helper during migration: {}", e);
+                    }
+                    if let Err(e) = db.set_compat_helper_037_migrated() {
+                        log::warn!("Failed to mark 0.3.7 migration as complete: {}", e);
+                    }
+                }
+
+                // One-time migration for Lovely 0.9.0 (Linux only)
+                #[cfg(target_os = "linux")]
+                {
+                    match local_mod_detection::migrate_legacy_mods_dir() {
+                        Ok(true) => {
+                            log::info!("Successfully migrated mods to new Lovely 0.9.0 location")
+                        }
+                        Ok(false) => {}
+                        Err(e) => log::warn!("Failed to migrate legacy mods directory: {}", e),
+                    }
+                }
+
+                // Enable Discord RPC if configured
+                let discord_rpc_enabled = db.is_discord_rpc_enabled().unwrap_or(true);
+                if let Some(state) = app_handle.try_state::<AppState>()
+                    && let Ok(rpc) = state.discord_rpc.try_lock()
+                {
+                    rpc.set_enabled(discord_rpc_enabled);
+                }
+
+                // Sync launch mode injector state
+                match db.get_launch_mode() {
+                    Ok(mode) => {
+                        let enable_injector = mode == "modded";
+                        if let Err(e) = lovely::set_injector_enabled(enable_injector) {
+                            log::warn!(
+                                "Failed to sync launch mode injector state on startup: {}",
+                                e
+                            );
+                        } else {
+                            log::debug!("Launch mode synced on startup: {}", mode);
+                        }
+                    }
+                    Err(e) => {
+                        log::warn!("Failed to read launch mode on startup: {}", e);
+                    }
+                }
+
+                // Remove legacy GitHub-based local clone directory if it exists
+                if let Some(cfg_dir) = dirs::config_dir() {
+                    let legacy_repo = cfg_dir.join("Balatro").join("mod_index");
+                    if legacy_repo.exists() {
+                        match std::fs::remove_dir_all(&legacy_repo) {
+                            Ok(()) => log::info!(
+                                "Removed legacy GitHub repo directory: {}",
+                                legacy_repo.display()
+                            ),
+                            Err(e) => log::warn!(
+                                "Failed to remove legacy repo directory {}: {}",
+                                legacy_repo.display(),
+                                e
+                            ),
+                        }
+                    }
+                }
+
+                // Ensure the Mods directory exists
+                if let Some(cfg_dir) = dirs::config_dir() {
+                    let mods_dir = cfg_dir.join("Balatro").join("Mods");
+                    if let Err(e) = std::fs::create_dir_all(&mods_dir) {
+                        log::warn!(
+                            "Failed to create mods directory at {}: {}",
+                            mods_dir.display(),
+                            e
+                        );
+                    }
+                }
+
+                // Sync compat helper
+                let compat_enabled = db.is_compat_helper_enabled().unwrap_or(false);
+                if let Err(e) = crate::compat_helper::sync_compat_helper(compat_enabled) {
+                    log::warn!("Failed to sync compatibility helper: {}", e);
+                }
+
+                // Check Lovely version
                 match db.get_lovely_version() {
                     Ok(Some(_)) => {}
                     Ok(None) | Err(_) => {
@@ -156,6 +171,8 @@ pub fn run() {
                         );
                     }
                 }
+
+                log::debug!("Deferred startup tasks completed");
             });
 
             // Periodically validate the mod database in a very cheap, incremental sweep.
