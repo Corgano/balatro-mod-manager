@@ -22,10 +22,16 @@ fn main() {
     #[cfg(target_os = "macos")]
     scrub_dyld_injection_env();
     #[cfg(target_os = "linux")]
+    let gpu_note = balatro_mod_manager_lib::wayland_session::configure_gpu();
+    #[cfg(target_os = "linux")]
     let backend_note = balatro_mod_manager_lib::wayland_session::configure_display_backend();
     let _ = fix_path_env::fix();
     if let Err(e) = bmm_lib::logging::init_logger() {
         eprintln!("Failed to initialize logging: {e}");
+    }
+    #[cfg(target_os = "linux")]
+    if let Some(note) = gpu_note {
+        log::info!("{note}");
     }
     #[cfg(target_os = "linux")]
     if let Some(note) = backend_note {
