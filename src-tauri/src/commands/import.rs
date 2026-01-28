@@ -260,3 +260,239 @@ fn extract_rar(path: &Path, target_dir: &Path) -> Result<(), String> {
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+    use tempfile::TempDir;
+
+    #[test]
+    fn test_extract_zip_basic() {
+        let temp_dir = TempDir::new().unwrap();
+        let target = temp_dir.path().join("extracted");
+
+        // Create a minimal valid ZIP file in memory
+        let mut zip_data = Vec::new();
+        {
+            let cursor = std::io::Cursor::new(&mut zip_data);
+            let mut zip = zip::ZipWriter::new(cursor);
+            let options = zip::write::SimpleFileOptions::default();
+            zip.start_file("test.txt", options).unwrap();
+            zip.write_all(b"hello world").unwrap();
+            zip.finish().unwrap();
+        }
+
+        let cursor = std::io::Cursor::new(zip_data);
+        extract_zip(cursor, &target).unwrap();
+
+        assert!(target.join("test.txt").exists());
+        let content = std::fs::read_to_string(target.join("test.txt")).unwrap();
+        assert_eq!(content, "hello world");
+    }
+
+    #[test]
+    fn test_extract_zip_with_directory() {
+        let temp_dir = TempDir::new().unwrap();
+        let target = temp_dir.path().join("extracted");
+
+        let mut zip_data = Vec::new();
+        {
+            let cursor = std::io::Cursor::new(&mut zip_data);
+            let mut zip = zip::ZipWriter::new(cursor);
+            let options = zip::write::SimpleFileOptions::default();
+            zip.add_directory("subdir/", options).unwrap();
+            zip.start_file("subdir/file.txt", options).unwrap();
+            zip.write_all(b"nested content").unwrap();
+            zip.finish().unwrap();
+        }
+
+        let cursor = std::io::Cursor::new(zip_data);
+        extract_zip(cursor, &target).unwrap();
+
+        assert!(target.join("subdir").is_dir());
+        assert!(target.join("subdir/file.txt").exists());
+    }
+
+    #[test]
+    fn test_extract_zip_skips_macosx_folder() {
+        let temp_dir = TempDir::new().unwrap();
+        let target = temp_dir.path().join("extracted");
+
+        let mut zip_data = Vec::new();
+        {
+            let cursor = std::io::Cursor::new(&mut zip_data);
+            let mut zip = zip::ZipWriter::new(cursor);
+            let options = zip::write::SimpleFileOptions::default();
+            zip.start_file("valid.txt", options).unwrap();
+            zip.write_all(b"valid").unwrap();
+            zip.start_file("__MACOSX/junk.txt", options).unwrap();
+            zip.write_all(b"junk").unwrap();
+            zip.finish().unwrap();
+        }
+
+        let cursor = std::io::Cursor::new(zip_data);
+        extract_zip(cursor, &target).unwrap();
+
+        assert!(target.join("valid.txt").exists());
+        assert!(!target.join("__MACOSX").exists());
+    }
+
+    #[test]
+    fn test_extract_tar_basic() {
+        let temp_dir = TempDir::new().unwrap();
+        let target = temp_dir.path().join("extracted");
+
+        let mut tar_data = Vec::new();
+        {
+            let mut builder = tar::Builder::new(&mut tar_data);
+            let mut header = tar::Header::new_gnu();
+            let content = b"tar content";
+            header.set_size(content.len() as u64);
+            header.set_mode(0o644);
+            header.set_cksum();
+            builder
+                .append_data(&mut header, "file.txt", &content[..])
+                .unwrap();
+            builder.finish().unwrap();
+        }
+
+        let cursor = std::io::Cursor::new(tar_data);
+        extract_tar(cursor, &target).unwrap();
+
+        assert!(target.join("file.txt").exists());
+    }
+
+    #[test]
+    fn test_extract_tar_gz_basic() {
+        let temp_dir = TempDir::new().unwrap();
+        let target = temp_dir.path().join("extracted");
+
+        // Create tar first
+        let mut tar_data = Vec::new();
+        {
+            let mut builder = tar::Builder::new(&mut tar_data);
+            let mut header = tar::Header::new_gnu();
+            let content = b"gzipped tar content";
+            header.set_size(content.len() as u64);
+            header.set_mode(0o644);
+            header.set_cksum();
+            builder
+                .append_data(&mut header, "gzfile.txt", &content[..])
+                .unwrap();
+            builder.finish().unwrap();
+        }
+
+        // Compress with gzip
+        let mut gz_data = Vec::new();
+        {
+            let mut encoder =
+                flate2::write::GzEncoder::new(&mut gz_data, flate2::Compression::default());
+            encoder.write_all(&tar_data).unwrap();
+            encoder.finish().unwrap();
+        }
+
+        let cursor = std::io::Cursor::new(gz_data);
+        extract_tar_gz(cursor, &target).unwrap();
+
+        assert!(target.join("gzfile.txt").exists());
+    }
+
+    #[test]
+    fn test_mod_dir_name_from_zip() {
+        let filename = "TestMod.zip";
+        let mod_name = filename
+            .trim_end_matches(".zip")
+            .trim_end_matches(".tar.gz")
+            .trim_end_matches(".tgz")
+            .trim_end_matches(".tar")
+            .trim_end_matches(".rar");
+        assert_eq!(mod_name, "TestMod");
+    }
+
+    #[test]
+    fn test_mod_dir_name_from_tar_gz() {
+        let filename = "TestMod.tar.gz";
+        let mod_name = filename
+            .trim_end_matches(".zip")
+            .trim_end_matches(".tar.gz")
+            .trim_end_matches(".tgz")
+            .trim_end_matches(".tar")
+            .trim_end_matches(".rar");
+        assert_eq!(mod_name, "TestMod");
+    }
+
+    #[test]
+    fn test_mod_dir_name_from_tgz() {
+        let filename = "TestMod.tgz";
+        let mod_name = filename
+            .trim_end_matches(".zip")
+            .trim_end_matches(".tar.gz")
+            .trim_end_matches(".tgz")
+            .trim_end_matches(".tar")
+            .trim_end_matches(".rar");
+        assert_eq!(mod_name, "TestMod");
+    }
+
+    #[test]
+    fn test_mod_dir_name_from_rar() {
+        let filename = "TestMod.rar";
+        let mod_name = filename
+            .trim_end_matches(".zip")
+            .trim_end_matches(".tar.gz")
+            .trim_end_matches(".tgz")
+            .trim_end_matches(".tar")
+            .trim_end_matches(".rar");
+        assert_eq!(mod_name, "TestMod");
+    }
+
+    #[test]
+    fn test_unsupported_format_error() {
+        let temp_dir = TempDir::new().unwrap();
+        let mods_dir = temp_dir.path();
+        let cursor = std::io::Cursor::new(Vec::<u8>::new());
+
+        let result = extract_archive_from_reader("file.7z", cursor, None, mods_dir);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Unsupported file format"));
+    }
+
+    #[test]
+    fn test_rar_requires_file_path() {
+        let temp_dir = TempDir::new().unwrap();
+        let mods_dir = temp_dir.path();
+        let cursor = std::io::Cursor::new(Vec::<u8>::new());
+
+        let result = extract_archive_from_reader("file.rar", cursor, None, mods_dir);
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .contains("RAR archives require a file path")
+        );
+    }
+
+    #[test]
+    fn test_extract_archive_creates_mod_dir() {
+        let temp_dir = TempDir::new().unwrap();
+        let mods_dir = temp_dir.path();
+
+        let mut zip_data = Vec::new();
+        {
+            let cursor = std::io::Cursor::new(&mut zip_data);
+            let mut zip = zip::ZipWriter::new(cursor);
+            let options = zip::write::SimpleFileOptions::default();
+            zip.start_file("init.lua", options).unwrap();
+            zip.write_all(b"-- mod").unwrap();
+            zip.finish().unwrap();
+        }
+
+        let cursor = std::io::Cursor::new(zip_data);
+        let result = extract_archive_from_reader("MyMod.zip", cursor, None, mods_dir);
+
+        assert!(result.is_ok());
+        let mod_dir = result.unwrap();
+        assert_eq!(mod_dir.file_name().unwrap().to_str().unwrap(), "MyMod");
+        assert!(mod_dir.join("init.lua").exists());
+    }
+}

@@ -341,3 +341,202 @@ async fn write_thumbnail_async(title: &str, bytes: &[u8]) -> Result<(), String> 
         .await
         .map_err(|e| e.to_string())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+    use tempfile::TempDir;
+
+    // ==================== jitter tests ====================
+
+    #[test]
+    fn test_jitter_returns_at_least_base() {
+        let base = Duration::from_secs(3);
+        let result = jitter(base);
+        assert!(result >= base, "jitter should be >= base duration");
+    }
+
+    #[test]
+    fn test_jitter_bounded_by_base_plus_third() {
+        let base = Duration::from_secs(3);
+        let max_expected = base + Duration::from_secs(1); // base + base/3
+        let result = jitter(base);
+        assert!(
+            result <= max_expected,
+            "jitter should be <= base + base/3, got {:?}",
+            result
+        );
+    }
+
+    #[test]
+    fn test_jitter_small_duration() {
+        let base = Duration::from_millis(100);
+        let result = jitter(base);
+        assert!(result >= base);
+        // With base=100ms, wiggle_base = 33ms, so max jitter is 100+32 = 132ms
+        assert!(result <= Duration::from_millis(133));
+    }
+
+    #[test]
+    fn test_jitter_zero_duration() {
+        let base = Duration::from_millis(0);
+        let result = jitter(base);
+        // With base=0, wiggle_base = max(0/3, 1) = 1, so jitter is 0 + (now % 1) = 0
+        assert_eq!(result, Duration::from_millis(0));
+    }
+
+    #[test]
+    fn test_jitter_very_small_duration() {
+        let base = Duration::from_millis(2);
+        let result = jitter(base);
+        // With base=2ms, wiggle_base = max(2/3, 1) = 1, so jitter is 2 + (now % 1) = 2
+        assert!(result >= base);
+    }
+
+    // ==================== retry_after_delay tests ====================
+
+    #[test]
+    fn test_retry_after_delay_with_seconds() {
+        let mut headers = reqwest::header::HeaderMap::new();
+        headers.insert(
+            reqwest::header::RETRY_AFTER,
+            reqwest::header::HeaderValue::from_static("120"),
+        );
+        let result = retry_after_delay(&headers);
+        assert_eq!(result, Some(Duration::from_secs(120)));
+    }
+
+    #[test]
+    fn test_retry_after_delay_with_seconds_whitespace() {
+        let mut headers = reqwest::header::HeaderMap::new();
+        headers.insert(
+            reqwest::header::RETRY_AFTER,
+            reqwest::header::HeaderValue::from_static("  60  "),
+        );
+        let result = retry_after_delay(&headers);
+        assert_eq!(result, Some(Duration::from_secs(60)));
+    }
+
+    #[test]
+    fn test_retry_after_delay_missing_header() {
+        let headers = reqwest::header::HeaderMap::new();
+        let result = retry_after_delay(&headers);
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_retry_after_delay_invalid_value() {
+        let mut headers = reqwest::header::HeaderMap::new();
+        headers.insert(
+            reqwest::header::RETRY_AFTER,
+            reqwest::header::HeaderValue::from_static("not-a-number"),
+        );
+        let result = retry_after_delay(&headers);
+        // Not a number and not a valid HTTP date
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_retry_after_delay_zero_seconds() {
+        let mut headers = reqwest::header::HeaderMap::new();
+        headers.insert(
+            reqwest::header::RETRY_AFTER,
+            reqwest::header::HeaderValue::from_static("0"),
+        );
+        let result = retry_after_delay(&headers);
+        assert_eq!(result, Some(Duration::from_secs(0)));
+    }
+
+    #[test]
+    fn test_retry_after_delay_large_value() {
+        let mut headers = reqwest::header::HeaderMap::new();
+        headers.insert(
+            reqwest::header::RETRY_AFTER,
+            reqwest::header::HeaderValue::from_static("3600"),
+        );
+        let result = retry_after_delay(&headers);
+        assert_eq!(result, Some(Duration::from_secs(3600)));
+    }
+
+    // ==================== is_thumb_fresh tests ====================
+
+    #[test]
+    fn test_is_thumb_fresh_new_file() {
+        let temp_dir = TempDir::new().unwrap();
+        let path = temp_dir.path().join("test.jpg");
+        std::fs::write(&path, b"test data").unwrap();
+
+        // File just created should be fresh
+        assert!(is_thumb_fresh(&path));
+    }
+
+    #[test]
+    fn test_is_thumb_fresh_nonexistent_file() {
+        let temp_dir = TempDir::new().unwrap();
+        let path = temp_dir.path().join("nonexistent.jpg");
+
+        assert!(!is_thumb_fresh(&path));
+    }
+
+    // ==================== is_thumb_fresh_from_metadata tests ====================
+
+    #[test]
+    fn test_is_thumb_fresh_from_metadata_new_file() {
+        let temp_dir = TempDir::new().unwrap();
+        let path = temp_dir.path().join("test.jpg");
+        std::fs::write(&path, b"test data").unwrap();
+
+        let meta = std::fs::metadata(&path).unwrap();
+        assert!(is_thumb_fresh_from_metadata(&meta));
+    }
+
+    // ==================== THUMB_CACHE_TTL_SECS constant test ====================
+
+    #[test]
+    fn test_thumb_cache_ttl_is_7_days() {
+        // 7 days in seconds
+        let expected = 60 * 60 * 24 * 7;
+        assert_eq!(THUMB_CACHE_TTL_SECS, expected);
+    }
+
+    // ==================== ThumbReq tests ====================
+
+    #[test]
+    fn test_thumb_req_clone() {
+        let req = ThumbReq {
+            title: "Test Mod".to_string(),
+            url: "http://example.com/thumb.jpg".to_string(),
+            attempts: 2,
+            priority: true,
+        };
+        let cloned = req.clone();
+        assert_eq!(cloned.title, req.title);
+        assert_eq!(cloned.url, req.url);
+        assert_eq!(cloned.attempts, req.attempts);
+        assert_eq!(cloned.priority, req.priority);
+    }
+
+    #[test]
+    fn test_thumb_req_debug() {
+        let req = ThumbReq {
+            title: "Test".to_string(),
+            url: "http://example.com".to_string(),
+            attempts: 0,
+            priority: false,
+        };
+        let debug_str = format!("{:?}", req);
+        assert!(debug_str.contains("ThumbReq"));
+        assert!(debug_str.contains("Test"));
+    }
+
+    // ==================== Backoff enum tests ====================
+
+    #[test]
+    fn test_backoff_retry_after() {
+        let backoff = Backoff::RetryAfter(Duration::from_secs(5));
+        match backoff {
+            Backoff::RetryAfter(d) => assert_eq!(d, Duration::from_secs(5)),
+        }
+    }
+}

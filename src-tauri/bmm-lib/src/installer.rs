@@ -1073,7 +1073,7 @@ mod tests {
         std::fs::create_dir_all(&mods_dir).unwrap();
 
         // Should not allow deleting Mods root
-        let res = validate_uninstall_path(&mods_dir.clone(), &[mods_dir.clone()]);
+        let res = validate_uninstall_path(&mods_dir, std::slice::from_ref(&mods_dir));
         assert!(res.is_err());
     }
 

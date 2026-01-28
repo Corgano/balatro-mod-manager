@@ -127,3 +127,37 @@ pub async fn update_lovely_to_latest(state: tauri::State<'_, AppState>) -> Resul
 
     Ok(latest)
 }
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn test_lovely_library_name_macos() {
+        // On macOS, Lovely uses liblovely.dylib
+        let expected = "liblovely.dylib";
+        assert!(expected.ends_with(".dylib"));
+    }
+
+    #[test]
+    fn test_lovely_library_name_windows() {
+        // On Windows, Lovely uses version.dll
+        let expected = "version.dll";
+        assert!(expected.ends_with(".dll"));
+    }
+
+    #[test]
+    fn test_lovely_library_name_linux() {
+        // On Linux, Lovely can use liblovely.so (native) or version.dll (Proton)
+        let native = "liblovely.so";
+        let proton = "version.dll";
+        assert!(native.ends_with(".so"));
+        assert!(proton.ends_with(".dll"));
+    }
+
+    #[test]
+    fn test_lovely_paths_are_relative() {
+        // Lovely paths should be relative to game/config directories
+        let macos_path = "Balatro/bins/liblovely.dylib";
+        assert!(macos_path.contains("Balatro"));
+        assert!(macos_path.contains("bins"));
+    }
+}

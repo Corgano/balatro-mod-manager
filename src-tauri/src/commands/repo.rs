@@ -685,3 +685,438 @@ pub async fn batch_fetch_thumbnails_repo(inputs: Vec<ModThumbInput>) -> Result<u
 
     Ok(saved)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ==================== strip_markdown_images_and_links tests ====================
+
+    #[test]
+    fn test_strip_markdown_image_basic() {
+        let input = "Hello ![alt text](http://example.com/image.png) world";
+        let result = strip_markdown_images_and_links(input);
+        assert_eq!(result, "Hello  world");
+    }
+
+    #[test]
+    fn test_strip_markdown_image_multiple() {
+        let input = "![img1](url1) text ![img2](url2)";
+        let result = strip_markdown_images_and_links(input);
+        assert_eq!(result, " text ");
+    }
+
+    #[test]
+    fn test_strip_markdown_link_basic() {
+        let input = "Check out [this link](http://example.com) now";
+        let result = strip_markdown_images_and_links(input);
+        assert_eq!(result, "Check out this link now");
+    }
+
+    #[test]
+    fn test_strip_markdown_link_preserves_label() {
+        let input = "[Click Here](http://example.com)";
+        let result = strip_markdown_images_and_links(input);
+        assert_eq!(result, "Click Here");
+    }
+
+    #[test]
+    fn test_strip_markdown_mixed() {
+        let input = "![logo](logo.png) Visit [our site](http://example.com) for more";
+        let result = strip_markdown_images_and_links(input);
+        assert_eq!(result, " Visit our site for more");
+    }
+
+    #[test]
+    fn test_strip_markdown_nested_brackets() {
+        let input = "Text [label with [nested] brackets](url) more";
+        let result = strip_markdown_images_and_links(input);
+        // The parser stops at first ], so "label with [nested" becomes the label
+        assert!(result.contains("label with [nested"));
+    }
+
+    #[test]
+    fn test_strip_markdown_incomplete_image() {
+        let input = "![alt text without closing paren";
+        let result = strip_markdown_images_and_links(input);
+        assert_eq!(result, "![alt text without closing paren");
+    }
+
+    #[test]
+    fn test_strip_markdown_incomplete_link() {
+        let input = "[link text] no url";
+        let result = strip_markdown_images_and_links(input);
+        assert_eq!(result, "[link text] no url");
+    }
+
+    #[test]
+    fn test_strip_markdown_empty_input() {
+        let result = strip_markdown_images_and_links("");
+        assert_eq!(result, "");
+    }
+
+    #[test]
+    fn test_strip_markdown_no_markdown() {
+        let input = "Plain text without any markdown";
+        let result = strip_markdown_images_and_links(input);
+        assert_eq!(result, input);
+    }
+
+    #[test]
+    fn test_strip_markdown_only_exclamation() {
+        let input = "Hello! World";
+        let result = strip_markdown_images_and_links(input);
+        assert_eq!(result, "Hello! World");
+    }
+
+    #[test]
+    fn test_strip_markdown_only_brackets() {
+        let input = "Array[0] = value";
+        let result = strip_markdown_images_and_links(input);
+        assert_eq!(result, "Array[0] = value");
+    }
+
+    // ==================== normalize_plaintext tests ====================
+
+    #[test]
+    fn test_normalize_plaintext_basic() {
+        let result = normalize_plaintext("Hello World");
+        assert_eq!(result, "hello world");
+    }
+
+    #[test]
+    fn test_normalize_plaintext_strips_html() {
+        let result = normalize_plaintext("<p>Hello</p> <b>World</b>");
+        assert_eq!(result, "hello world");
+    }
+
+    #[test]
+    fn test_normalize_plaintext_strips_markdown_links() {
+        let result = normalize_plaintext("Check [this](http://url) out");
+        assert_eq!(result, "check this out");
+    }
+
+    #[test]
+    fn test_normalize_plaintext_strips_markdown_images() {
+        let result = normalize_plaintext("Image: ![alt](url) here");
+        assert_eq!(result, "image: here");
+    }
+
+    #[test]
+    fn test_normalize_plaintext_normalizes_whitespace() {
+        let result = normalize_plaintext("  Multiple   spaces   here  ");
+        assert_eq!(result, "multiple spaces here");
+    }
+
+    #[test]
+    fn test_normalize_plaintext_lowercase() {
+        let result = normalize_plaintext("UPPERCASE TEXT");
+        assert_eq!(result, "uppercase text");
+    }
+
+    #[test]
+    fn test_normalize_plaintext_mixed_case() {
+        let result = normalize_plaintext("MiXeD CaSe TeXt");
+        assert_eq!(result, "mixed case text");
+    }
+
+    #[test]
+    fn test_normalize_plaintext_empty() {
+        let result = normalize_plaintext("");
+        assert_eq!(result, "");
+    }
+
+    #[test]
+    fn test_normalize_plaintext_only_whitespace() {
+        let result = normalize_plaintext("   \t\n  ");
+        assert_eq!(result, "");
+    }
+
+    #[test]
+    fn test_normalize_plaintext_complex_html() {
+        let result = normalize_plaintext("<div class=\"foo\">Content <span>here</span></div>");
+        assert_eq!(result, "content here");
+    }
+
+    #[test]
+    fn test_normalize_plaintext_unclosed_tag() {
+        let result = normalize_plaintext("Before <unclosed After");
+        // Everything after '<' until '>' is stripped, but no '>' means rest is stripped
+        assert_eq!(result, "before");
+    }
+
+    #[test]
+    fn test_normalize_plaintext_nested_tags() {
+        let result = normalize_plaintext("<outer><inner>text</inner></outer>");
+        assert_eq!(result, "text");
+    }
+
+    // ==================== is_meaningful_description tests ====================
+
+    #[test]
+    fn test_meaningful_description_empty() {
+        assert!(!is_meaningful_description("", "Test Mod"));
+    }
+
+    #[test]
+    fn test_meaningful_description_whitespace_only() {
+        assert!(!is_meaningful_description("   \n\t  ", "Test Mod"));
+    }
+
+    #[test]
+    fn test_meaningful_description_too_short() {
+        assert!(!is_meaningful_description("Short", "Test Mod"));
+        assert!(!is_meaningful_description("A bit longer text", "Mod")); // < 24 chars normalized
+    }
+
+    #[test]
+    fn test_meaningful_description_same_as_title() {
+        assert!(!is_meaningful_description("Test Mod", "Test Mod"));
+        assert!(!is_meaningful_description("TEST MOD", "test mod")); // case insensitive
+    }
+
+    #[test]
+    fn test_meaningful_description_valid() {
+        let desc = "This is a comprehensive description of the mod that explains what it does";
+        assert!(is_meaningful_description(desc, "Cool Mod"));
+    }
+
+    #[test]
+    fn test_meaningful_description_with_markdown() {
+        let desc = "A [link](url) and ![image](url) with enough text to be meaningful description";
+        assert!(is_meaningful_description(desc, "My Mod"));
+    }
+
+    #[test]
+    fn test_meaningful_description_only_images() {
+        // If description is only images, normalized text becomes empty
+        assert!(!is_meaningful_description(
+            "![img](url)![img2](url2)",
+            "Mod"
+        ));
+    }
+
+    #[test]
+    fn test_meaningful_description_html_only() {
+        assert!(!is_meaningful_description("<div></div><p></p>", "Mod"));
+    }
+
+    #[test]
+    fn test_meaningful_description_title_in_description() {
+        // Description that contains title but has more content
+        let desc = "Cool Mod - This mod adds amazing features and functionality to the game";
+        assert!(is_meaningful_description(desc, "Cool Mod"));
+    }
+
+    #[test]
+    fn test_meaningful_description_exactly_24_chars() {
+        // Exactly 24 characters normalized should pass length check
+        let desc = "abcdefghijklmnopqrstuvwx"; // 24 chars
+        assert!(is_meaningful_description(desc, "Other"));
+    }
+
+    #[test]
+    fn test_meaningful_description_23_chars() {
+        // 23 characters should fail
+        let desc = "abcdefghijklmnopqrstuvw"; // 23 chars
+        assert!(!is_meaningful_description(desc, "Other"));
+    }
+
+    // ==================== bmi_cache_paths tests ====================
+
+    #[test]
+    fn test_bmi_cache_paths_default() {
+        let result = bmi_cache_paths(None);
+        assert!(result.is_ok());
+        let (cache_dir, cache_file) = result.unwrap();
+        assert!(cache_dir.to_string_lossy().contains("mod_index_cache"));
+        assert!(
+            cache_file
+                .to_string_lossy()
+                .contains("bmi_mods_cache_default.json")
+        );
+    }
+
+    #[test]
+    fn test_bmi_cache_paths_with_sort() {
+        let result = bmi_cache_paths(Some("name_asc"));
+        assert!(result.is_ok());
+        let (_, cache_file) = result.unwrap();
+        assert!(
+            cache_file
+                .to_string_lossy()
+                .contains("bmi_mods_cache_name_asc.json")
+        );
+    }
+
+    #[test]
+    fn test_bmi_cache_paths_sanitizes_special_chars() {
+        let result = bmi_cache_paths(Some("name/desc:test"));
+        assert!(result.is_ok());
+        let (_, cache_file) = result.unwrap();
+        // Special chars should be replaced with underscores in the filename
+        let filename = cache_file.file_name().unwrap().to_string_lossy();
+        assert!(filename.contains("name_desc_test"));
+        assert!(!filename.contains(":"));
+    }
+
+    #[test]
+    fn test_bmi_cache_paths_empty_sort() {
+        let result = bmi_cache_paths(Some(""));
+        assert!(result.is_ok());
+        let (_, cache_file) = result.unwrap();
+        // Empty string results in empty suffix
+        assert!(
+            cache_file
+                .to_string_lossy()
+                .contains("bmi_mods_cache_.json")
+        );
+    }
+
+    // ==================== sort_archive_items tests ====================
+
+    fn make_test_item(title: &str, dir_name: &str, last_updated: u64) -> ArchiveModItem {
+        ArchiveModItem {
+            dir_name: dir_name.to_string(),
+            meta: ModMeta {
+                title: title.to_string(),
+                author: String::new(),
+                repo: String::new(),
+                version: String::new(),
+                last_updated,
+                categories: vec![],
+                requires_steamodded: false,
+                requires_talisman: false,
+                downloads: None,
+                download_url: None,
+                folder_name: String::new(),
+                automatic_version_check: false,
+            },
+            description: String::new(),
+            image_url: String::new(),
+            has_thumbnail: false,
+        }
+    }
+
+    #[test]
+    fn test_sort_archive_items_name_asc() {
+        let mut items = vec![
+            make_test_item("Zebra Mod", "zebra", 1000),
+            make_test_item("Apple Mod", "apple", 1000),
+            make_test_item("Mango Mod", "mango", 1000),
+        ];
+
+        sort_archive_items(&mut items, SortMode::NameAsc);
+
+        assert_eq!(items[0].meta.title, "Apple Mod");
+        assert_eq!(items[1].meta.title, "Mango Mod");
+        assert_eq!(items[2].meta.title, "Zebra Mod");
+    }
+
+    #[test]
+    fn test_sort_archive_items_name_desc() {
+        let mut items = vec![
+            make_test_item("Apple Mod", "apple", 1000),
+            make_test_item("Zebra Mod", "zebra", 1000),
+            make_test_item("Mango Mod", "mango", 1000),
+        ];
+
+        sort_archive_items(&mut items, SortMode::NameDesc);
+
+        assert_eq!(items[0].meta.title, "Zebra Mod");
+        assert_eq!(items[1].meta.title, "Mango Mod");
+        assert_eq!(items[2].meta.title, "Apple Mod");
+    }
+
+    #[test]
+    fn test_sort_archive_items_name_case_insensitive() {
+        let mut items = vec![
+            make_test_item("ZEBRA", "z", 1000),
+            make_test_item("apple", "a", 1000),
+            make_test_item("Mango", "m", 1000),
+        ];
+
+        sort_archive_items(&mut items, SortMode::NameAsc);
+
+        assert_eq!(items[0].meta.title, "apple");
+        assert_eq!(items[1].meta.title, "Mango");
+        assert_eq!(items[2].meta.title, "ZEBRA");
+    }
+
+    #[test]
+    fn test_sort_archive_items_updated_asc() {
+        let mut items = vec![
+            make_test_item("Mod C", "c", 3000),
+            make_test_item("Mod A", "a", 1000),
+            make_test_item("Mod B", "b", 2000),
+        ];
+
+        sort_archive_items(&mut items, SortMode::UpdatedAsc);
+
+        assert_eq!(items[0].meta.last_updated, 1000);
+        assert_eq!(items[1].meta.last_updated, 2000);
+        assert_eq!(items[2].meta.last_updated, 3000);
+    }
+
+    #[test]
+    fn test_sort_archive_items_updated_desc() {
+        let mut items = vec![
+            make_test_item("Mod A", "a", 1000),
+            make_test_item("Mod C", "c", 3000),
+            make_test_item("Mod B", "b", 2000),
+        ];
+
+        sort_archive_items(&mut items, SortMode::UpdatedDesc);
+
+        assert_eq!(items[0].meta.last_updated, 3000);
+        assert_eq!(items[1].meta.last_updated, 2000);
+        assert_eq!(items[2].meta.last_updated, 1000);
+    }
+
+    #[test]
+    fn test_sort_archive_items_tiebreaker_by_dir_name() {
+        let mut items = vec![
+            make_test_item("Same Name", "zzz", 1000),
+            make_test_item("Same Name", "aaa", 1000),
+            make_test_item("Same Name", "mmm", 1000),
+        ];
+
+        sort_archive_items(&mut items, SortMode::NameAsc);
+
+        // When names are equal, sort by dir_name
+        assert_eq!(items[0].dir_name, "aaa");
+        assert_eq!(items[1].dir_name, "mmm");
+        assert_eq!(items[2].dir_name, "zzz");
+    }
+
+    #[test]
+    fn test_sort_archive_items_downloads_noop() {
+        let mut items = vec![
+            make_test_item("Mod B", "b", 1000),
+            make_test_item("Mod A", "a", 1000),
+        ];
+
+        let original_order: Vec<_> = items.iter().map(|i| i.dir_name.clone()).collect();
+
+        // Downloads sorting is a no-op (handled elsewhere)
+        sort_archive_items(&mut items, SortMode::DownloadsAsc);
+
+        let new_order: Vec<_> = items.iter().map(|i| i.dir_name.clone()).collect();
+        assert_eq!(original_order, new_order);
+    }
+
+    #[test]
+    fn test_sort_archive_items_empty() {
+        let mut items: Vec<ArchiveModItem> = vec![];
+        sort_archive_items(&mut items, SortMode::NameAsc);
+        assert!(items.is_empty());
+    }
+
+    #[test]
+    fn test_sort_archive_items_single() {
+        let mut items = vec![make_test_item("Only Mod", "only", 1000)];
+        sort_archive_items(&mut items, SortMode::NameAsc);
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].meta.title, "Only Mod");
+    }
+}

@@ -441,3 +441,113 @@ fn detect_cpu() -> String {
     }
     "Unknown".to_string()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_report_url_is_https() {
+        assert!(REPORT_URL.starts_with("https://"));
+    }
+
+    #[test]
+    fn test_report_timeout_is_reasonable() {
+        assert!(REPORT_TIMEOUT.as_secs() >= 10);
+        assert!(REPORT_TIMEOUT.as_secs() <= 120);
+    }
+
+    #[test]
+    fn test_report_connect_timeout_is_reasonable() {
+        assert!(REPORT_CONNECT_TIMEOUT.as_secs() >= 5);
+        assert!(REPORT_CONNECT_TIMEOUT.as_secs() <= 30);
+    }
+
+    #[test]
+    fn test_report_connect_timeout_less_than_total() {
+        assert!(REPORT_CONNECT_TIMEOUT < REPORT_TIMEOUT);
+    }
+
+    #[test]
+    fn test_report_payload_serialize() {
+        let payload = ReportPayload {
+            title: "Test Bug",
+            description: "A test description",
+            mm_version: "1.0.0",
+            os: "linux".to_string(),
+            arch: "x86_64".to_string(),
+            cpu: "Test CPU".to_string(),
+            gpu: "Test GPU".to_string(),
+            ram: "16GB".to_string(),
+            log_b64: "dGVzdA==".to_string(),
+            log_filename: "bmm_test.log".to_string(),
+        };
+        let json = serde_json::to_string(&payload).unwrap();
+        assert!(json.contains("Test Bug"));
+        assert!(json.contains("mm_version"));
+        assert!(json.contains("log_b64"));
+    }
+
+    #[test]
+    fn test_report_payload_all_fields_present() {
+        let payload = ReportPayload {
+            title: "t",
+            description: "d",
+            mm_version: "v",
+            os: "o".to_string(),
+            arch: "a".to_string(),
+            cpu: "c".to_string(),
+            gpu: "g".to_string(),
+            ram: "r".to_string(),
+            log_b64: "l".to_string(),
+            log_filename: "f".to_string(),
+        };
+        let json = serde_json::to_string(&payload).unwrap();
+        // All expected fields should be present
+        for field in [
+            "title",
+            "description",
+            "mm_version",
+            "os",
+            "arch",
+            "cpu",
+            "gpu",
+            "ram",
+            "log_b64",
+            "log_filename",
+        ] {
+            assert!(json.contains(field), "Missing field: {}", field);
+        }
+    }
+
+    #[test]
+    fn test_get_cpu_and_ram_returns_valid_format() {
+        let (cpu, ram) = get_cpu_and_ram();
+        // CPU should be non-empty (might be "Unknown")
+        assert!(!cpu.is_empty());
+        // RAM should end with "GB"
+        assert!(
+            ram.ends_with("GB"),
+            "RAM format should end with GB: {}",
+            ram
+        );
+    }
+
+    #[test]
+    fn test_detect_cpu_returns_string() {
+        let cpu = detect_cpu();
+        assert!(!cpu.is_empty());
+    }
+
+    #[test]
+    fn test_detect_os_version_returns_option() {
+        // Just verify it doesn't panic
+        let _version = detect_os_version();
+    }
+
+    #[test]
+    fn test_detect_gpu_returns_option() {
+        // Just verify it doesn't panic
+        let _gpu = detect_gpu();
+    }
+}

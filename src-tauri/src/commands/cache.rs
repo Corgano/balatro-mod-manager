@@ -381,3 +381,67 @@ pub async fn mods_state_summary(
         descriptions,
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_mod_cache_ttl_is_30_seconds() {
+        assert_eq!(MOD_CACHE_TTL, Duration::from_secs(30));
+    }
+
+    #[test]
+    fn test_installed_summary_serialize() {
+        let summary = InstalledSummary {
+            name: "TestMod".to_string(),
+            path: "/path/to/mod".to_string(),
+        };
+        let json = serde_json::to_string(&summary).unwrap();
+        assert!(json.contains("TestMod"));
+        assert!(json.contains("/path/to/mod"));
+    }
+
+    #[test]
+    fn test_mods_state_summary_serialize() {
+        let summary = ModsStateSummary {
+            installed: vec![InstalledSummary {
+                name: "Mod1".to_string(),
+                path: "/path".to_string(),
+            }],
+            enabled: std::collections::HashMap::from([("Mod1".to_string(), true)]),
+            updates: std::collections::HashMap::from([("Mod1".to_string(), false)]),
+            thumbnails: std::collections::HashMap::new(),
+            descriptions: std::collections::HashMap::new(),
+        };
+        let json = serde_json::to_string(&summary).unwrap();
+        assert!(json.contains("Mod1"));
+        assert!(json.contains("installed"));
+        assert!(json.contains("enabled"));
+        assert!(json.contains("updates"));
+    }
+
+    #[test]
+    fn test_installed_summary_fields() {
+        let summary = InstalledSummary {
+            name: "MyMod".to_string(),
+            path: "/mods/MyMod".to_string(),
+        };
+        assert_eq!(summary.name, "MyMod");
+        assert_eq!(summary.path, "/mods/MyMod");
+    }
+
+    #[test]
+    fn test_mods_state_summary_empty() {
+        let summary = ModsStateSummary {
+            installed: vec![],
+            enabled: std::collections::HashMap::new(),
+            updates: std::collections::HashMap::new(),
+            thumbnails: std::collections::HashMap::new(),
+            descriptions: std::collections::HashMap::new(),
+        };
+        assert!(summary.installed.is_empty());
+        assert!(summary.enabled.is_empty());
+        assert!(summary.updates.is_empty());
+    }
+}

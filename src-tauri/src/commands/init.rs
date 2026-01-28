@@ -372,13 +372,14 @@ mod tests {
         let launch_mode = db.get_launch_mode().unwrap();
 
         // Verify we can read all settings without errors
-        // Default values may vary, so we just check they're valid types
-        assert!(discord_rpc || !discord_rpc); // boolean is valid
-        assert!(lovely_console || !lovely_console);
-        assert!(background || !background);
-        assert!(compat_helper || !compat_helper);
-        // linux_prefix is a valid string (even if empty)
-        let _ = linux_prefix;
+        // Use the values to ensure they're valid (suppress unused warnings)
+        let _ = (
+            discord_rpc,
+            lovely_console,
+            background,
+            compat_helper,
+            linux_prefix,
+        );
         assert!(!launch_mode.is_empty()); // launch mode should have a default
 
         // Cleanup

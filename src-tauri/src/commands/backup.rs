@@ -92,3 +92,70 @@ pub async fn check_interrupted_restore() -> Result<Option<String>, String> {
 pub async fn clear_interrupted_restore() -> Result<(), String> {
     backup::clear_interrupted_restore_marker().map_err(|e| e.to_string())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_backup_trigger_from_auto_update() {
+        let input = BackupTriggerInput::AutoUpdate;
+        let trigger: BackupTrigger = input.into();
+        assert!(matches!(trigger, BackupTrigger::AutoUpdate));
+    }
+
+    #[test]
+    fn test_backup_trigger_from_auto_uninstall() {
+        let input = BackupTriggerInput::AutoUninstall;
+        let trigger: BackupTrigger = input.into();
+        assert!(matches!(trigger, BackupTrigger::AutoUninstall));
+    }
+
+    #[test]
+    fn test_backup_trigger_from_auto_bulk() {
+        let input = BackupTriggerInput::AutoBulk;
+        let trigger: BackupTrigger = input.into();
+        assert!(matches!(trigger, BackupTrigger::AutoBulk));
+    }
+
+    #[test]
+    fn test_backup_trigger_from_manual() {
+        let input = BackupTriggerInput::Manual;
+        let trigger: BackupTrigger = input.into();
+        assert!(matches!(trigger, BackupTrigger::Manual));
+    }
+
+    #[test]
+    fn test_backup_trigger_input_serialize() {
+        let input = BackupTriggerInput::Manual;
+        let json = serde_json::to_string(&input).unwrap();
+        assert_eq!(json, "\"manual\"");
+    }
+
+    #[test]
+    fn test_backup_trigger_input_deserialize() {
+        let json = "\"auto_update\"";
+        let input: BackupTriggerInput = serde_json::from_str(json).unwrap();
+        assert!(matches!(input, BackupTriggerInput::AutoUpdate));
+    }
+
+    #[test]
+    fn test_backup_trigger_input_all_variants_serialize() {
+        assert_eq!(
+            serde_json::to_string(&BackupTriggerInput::AutoUpdate).unwrap(),
+            "\"auto_update\""
+        );
+        assert_eq!(
+            serde_json::to_string(&BackupTriggerInput::AutoUninstall).unwrap(),
+            "\"auto_uninstall\""
+        );
+        assert_eq!(
+            serde_json::to_string(&BackupTriggerInput::AutoBulk).unwrap(),
+            "\"auto_bulk\""
+        );
+        assert_eq!(
+            serde_json::to_string(&BackupTriggerInput::Manual).unwrap(),
+            "\"manual\""
+        );
+    }
+}

@@ -367,3 +367,324 @@ pub fn configure_display_backend() -> Option<String> {
     mark_wayland_starting();
     Some("Wayland session detected; using native Wayland.".into())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use tempfile::TempDir;
+
+    // ==================== GpuState enum tests ====================
+
+    #[test]
+    fn test_gpu_state_as_str() {
+        assert_eq!(GpuState::Dmabuf.as_str(), "dmabuf");
+        assert_eq!(GpuState::Vulkan.as_str(), "vulkan");
+        assert_eq!(GpuState::Ngl.as_str(), "ngl");
+        assert_eq!(GpuState::Gl.as_str(), "gl");
+        assert_eq!(GpuState::Disabled.as_str(), "disabled");
+    }
+
+    #[test]
+    fn test_gpu_state_as_ok_str() {
+        assert_eq!(GpuState::Dmabuf.as_ok_str(), "dmabuf-ok");
+        assert_eq!(GpuState::Vulkan.as_ok_str(), "vulkan-ok");
+        assert_eq!(GpuState::Ngl.as_ok_str(), "ngl-ok");
+        assert_eq!(GpuState::Gl.as_ok_str(), "gl-ok");
+        assert_eq!(GpuState::Disabled.as_ok_str(), "disabled-ok");
+    }
+
+    #[test]
+    fn test_gpu_state_from_str_basic() {
+        assert_eq!(GpuState::from_str("dmabuf"), Some(GpuState::Dmabuf));
+        assert_eq!(GpuState::from_str("vulkan"), Some(GpuState::Vulkan));
+        assert_eq!(GpuState::from_str("ngl"), Some(GpuState::Ngl));
+        assert_eq!(GpuState::from_str("gl"), Some(GpuState::Gl));
+        assert_eq!(GpuState::from_str("disabled"), Some(GpuState::Disabled));
+    }
+
+    #[test]
+    fn test_gpu_state_from_str_ok_variants() {
+        assert_eq!(GpuState::from_str("dmabuf-ok"), Some(GpuState::Dmabuf));
+        assert_eq!(GpuState::from_str("vulkan-ok"), Some(GpuState::Vulkan));
+        assert_eq!(GpuState::from_str("ngl-ok"), Some(GpuState::Ngl));
+        assert_eq!(GpuState::from_str("gl-ok"), Some(GpuState::Gl));
+        assert_eq!(GpuState::from_str("disabled-ok"), Some(GpuState::Disabled));
+    }
+
+    #[test]
+    fn test_gpu_state_from_str_invalid() {
+        assert_eq!(GpuState::from_str(""), None);
+        assert_eq!(GpuState::from_str("invalid"), None);
+        assert_eq!(GpuState::from_str("DMABUF"), None); // case-sensitive
+        assert_eq!(GpuState::from_str("dmabuf-"), None);
+        assert_eq!(GpuState::from_str("ok"), None);
+    }
+
+    #[test]
+    fn test_gpu_state_next_fallback_chain() {
+        // Test the complete fallback chain
+        let mut state = GpuState::Dmabuf;
+        assert_eq!(state.next_fallback(), GpuState::Vulkan);
+
+        state = GpuState::Vulkan;
+        assert_eq!(state.next_fallback(), GpuState::Ngl);
+
+        state = GpuState::Ngl;
+        assert_eq!(state.next_fallback(), GpuState::Gl);
+
+        state = GpuState::Gl;
+        assert_eq!(state.next_fallback(), GpuState::Disabled);
+
+        // Disabled stays at Disabled (no further fallback)
+        state = GpuState::Disabled;
+        assert_eq!(state.next_fallback(), GpuState::Disabled);
+    }
+
+    #[test]
+    fn test_gpu_state_description() {
+        assert_eq!(GpuState::Dmabuf.description(), "DMABUF");
+        assert_eq!(GpuState::Vulkan.description(), "Vulkan renderer");
+        assert_eq!(GpuState::Ngl.description(), "OpenGL renderer (NGL)");
+        assert_eq!(GpuState::Gl.description(), "Legacy OpenGL renderer");
+        assert_eq!(GpuState::Disabled.description(), "software rendering");
+    }
+
+    #[test]
+    fn test_gpu_state_roundtrip() {
+        // Ensure as_str/from_str roundtrip works for all states
+        for state in [
+            GpuState::Dmabuf,
+            GpuState::Vulkan,
+            GpuState::Ngl,
+            GpuState::Gl,
+            GpuState::Disabled,
+        ] {
+            let str_repr = state.as_str();
+            let parsed = GpuState::from_str(str_repr);
+            assert_eq!(parsed, Some(state), "roundtrip failed for {:?}", state);
+        }
+    }
+
+    #[test]
+    fn test_gpu_state_ok_roundtrip() {
+        // Ensure as_ok_str/from_str roundtrip works for all states
+        for state in [
+            GpuState::Dmabuf,
+            GpuState::Vulkan,
+            GpuState::Ngl,
+            GpuState::Gl,
+            GpuState::Disabled,
+        ] {
+            let ok_str_repr = state.as_ok_str();
+            let parsed = GpuState::from_str(ok_str_repr);
+            assert_eq!(parsed, Some(state), "ok roundtrip failed for {:?}", state);
+        }
+    }
+
+    // ==================== Lock file utility tests ====================
+
+    #[test]
+    fn test_read_lock_file_exists() {
+        let temp_dir = TempDir::new().unwrap();
+        let lock_path = temp_dir.path().join("test.lock");
+        fs::write(&lock_path, "test-content\n").unwrap();
+
+        let result = read_lock_file(&lock_path);
+        assert_eq!(result, Some("test-content".to_string()));
+    }
+
+    #[test]
+    fn test_read_lock_file_not_exists() {
+        let temp_dir = TempDir::new().unwrap();
+        let lock_path = temp_dir.path().join("nonexistent.lock");
+
+        let result = read_lock_file(&lock_path);
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_read_lock_file_trims_whitespace() {
+        let temp_dir = TempDir::new().unwrap();
+        let lock_path = temp_dir.path().join("test.lock");
+        fs::write(&lock_path, "  content-with-spaces  \n\n").unwrap();
+
+        let result = read_lock_file(&lock_path);
+        assert_eq!(result, Some("content-with-spaces".to_string()));
+    }
+
+    #[test]
+    fn test_write_lock_file_creates_parent_dirs() {
+        let temp_dir = TempDir::new().unwrap();
+        let nested_path = temp_dir.path().join("a/b/c/test.lock");
+
+        write_lock_file(&nested_path, "nested-content");
+
+        assert!(nested_path.exists());
+        let content = fs::read_to_string(&nested_path).unwrap();
+        assert_eq!(content, "nested-content");
+    }
+
+    #[test]
+    fn test_write_lock_file_overwrites() {
+        let temp_dir = TempDir::new().unwrap();
+        let lock_path = temp_dir.path().join("test.lock");
+
+        write_lock_file(&lock_path, "first");
+        write_lock_file(&lock_path, "second");
+
+        let content = fs::read_to_string(&lock_path).unwrap();
+        assert_eq!(content, "second");
+    }
+
+    #[test]
+    fn test_remove_lock_file() {
+        let temp_dir = TempDir::new().unwrap();
+        let lock_path = temp_dir.path().join("test.lock");
+        fs::write(&lock_path, "content").unwrap();
+        assert!(lock_path.exists());
+
+        remove_lock_file(&lock_path);
+
+        assert!(!lock_path.exists());
+    }
+
+    #[test]
+    fn test_remove_lock_file_nonexistent_is_ok() {
+        let temp_dir = TempDir::new().unwrap();
+        let lock_path = temp_dir.path().join("nonexistent.lock");
+
+        // Should not panic
+        remove_lock_file(&lock_path);
+    }
+
+    // ==================== env_is_truthy tests ====================
+
+    #[test]
+    fn test_env_is_truthy_one() {
+        unsafe { std::env::set_var("BMM_TEST_VAR_1", "1") };
+        assert!(env_is_truthy("BMM_TEST_VAR_1"));
+        unsafe { std::env::remove_var("BMM_TEST_VAR_1") };
+    }
+
+    #[test]
+    fn test_env_is_truthy_true() {
+        unsafe { std::env::set_var("BMM_TEST_VAR_TRUE", "true") };
+        assert!(env_is_truthy("BMM_TEST_VAR_TRUE"));
+        unsafe { std::env::remove_var("BMM_TEST_VAR_TRUE") };
+    }
+
+    #[test]
+    fn test_env_is_truthy_yes() {
+        unsafe { std::env::set_var("BMM_TEST_VAR_YES", "yes") };
+        assert!(env_is_truthy("BMM_TEST_VAR_YES"));
+        unsafe { std::env::remove_var("BMM_TEST_VAR_YES") };
+    }
+
+    #[test]
+    fn test_env_is_truthy_case_insensitive() {
+        unsafe { std::env::set_var("BMM_TEST_VAR_CASE", "TRUE") };
+        assert!(env_is_truthy("BMM_TEST_VAR_CASE"));
+        unsafe { std::env::set_var("BMM_TEST_VAR_CASE", "True") };
+        assert!(env_is_truthy("BMM_TEST_VAR_CASE"));
+        unsafe { std::env::set_var("BMM_TEST_VAR_CASE", "YES") };
+        assert!(env_is_truthy("BMM_TEST_VAR_CASE"));
+        unsafe { std::env::remove_var("BMM_TEST_VAR_CASE") };
+    }
+
+    #[test]
+    fn test_env_is_truthy_falsy_values() {
+        unsafe { std::env::set_var("BMM_TEST_VAR_FALSY", "0") };
+        assert!(!env_is_truthy("BMM_TEST_VAR_FALSY"));
+        unsafe { std::env::set_var("BMM_TEST_VAR_FALSY", "false") };
+        assert!(!env_is_truthy("BMM_TEST_VAR_FALSY"));
+        unsafe { std::env::set_var("BMM_TEST_VAR_FALSY", "no") };
+        assert!(!env_is_truthy("BMM_TEST_VAR_FALSY"));
+        unsafe { std::env::set_var("BMM_TEST_VAR_FALSY", "") };
+        assert!(!env_is_truthy("BMM_TEST_VAR_FALSY"));
+        unsafe { std::env::remove_var("BMM_TEST_VAR_FALSY") };
+    }
+
+    #[test]
+    fn test_env_is_truthy_unset() {
+        unsafe { std::env::remove_var("BMM_TEST_VAR_UNSET") };
+        assert!(!env_is_truthy("BMM_TEST_VAR_UNSET"));
+    }
+
+    // ==================== Fallback chain simulation tests ====================
+
+    #[test]
+    fn test_full_fallback_chain_simulation() {
+        // Simulate multiple crashes walking through the fallback chain
+        let mut state = GpuState::Dmabuf;
+
+        // Crash 1: DMABUF -> Vulkan
+        state = state.next_fallback();
+        assert_eq!(state, GpuState::Vulkan);
+
+        // Crash 2: Vulkan -> NGL
+        state = state.next_fallback();
+        assert_eq!(state, GpuState::Ngl);
+
+        // Crash 3: NGL -> GL
+        state = state.next_fallback();
+        assert_eq!(state, GpuState::Gl);
+
+        // Crash 4: GL -> Disabled
+        state = state.next_fallback();
+        assert_eq!(state, GpuState::Disabled);
+
+        // Crash 5: Disabled stays Disabled (terminal state)
+        state = state.next_fallback();
+        assert_eq!(state, GpuState::Disabled);
+    }
+
+    #[test]
+    fn test_lock_dir_returns_some() {
+        // This test verifies lock_dir returns Some on systems with a data directory
+        let result = lock_dir();
+        // On most systems this should be Some, but we don't fail if it's None
+        // (e.g., in unusual test environments)
+        if let Some(path) = result {
+            assert!(path.to_string_lossy().contains("balatro-mod-manager"));
+        }
+    }
+
+    #[test]
+    fn test_wayland_lock_path_contains_expected_name() {
+        if let Some(path) = wayland_lock_path() {
+            assert!(path.to_string_lossy().contains("wayland_session.lock"));
+        }
+    }
+
+    #[test]
+    fn test_gpu_lock_path_contains_expected_name() {
+        if let Some(path) = gpu_lock_path() {
+            assert!(path.to_string_lossy().contains("gpu_session.lock"));
+        }
+    }
+
+    // ==================== GpuState equality and copy tests ====================
+
+    #[test]
+    fn test_gpu_state_equality() {
+        assert_eq!(GpuState::Dmabuf, GpuState::Dmabuf);
+        assert_ne!(GpuState::Dmabuf, GpuState::Vulkan);
+        assert_ne!(GpuState::Vulkan, GpuState::Ngl);
+    }
+
+    #[test]
+    fn test_gpu_state_is_copy() {
+        let state = GpuState::Dmabuf;
+        let copied = state;
+        // Both should still be valid (Copy trait)
+        assert_eq!(state, copied);
+    }
+
+    #[test]
+    fn test_gpu_state_debug() {
+        // Verify Debug is implemented
+        let debug_str = format!("{:?}", GpuState::Dmabuf);
+        assert!(debug_str.contains("Dmabuf"));
+    }
+}
