@@ -1698,6 +1698,56 @@ fn is_likely_steamodded(path: &Path) -> Result<bool, String> {
     Ok(false)
 }
 
+/// Deserialize a number field that may be an integer or float, coercing to i64.
+/// Many mod authors write floats (e.g., -1000000.0 or 2.7e+27) where i64 is expected.
+fn deserialize_lenient_i64<'de, D>(deserializer: D) -> Result<i64, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::de::{self, Visitor};
+
+    struct LenientI64Visitor;
+
+    impl<'de> Visitor<'de> for LenientI64Visitor {
+        type Value = i64;
+
+        fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+            formatter.write_str("an integer or float")
+        }
+
+        fn visit_i64<E>(self, value: i64) -> Result<i64, E>
+        where
+            E: de::Error,
+        {
+            Ok(value)
+        }
+
+        fn visit_u64<E>(self, value: u64) -> Result<i64, E>
+        where
+            E: de::Error,
+        {
+            // Clamp to i64::MAX if too large
+            Ok(value.min(i64::MAX as u64) as i64)
+        }
+
+        fn visit_f64<E>(self, value: f64) -> Result<i64, E>
+        where
+            E: de::Error,
+        {
+            // Clamp to i64 range and convert
+            if value >= i64::MAX as f64 {
+                Ok(i64::MAX)
+            } else if value <= i64::MIN as f64 {
+                Ok(i64::MIN)
+            } else {
+                Ok(value as i64)
+            }
+        }
+    }
+
+    deserializer.deserialize_any(LenientI64Visitor)
+}
+
 /// JSON schema for mod configuration
 #[derive(Debug, Serialize, Deserialize)]
 struct ModJson {
@@ -1708,7 +1758,7 @@ struct ModJson {
     description: String,
     prefix: String,
     main_file: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_lenient_i64")]
     priority: i64,
     #[serde(default = "default_badge_color")]
     badge_colour: String,
@@ -1749,17 +1799,31 @@ fn default_text_color() -> String {
     "FFFFFF".to_string()
 }
 
+/// Strip trailing commas from JSON content to handle lenient JSON authored by mod creators.
+/// Matches `,` followed by optional whitespace and then `]` or `}`.
+fn strip_trailing_commas(json: &str) -> String {
+    // Use lazy_static regex for efficiency
+    use regex::Regex;
+    lazy_static::lazy_static! {
+        static ref TRAILING_COMMA: Regex = Regex::new(r",(\s*[}\]])").unwrap();
+    }
+    TRAILING_COMMA.replace_all(json, "$1").into_owned()
+}
+
 /// Parse mod info from JSON file
 fn parse_mod_json(json_path: &Path, mod_path: &Path) -> Result<Option<DetectedMod>, String> {
-    let file = match File::open(json_path) {
-        Ok(file) => file,
+    let content = match std::fs::read_to_string(json_path) {
+        Ok(s) => s,
         Err(e) => {
-            log::debug!("Failed to open JSON file {}: {}", json_path.display(), e);
+            log::debug!("Failed to read JSON file {}: {}", json_path.display(), e);
             return Ok(None);
         }
     };
 
-    let mod_json: ModJson = match serde_json::from_reader(file) {
+    // Strip trailing commas (common in hand-authored JSON)
+    let sanitized = strip_trailing_commas(&content);
+
+    let mod_json: ModJson = match serde_json::from_str(&sanitized) {
         Ok(json) => json,
         Err(e) => {
             log::debug!("Failed to parse JSON file {}: {}", json_path.display(), e);
