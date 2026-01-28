@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 
 const BMI_CACHE_FILE: &str = "bmi_mods_cache";
 const THUMB_CACHE_TTL_SECS: u64 = 60 * 60 * 24 * 7;
+const MOD_DETAILS_CACHE_TTL_SECS: u64 = 60 * 60 * 48; // 48 hours
 
 /// Unified mod details response - fetches all needed data in one API call
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -18,11 +19,14 @@ pub struct ModDetails {
     pub requires_steamodded: bool,
     pub requires_talisman: bool,
     pub repo_url: Option<String>,
+    #[serde(default)]
+    pub cached_at_unix: u64,
 }
 
 /// Get all mod details in a single API call (description, requirements, repo URL)
 /// This replaces 3 separate `fetch_mod` calls with 1.
 /// Results are cached to disk to avoid repeated network requests.
+/// Cache expires after 48 hours to pick up description updates.
 #[tauri::command]
 pub async fn get_mod_details(title: String, dir_name: String) -> Result<ModDetails, String> {
     let details_dir = ensure_details_cache_dir_async().await?;
@@ -32,9 +36,10 @@ pub async fn get_mod_details(title: String, dir_name: String) -> Result<ModDetai
     // Check for cached mod details first
     if let Ok(cached_json) = tokio::fs::read_to_string(&cache_path).await
         && let Ok(cached) = serde_json::from_str::<ModDetails>(&cached_json)
-        // Validate cached data has meaningful content
+        // Validate cached data has meaningful content and is not expired
         && !cached.description.trim().is_empty()
         && is_meaningful_description(&cached.description, &title)
+        && is_cache_fresh(cached.cached_at_unix, MOD_DETAILS_CACHE_TTL_SECS)
     {
         log::debug!("Mod details cache hit: title='{}'", title);
         return Ok(cached);
@@ -76,11 +81,17 @@ pub async fn get_mod_details(title: String, dir_name: String) -> Result<ModDetai
             })
         });
 
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+
     let mod_details = ModDetails {
         description,
         requires_steamodded,
         requires_talisman,
         repo_url,
+        cached_at_unix: now,
     };
 
     // Cache the result for future use
@@ -517,6 +528,17 @@ fn is_meaningful_description(text: &str, title: &str) -> bool {
     }
     let normalized_title = normalize_plaintext(title);
     normalized_text != normalized_title
+}
+
+fn is_cache_fresh(cached_at_unix: u64, ttl_secs: u64) -> bool {
+    if cached_at_unix == 0 {
+        return false;
+    }
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    now.saturating_sub(cached_at_unix) < ttl_secs
 }
 
 fn normalize_plaintext(text: &str) -> String {

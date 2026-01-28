@@ -1411,6 +1411,119 @@
     setDescriptions(descriptionUpdates);
   }
 
+  interface CatalogLoadOptions {
+    showMessages: boolean;
+    isForeground: boolean;
+  }
+
+  // Shared catalog loading logic
+  async function loadCatalogCore(options: CatalogLoadOptions): Promise<void> {
+    const { showMessages, isForeground } = options;
+
+    const items = await invoke<ArchiveModItem[]>("fetch_repo_mods", {
+      sort: $currentSort,
+    });
+    clearCatalogRetry();
+
+    if (isForeground && items.length === 0) {
+      catalogLoadError = "Catalog returned no mods.";
+      addMessage("Catalog returned no mods.", "error");
+      return;
+    }
+
+    const titles = items.map((i) => i.meta.title);
+    const cachedMap = await invoke<Record<string, string>>(
+      "get_cached_thumbnails_map",
+      { titles },
+    );
+
+    // Enqueue background caching for thumbnails
+    try {
+      const thumbItems = items
+        .filter((i) => i.image_url && /^https?:\/\//i.test(i.image_url))
+        .map((i) => ({ title: i.meta.title, url: i.image_url }));
+      if (thumbItems.length > 0) {
+        const seen = new Set<string>();
+        const toEnqueue = thumbItems.filter((t) => {
+          if (seen.has(t.title)) return false;
+          seen.add(t.title);
+          if (cachedMap[t.title]) return false;
+          // For foreground, also check existing mods
+          if (isForeground) {
+            const existing = $modsStore.find((m) => m.title === t.title);
+            if (existing?.image && !existing.image.endsWith("cover.jpg")) {
+              return false;
+            }
+          }
+          return true;
+        });
+        if (toEnqueue.length > 0) {
+          invoke("enqueue_thumbnails", { items: toEnqueue }).catch(() => {});
+        }
+      }
+    } catch (_) {
+      /* ignore */
+    }
+
+    const mods: Mod[] = mapArchiveItems(items, cachedMap);
+    const prunedCount = mergeIncomingMods(mods);
+
+    if (prunedCount > 0) {
+      addMessage(
+        `Pruned ${prunedCount} removed mod${prunedCount === 1 ? "" : "s"} from cache`,
+        "info",
+      );
+    }
+
+    // Persist refreshed upstream catalog to Rust cache
+    try {
+      const forCache = mods.map((m) => ({
+        title: m.title,
+        description: m.description,
+        image: m.image,
+        categories: m.categories,
+        colors: m.colors,
+        installed: false,
+        requires_steamodded: m.requires_steamodded,
+        requires_talisman: m.requires_talisman,
+        publisher: m.publisher,
+        repo: m.repo,
+        downloadURL: m.downloadURL || "",
+        folderName: m.folderName ?? null,
+        version: m.version ?? null,
+      }));
+      invoke("save_mods_cache", { mods: forCache }).catch(() => {});
+    } catch (_) {
+      /* ignore */
+    }
+
+    // Fill thumbnails and descriptions
+    fillInstalledThumbnails($modsStore).catch(() => {});
+    scheduleThumbCacheRefresh(titles);
+    await withModsCachePersistenceSuspended(async () => {
+      await withDescriptionsPersistenceSuspended(async () => {
+        try {
+          await fillCachedDescriptionsVisibleFirst();
+        } catch {
+          /* ignore */
+        }
+        try {
+          await fillDescriptionsVisibleFirst();
+        } catch {
+          /* ignore */
+        }
+        fillCachedDescriptions($modsStore).catch(() => {});
+        fillDescriptions(mods).catch((e) =>
+          console.warn("desc fill failed", e),
+        );
+      });
+    });
+
+    if (showMessages) {
+      addMessage("All mods loaded", "success");
+    }
+  }
+
   async function refreshCatalogInBackground(
     showMessages: boolean = true,
   ): Promise<void> {
@@ -1421,92 +1534,7 @@
       addMessage("Loading mods in background…", "info");
     }
     try {
-      const items = await invoke<ArchiveModItem[]>("fetch_repo_mods", {
-        sort: $currentSort,
-      });
-      clearCatalogRetry();
-      const titles = items.map((i) => i.meta.title);
-      const cachedMap = await invoke<Record<string, string>>(
-        "get_cached_thumbnails_map",
-        { titles },
-      );
-      // Enqueue background caching for thumbnails (non-blocking, handles 429)
-      try {
-        const thumbItems = items
-          .filter((i) => i.image_url && /^https?:\/\//i.test(i.image_url))
-          .map((i) => ({ title: i.meta.title, url: i.image_url }));
-        if (thumbItems.length > 0) {
-          const toEnqueue = thumbItems.filter((t) => !cachedMap[t.title]);
-          if (toEnqueue.length > 0) {
-            // fire and forget
-            invoke("enqueue_thumbnails", {
-              items: toEnqueue,
-            }).catch(() => {});
-          }
-        }
-      } catch (_) {
-        /* ignore */
-      }
-      const mods: Mod[] = mapArchiveItems(items, cachedMap);
-
-      // Merge fresh remote mods with any locally seeded placeholders; keep server order
-      const prunedCount = mergeIncomingMods(mods);
-
-      if (prunedCount > 0) {
-        addMessage(
-          `Pruned ${prunedCount} removed mod${prunedCount === 1 ? "" : "s"} from cache`,
-          "info",
-        );
-      }
-
-      // Persist refreshed upstream catalog to Rust cache for update checks
-      try {
-        const forCache = mods.map((m) => ({
-          title: m.title,
-          description: m.description,
-          image: m.image,
-          categories: m.categories,
-          colors: m.colors,
-          installed: false,
-          requires_steamodded: m.requires_steamodded,
-          requires_talisman: m.requires_talisman,
-          publisher: m.publisher,
-          repo: m.repo,
-          downloadURL: m.downloadURL || "",
-          folderName: m.folderName ?? null,
-          version: m.version ?? null,
-        }));
-        invoke("save_mods_cache", { mods: forCache }).catch(() => {});
-      } catch (_) {
-        /* ignore */
-      }
-
-      // Re-apply local thumbnails for installed mods (non-blocking)
-      fillInstalledThumbnails($modsStore).catch(() => {});
-      // Re-check cached thumbnails after background fetches
-      scheduleThumbCacheRefresh(titles);
-      // Suspend cache persistence during description hydration to avoid thrashing localStorage
-      await withModsCachePersistenceSuspended(async () => {
-        await withDescriptionsPersistenceSuspended(async () => {
-          try {
-            await fillCachedDescriptionsVisibleFirst();
-          } catch {
-            /* ignore */
-          }
-          try {
-            await fillDescriptionsVisibleFirst();
-          } catch {
-            /* ignore */
-          }
-          fillCachedDescriptions($modsStore).catch(() => {});
-          fillDescriptions(mods).catch((e) =>
-            console.warn("desc fill failed", e),
-          );
-        });
-      });
-      if (showMessages) {
-        addMessage("All mods loaded", "success");
-      }
+      await loadCatalogCore({ showMessages, isForeground: false });
     } catch (error) {
       console.error("Failed to refresh catalog:", error);
       if (isRateLimitError(error)) {
@@ -1531,101 +1559,7 @@
     catalogLoading.set(true);
     catalogLoadError = null;
     try {
-      const items = await invoke<ArchiveModItem[]>("fetch_repo_mods", {
-        sort: $currentSort,
-      });
-      clearCatalogRetry();
-      if (items.length === 0) {
-        catalogLoadError = "Catalog returned no mods.";
-        addMessage("Catalog returned no mods.", "error");
-        return;
-      }
-      const titles = items.map((i) => i.meta.title);
-      const cachedMap = await invoke<Record<string, string>>(
-        "get_cached_thumbnails_map",
-        { titles },
-      );
-      // Enqueue background caching for thumbnails
-      try {
-        const thumbItems = items
-          .filter((i) => i.image_url && /^https?:\/\//i.test(i.image_url))
-          .map((i) => ({ title: i.meta.title, url: i.image_url }));
-        if (thumbItems.length > 0) {
-          const seen = new Set<string>();
-          const filtered = thumbItems.filter((t) => {
-            if (seen.has(t.title)) return false;
-            seen.add(t.title);
-            if (cachedMap[t.title]) return false;
-            const existing = $modsStore.find((m) => m.title === t.title);
-            if (
-              existing &&
-              existing.image &&
-              !existing.image.endsWith("cover.jpg")
-            ) {
-              return false;
-            }
-            return true;
-          });
-          if (filtered.length > 0) {
-            invoke("enqueue_thumbnails", { items: filtered }).catch(() => {});
-          }
-        }
-      } catch (_) {
-        /* ignore */
-      }
-      const mods: Mod[] = mapArchiveItems(items, cachedMap);
-
-      // Merge with any pre-seeded placeholders, and cautiously prune removed mods
-      const prunedCount = mergeIncomingMods(mods as Mod[]);
-
-      if (prunedCount > 0) {
-        addMessage(
-          `Pruned ${prunedCount} removed mod${prunedCount === 1 ? "" : "s"} from cache`,
-          "info",
-        );
-      }
-
-      // Persist refreshed upstream catalog to Rust cache
-      try {
-        const forCache = (mods as Mod[]).map((m) => ({
-          title: m.title,
-          description: m.description,
-          image: m.image,
-          categories: m.categories,
-          colors: m.colors,
-          installed: false,
-          requires_steamodded: m.requires_steamodded,
-          requires_talisman: m.requires_talisman,
-          publisher: m.publisher,
-          repo: m.repo,
-          downloadURL: m.downloadURL || "",
-          folderName: m.folderName ?? null,
-          version: m.version ?? null,
-        }));
-        invoke("save_mods_cache", { mods: forCache }).catch(() => {});
-      } catch (_) {
-        /* ignore */
-      }
-
-      // Also kick off thumbnails/descriptions
-      fillInstalledThumbnails($modsStore).catch(() => {});
-      scheduleThumbCacheRefresh(titles);
-      await withModsCachePersistenceSuspended(async () => {
-        await withDescriptionsPersistenceSuspended(async () => {
-          try {
-            await fillCachedDescriptionsVisibleFirst();
-          } catch {
-            /* ignore */
-          }
-          try {
-            await fillDescriptionsVisibleFirst();
-          } catch {
-            /* ignore */
-          }
-          fillCachedDescriptions($modsStore).catch(() => {});
-          fillDescriptions(mods).catch(() => {});
-        });
-      });
+      await loadCatalogCore({ showMessages: false, isForeground: true });
     } catch (error) {
       if (isRateLimitError(error)) {
         scheduleCatalogRetry("foreground", true);

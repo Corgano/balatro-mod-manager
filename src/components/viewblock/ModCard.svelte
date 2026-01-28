@@ -389,7 +389,9 @@
       {mod.title}
     </h3>
     {#if !hideDescription && descriptionText && descriptionText.trim().length > 0}
-      <p class="fade-in">{truncateDynamic(stripMarkdown(descriptionText), $cardScale)}</p>
+      <p class="fade-in">
+        {truncateDynamic(stripMarkdown(descriptionText), $cardScale)}
+      </p>
     {:else if !hideDescription}
       <div class="desc-skeleton" aria-hidden="true">
         <div class="line" style="width: 92%"></div>
