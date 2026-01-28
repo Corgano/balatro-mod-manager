@@ -41,15 +41,13 @@ pub async fn get_mod_details(title: String, dir_name: String) -> Result<ModDetai
     let client = BmiClient::new()?;
     let detail = client.fetch_mod(&dir_name).await?;
 
-    // Extract description
+    // Extract description - prefer the longer/more complete version
     let description = cached_desc.unwrap_or_else(|| {
-        let text = match detail.description_html.as_deref() {
-            Some(desc) if !desc.trim().is_empty() => desc.to_string(),
-            _ => match detail.description.as_deref() {
-                Some(desc) if !desc.trim().is_empty() => desc.to_string(),
-                _ => detail.summary.clone().unwrap_or_default(),
-            },
-        };
+        let text = pick_best_description(
+            detail.description_html.as_deref(),
+            detail.description.as_deref(),
+            detail.summary.as_deref(),
+        );
         // Cache the description for next time
         let path = desc_path.clone();
         let text_clone = text.clone();
@@ -449,13 +447,11 @@ pub async fn get_description_cached_or_remote(
     let client = BmiClient::new()?;
     log::info!("Description fetch: title='{}' id='{}'", title, dir_name);
     let detail = client.fetch_mod(&dir_name).await?;
-    let text = match detail.description_html.as_deref() {
-        Some(desc) if !desc.trim().is_empty() => desc.to_string(),
-        _ => match detail.description.as_deref() {
-            Some(desc) if !desc.trim().is_empty() => desc.to_string(),
-            _ => detail.summary.clone().unwrap_or_default(),
-        },
-    };
+    let text = pick_best_description(
+        detail.description_html.as_deref(),
+        detail.description.as_deref(),
+        detail.summary.as_deref(),
+    );
     if let Err(e) = tokio::fs::write(&path, &text).await {
         log::warn!("Failed to cache description for {}: {}", title, e);
     }
@@ -464,6 +460,41 @@ pub async fn get_description_cached_or_remote(
         log::warn!("Description empty after fetch: title='{}'", title);
     }
     Ok(text)
+}
+
+/// Pick the best description from available sources.
+/// Prefers the longer/more complete version to avoid truncated summaries.
+fn pick_best_description(
+    html: Option<&str>,
+    markdown: Option<&str>,
+    summary: Option<&str>,
+) -> String {
+    let html_text = html.filter(|s| !s.trim().is_empty());
+    let md_text = markdown.filter(|s| !s.trim().is_empty());
+    let summary_text = summary.filter(|s| !s.trim().is_empty());
+
+    // Compare normalized lengths to pick the most complete version
+    let html_len = html_text.map(|s| normalize_plaintext(s).len()).unwrap_or(0);
+    let md_len = md_text.map(|s| normalize_plaintext(s).len()).unwrap_or(0);
+
+    // Prefer markdown if it's significantly longer (more than 50% longer),
+    // as HTML might be a truncated summary while markdown has full content
+    if md_len > html_len + html_len / 2 {
+        return md_text.unwrap().to_string();
+    }
+
+    // Otherwise prefer HTML if available (it's pre-rendered)
+    if let Some(html) = html_text {
+        return html.to_string();
+    }
+
+    // Fall back to markdown
+    if let Some(md) = md_text {
+        return md.to_string();
+    }
+
+    // Last resort: summary
+    summary_text.unwrap_or("").to_string()
 }
 
 fn is_meaningful_description(text: &str, title: &str) -> bool {
