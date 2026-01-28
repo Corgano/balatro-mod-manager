@@ -24,6 +24,19 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 #[cfg(target_os = "linux")]
 use std::process::Command;
+use std::sync::OnceLock;
+use std::time::{Duration, Instant};
+use tokio::sync::Mutex;
+
+/// Cached Lovely version with timestamp
+struct CachedVersion {
+    version: String,
+    fetched_at: Instant,
+}
+
+/// Global cache for Lovely version (24 hour TTL)
+static VERSION_CACHE: OnceLock<Mutex<Option<CachedVersion>>> = OnceLock::new();
+const VERSION_CACHE_TTL_SECS: u64 = 60 * 60 * 24; // 24 hours
 
 /// Ensures the Lovely version.dll exists in the game directory (Windows/Linux).
 ///
@@ -369,12 +382,26 @@ async fn download_love_appimage_and_extract(target_dir: &Path) -> Result<(), App
 }
 
 /// Query GitHub for the latest Lovely release tag (e.g., "0.8.0").
+/// Results are cached for 24 hours to avoid blocking game launches.
 pub async fn get_latest_lovely_version() -> Result<String, AppError> {
-    // We intentionally avoid downloading the artifact; just resolve the tag.
+    // Check cache first
+    let cache = VERSION_CACHE.get_or_init(|| Mutex::new(None));
+    {
+        let guard = cache.lock().await;
+        if let Some(cached) = guard.as_ref()
+            && cached.fetched_at.elapsed() < Duration::from_secs(VERSION_CACHE_TTL_SECS)
+        {
+            log::debug!("Using cached Lovely version: {}", cached.version);
+            return Ok(cached.version.clone());
+        }
+    }
+
+    // Cache miss or expired - fetch from GitHub
     log::debug!("Querying GitHub for latest Lovely release version");
 
     let client = reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::none())
+        .timeout(Duration::from_secs(10))
         .build()
         .map_err(|e| AppError::Network(e.to_string()))?;
 
@@ -415,6 +442,15 @@ pub async fn get_latest_lovely_version() -> Result<String, AppError> {
         return Err(AppError::InvalidState(
             "Failed to resolve latest Lovely version tag".to_string(),
         ));
+    }
+
+    // Update cache
+    {
+        let mut guard = cache.lock().await;
+        *guard = Some(CachedVersion {
+            version: version.clone(),
+            fetched_at: Instant::now(),
+        });
     }
 
     log::debug!("Latest Lovely version: {}", version);

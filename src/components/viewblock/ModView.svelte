@@ -166,6 +166,81 @@
     return !looksLikeFullDescription(desc);
   }
 
+  // Response type for get_mod_details command
+  interface ModDetails {
+    description: string;
+    requires_steamodded: boolean;
+    requires_talisman: boolean;
+    repo_url: string | null;
+  }
+
+  // Track which mods have already been hydrated to avoid duplicate calls
+  const hydratedMods = new Set<string>();
+
+  // Unified function to fetch all mod details in a single API call
+  async function hydrateModDetails(
+    mod: Mod & { _dirName?: string },
+  ): Promise<void> {
+    if (!mod._dirName) return;
+    if (hydratedMods.has(mod.title)) return;
+
+    const modTitle = mod.title;
+    const dirName = mod._dirName;
+    hydratedMods.add(modTitle);
+
+    try {
+      descLoading = true;
+      const details = await invoke<ModDetails>("get_mod_details", {
+        title: modTitle,
+        dirName: dirName,
+      });
+
+      // Update description
+      if (details.description && details.description.trim().length > 0) {
+        setDescription(modTitle, details.description);
+        const currentView = $currentModView;
+        if (currentView?.title === modTitle) {
+          currentModView.set({ ...mod, description: details.description });
+        }
+      }
+
+      // Update requirements and repo URL in store
+      modsStore.update((arr) =>
+        arr.map((m) =>
+          m.title === modTitle
+            ? {
+                ...m,
+                requires_steamodded: details.requires_steamodded,
+                requires_talisman: details.requires_talisman,
+                repo: details.repo_url ?? m.repo,
+              }
+            : m,
+        ),
+      );
+
+      // Update current mod view if still active
+      const currentView = $currentModView;
+      if (currentView?.title === modTitle) {
+        currentModView.set({
+          ...mod,
+          description: details.description || mod.description,
+          requires_steamodded: details.requires_steamodded,
+          requires_talisman: details.requires_talisman,
+          repo: details.repo_url ?? mod.repo,
+        });
+      }
+    } catch (e) {
+      // Fall back to individual calls if unified call fails
+      console.warn(
+        "get_mod_details failed, falling back to individual calls:",
+        e,
+      );
+      hydratedMods.delete(modTitle);
+    } finally {
+      descLoading = false;
+    }
+  }
+
   async function hydrateRequirements(mod: Mod): Promise<Mod> {
     if (!mod._dirName) return mod;
     if (mod.requires_steamodded || mod.requires_talisman) return mod;
@@ -887,8 +962,8 @@
     }
 
     if (m) {
-      ensureDescriptionLoaded(m);
-      hydrateRepo(m);
+      // Use unified API call to fetch all mod details at once
+      hydrateModDetails(m);
     }
     if (desc) {
       Promise.resolve(marked(desc)).then((result) => {

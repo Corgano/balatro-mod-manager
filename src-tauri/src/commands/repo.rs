@@ -11,6 +11,86 @@ use serde::{Deserialize, Serialize};
 const BMI_CACHE_FILE: &str = "bmi_mods_cache";
 const THUMB_CACHE_TTL_SECS: u64 = 60 * 60 * 24 * 7;
 
+/// Unified mod details response - fetches all needed data in one API call
+#[derive(Debug, Clone, Serialize)]
+pub struct ModDetails {
+    pub description: String,
+    pub requires_steamodded: bool,
+    pub requires_talisman: bool,
+    pub repo_url: Option<String>,
+}
+
+/// Get all mod details in a single API call (description, requirements, repo URL)
+/// This replaces 3 separate `fetch_mod` calls with 1.
+#[tauri::command]
+pub async fn get_mod_details(title: String, dir_name: String) -> Result<ModDetails, String> {
+    let (_, descs_dir) = ensure_assets_dirs_async().await?;
+    let slug = safe_slug(&title);
+    let desc_path = descs_dir.join(format!("{slug}.md"));
+
+    // Check cached description first
+    let cached_desc = if tokio::fs::metadata(&desc_path).await.is_ok() {
+        let cached = tokio::fs::read_to_string(&desc_path).await.ok();
+        cached.filter(|s| !s.trim().is_empty() && is_meaningful_description(s, &title))
+    } else {
+        None
+    };
+
+    // If we have cached description, we still need requirements and repo URL
+    // But we can skip the API call if user doesn't need them
+    let client = BmiClient::new()?;
+    let detail = client.fetch_mod(&dir_name).await?;
+
+    // Extract description
+    let description = cached_desc.unwrap_or_else(|| {
+        let text = match detail.description_html.as_deref() {
+            Some(desc) if !desc.trim().is_empty() => desc.to_string(),
+            _ => match detail.description.as_deref() {
+                Some(desc) if !desc.trim().is_empty() => desc.to_string(),
+                _ => detail.summary.clone().unwrap_or_default(),
+            },
+        };
+        // Cache the description for next time
+        let path = desc_path.clone();
+        let text_clone = text.clone();
+        tokio::spawn(async move {
+            let _ = tokio::fs::write(&path, &text_clone).await;
+        });
+        text
+    });
+
+    // Extract requirements
+    let (requires_steamodded, requires_talisman) = bmi::derive_requires(&detail);
+
+    // Extract repo URL
+    let repo_url = detail
+        .repo
+        .clone()
+        .and_then(|s| if s.trim().is_empty() { None } else { Some(s) })
+        .or_else(|| {
+            detail
+                .homepage
+                .clone()
+                .and_then(|s| if s.trim().is_empty() { None } else { Some(s) })
+        })
+        .or_else(|| {
+            detail.meta.and_then(|m| {
+                if m.repo.trim().is_empty() {
+                    None
+                } else {
+                    Some(m.repo)
+                }
+            })
+        });
+
+    Ok(ModDetails {
+        description,
+        requires_steamodded,
+        requires_talisman,
+        repo_url,
+    })
+}
+
 #[tauri::command]
 pub async fn list_repo_mods() -> Result<Vec<String>, String> {
     let items = fetch_repo_mods(None).await?;
@@ -573,7 +653,7 @@ pub async fn batch_fetch_thumbnails_repo(inputs: Vec<ModThumbInput>) -> Result<u
 
     let client = BmiClient::new()?;
 
-    let concurrency = 8usize;
+    let concurrency = 12usize;
     let saved = stream::iter(pending.into_iter())
         .map(|m| {
             let client = client.clone();
