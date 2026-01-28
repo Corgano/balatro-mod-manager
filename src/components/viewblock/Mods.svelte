@@ -647,7 +647,8 @@
       loadingDots.update((n) => (n + 1) % 4);
     }, 500);
 
-    refreshDownloadsLive().catch(() => {});
+    // Skip initial refreshDownloadsLive() - catalog load will handle it
+    // Only start the periodic refresh timer after initial load completes
     downloadsRefreshTimer = window.setInterval(() => {
       refreshDownloadsLive().catch(() => {});
     }, 60000);
