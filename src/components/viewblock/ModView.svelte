@@ -993,6 +993,11 @@
     // Initial load of installed mods
     await getAllInstalledMods();
 
+    // Pre-fetch mod requirements in background so download doesn't block on API
+    if (mod && !mod.requires_steamodded && !mod.requires_talisman) {
+      hydrateRequirements(mod).catch(() => {});
+    }
+
     // Check if the current mod is installed
     if (mod && !hasCheckedInstallation) {
       hasCheckedInstallation = true;
