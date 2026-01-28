@@ -341,19 +341,44 @@ pub fn get_balatro_paths() -> Vec<PathBuf> {
 
     match home::home_dir() {
         Some(home) => {
+            // Native Steam installations
             add_root(home.join(".local/share/Steam"));
             add_root(home.join(".steam/steam"));
             add_root(home.join(".steam/root"));
             add_root(home.join(".steam/debian-installation"));
+
+            // Flatpak Steam installations - check all known variants
             add_root(home.join(".var/app/com.valvesoftware.Steam/data/Steam"));
-            // Some Flatpak Steam installs use the per-app .local/share path.
             add_root(home.join(".var/app/com.valvesoftware.Steam/.local/share/Steam"));
             add_root(home.join(".var/app/com.valvesoftware.Steam/.steam/steam"));
             add_root(home.join(".var/app/com.valvesoftware.Steam/.steam/root"));
+            add_root(home.join(".var/app/com.valvesoftware.Steam/.steam/debian-installation"));
+
             // Snap installs keep the real Steam data under this prefix.
             add_root(home.join("snap/steam/common/.local/share/Steam"));
+
+            debug!("Home directory: {:?}", home);
         }
         None => error!("Impossible to get your home dir!"),
+    }
+
+    // When running inside a Flatpak, also try the host home via /var/home or direct path
+    // in case the sandbox path resolution differs
+    if std::env::var("FLATPAK_ID").is_ok() {
+        debug!("Running inside Flatpak sandbox, checking additional host paths");
+        if let Ok(user) = std::env::var("USER") {
+            let host_home = PathBuf::from("/var/home").join(&user);
+            if host_home.exists() {
+                add_root(host_home.join(".local/share/Steam"));
+                add_root(host_home.join(".steam/steam"));
+                add_root(host_home.join(".var/app/com.valvesoftware.Steam/data/Steam"));
+            }
+            // Also try /home directly (common Flatpak host mount)
+            let direct_home = PathBuf::from("/home").join(&user);
+            add_root(direct_home.join(".local/share/Steam"));
+            add_root(direct_home.join(".steam/steam"));
+            add_root(direct_home.join(".var/app/com.valvesoftware.Steam/data/Steam"));
+        }
     }
 
     if let Ok(xdg_data_home) = std::env::var("XDG_DATA_HOME") {
