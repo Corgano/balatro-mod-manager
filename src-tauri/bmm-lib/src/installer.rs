@@ -500,42 +500,75 @@ fn handle_zip(archive_path: &Path, mod_dir: &Path, mod_name: &str) -> Result<Pat
         remove_dir_with_retry(&target_dir, 5)?;
     }
 
+    // Use staging directory for atomic extraction
+    // Extract to a temp location first, then rename to final destination
+    // This ensures partial extractions don't leave corrupted state
+    let staging_dir = mod_dir.join(format!(".staging_{}", mod_name));
+    if staging_dir.exists() {
+        remove_dir_with_retry(&staging_dir, 5)?;
+    }
+
+    // Helper to clean up staging on error
+    let cleanup_staging = |staging: &Path| {
+        if staging.exists() {
+            let _ = fs::remove_dir_all(staging);
+        }
+    };
+
     if has_root_files {
-        // For ZIPs with root files
-        fs::create_dir_all(&target_dir).map_err(|e| AppError::DirCreate {
-            path: target_dir.clone(),
+        // For ZIPs with root files - extract directly to staging
+        fs::create_dir_all(&staging_dir).map_err(|e| AppError::DirCreate {
+            path: staging_dir.clone(),
             source: e.to_string(),
         })?;
 
-        extract_zip_root(&mut zip, &target_dir)?;
-    } else {
-        // For ZIPs with a folder structure
-        // Create temp directory
-        let temp_dir = mod_dir.join("temp_extract");
-        if temp_dir.exists() {
-            remove_dir_with_retry(&temp_dir, 5)?;
+        if let Err(e) = extract_zip_root(&mut zip, &staging_dir) {
+            cleanup_staging(&staging_dir);
+            return Err(e);
         }
 
-        fs::create_dir_all(&temp_dir).map_err(|e| AppError::DirCreate {
-            path: temp_dir.clone(),
+        // Atomic rename from staging to target
+        if let Err(e) = fs::rename(&staging_dir, &target_dir) {
+            cleanup_staging(&staging_dir);
+            return Err(AppError::FileWrite {
+                path: staging_dir.clone(),
+                source: format!("Failed to rename staging directory: {e}"),
+            });
+        }
+    } else {
+        // For ZIPs with a folder structure
+        fs::create_dir_all(&staging_dir).map_err(|e| AppError::DirCreate {
+            path: staging_dir.clone(),
             source: e.to_string(),
         })?;
 
-        // Extract to temp directory
-        extract_zip(&mut zip, &temp_dir)?;
+        // Extract to staging directory
+        if let Err(e) = extract_zip(&mut zip, &staging_dir) {
+            cleanup_staging(&staging_dir);
+            return Err(e);
+        }
 
         // Get root directory name
-        let root_dir = get_zip_root_dir(&mut zip, &temp_dir)?;
-        let source_dir = temp_dir.join(root_dir);
+        let root_dir = match get_zip_root_dir(&mut zip, &staging_dir) {
+            Ok(dir) => dir,
+            Err(e) => {
+                cleanup_staging(&staging_dir);
+                return Err(e);
+            }
+        };
+        let source_dir = staging_dir.join(root_dir);
 
-        // Move to target directory
-        fs::rename(&source_dir, &target_dir).map_err(|e| AppError::FileWrite {
-            path: source_dir.clone(),
-            source: format!("Failed to rename directory: {e}"),
-        })?;
+        // Move inner folder to target directory
+        if let Err(e) = fs::rename(&source_dir, &target_dir) {
+            cleanup_staging(&staging_dir);
+            return Err(AppError::FileWrite {
+                path: source_dir.clone(),
+                source: format!("Failed to rename directory: {e}"),
+            });
+        }
 
-        // Clean up
-        remove_dir_with_retry(&temp_dir, 5)?;
+        // Clean up staging directory
+        let _ = remove_dir_with_retry(&staging_dir, 5);
     }
 
     Ok(target_dir)
@@ -674,7 +707,7 @@ fn handle_tar(archive_path: &Path, mod_dir: &Path, mod_name: &str) -> Result<Pat
     })?;
     let reader = BufReader::new(file);
     let mut tar = Archive::new(reader);
-    extract_tar(&mut tar, mod_dir, mod_name)
+    extract_tar_to_staging(&mut tar, mod_dir, mod_name)
 }
 
 fn handle_tar_gz(archive_path: &Path, mod_dir: &Path, mod_name: &str) -> Result<PathBuf, AppError> {
@@ -685,22 +718,63 @@ fn handle_tar_gz(archive_path: &Path, mod_dir: &Path, mod_name: &str) -> Result<
     let reader = BufReader::new(file);
     let gz = GzDecoder::new(reader);
     let mut tar = Archive::new(gz);
-    extract_tar(&mut tar, mod_dir, mod_name)
+    extract_tar_to_staging(&mut tar, mod_dir, mod_name)
 }
 
-fn extract_tar(
+/// Extract tar archive using staging directory for atomic installation.
+/// Extracts to a temporary staging directory first, then renames to final location.
+fn extract_tar_to_staging(
     tar: &mut Archive<impl Read>,
     mod_dir: &Path,
     mod_name: &str,
 ) -> Result<PathBuf, AppError> {
     let target_dir = mod_dir.join(mod_name);
-    fs::create_dir_all(&target_dir).map_err(|e| AppError::DirCreate {
-        path: target_dir.clone(),
+
+    // Remove target directory if it exists
+    if target_dir.exists() {
+        remove_dir_with_retry(&target_dir, 5)?;
+    }
+
+    // Use staging directory for atomic extraction
+    let staging_dir = mod_dir.join(format!(".staging_{}", mod_name));
+    if staging_dir.exists() {
+        remove_dir_with_retry(&staging_dir, 5)?;
+    }
+
+    fs::create_dir_all(&staging_dir).map_err(|e| AppError::DirCreate {
+        path: staging_dir.clone(),
         source: e.to_string(),
     })?;
 
+    // Helper to clean up staging on error
+    let cleanup_staging = || {
+        if staging_dir.exists() {
+            let _ = fs::remove_dir_all(&staging_dir);
+        }
+    };
+
+    // Extract to staging directory
+    if let Err(e) = extract_tar_contents(tar, &staging_dir) {
+        cleanup_staging();
+        return Err(e);
+    }
+
+    // Atomic rename from staging to target
+    if let Err(e) = fs::rename(&staging_dir, &target_dir) {
+        cleanup_staging();
+        return Err(AppError::FileWrite {
+            path: staging_dir.clone(),
+            source: format!("Failed to rename staging directory: {e}"),
+        });
+    }
+
+    Ok(target_dir)
+}
+
+/// Extract tar contents to the given directory.
+fn extract_tar_contents(tar: &mut Archive<impl Read>, target_dir: &Path) -> Result<(), AppError> {
     let entries = tar.entries().map_err(|e| AppError::FileRead {
-        path: mod_dir.to_path_buf(),
+        path: target_dir.to_path_buf(),
         source: format!("Tar entry error: {e}"),
     })?;
 
@@ -709,7 +783,7 @@ fn extract_tar(
 
     for entry in entries {
         let mut entry = entry.map_err(|e| AppError::FileRead {
-            path: mod_dir.to_path_buf(),
+            path: target_dir.to_path_buf(),
             source: format!("Tar entry error: {e}"),
         })?;
 
@@ -721,7 +795,7 @@ fn extract_tar(
         }
 
         let entry_path = entry.path().map_err(|e| AppError::FileRead {
-            path: mod_dir.to_path_buf(),
+            path: target_dir.to_path_buf(),
             source: format!("Invalid path in tar: {e}"),
         })?;
 
@@ -733,7 +807,7 @@ fn extract_tar(
             }
         };
         let path = target_dir.join(&sanitized);
-        ensure_safe_path(&target_dir, &path)?;
+        ensure_safe_path(target_dir, &path)?;
 
         if entry.header().entry_type().is_dir() {
             fs::create_dir_all(&path).map_err(|e| AppError::DirCreate {
@@ -748,7 +822,7 @@ fn extract_tar(
         }
     }
 
-    Ok(target_dir)
+    Ok(())
 }
 
 fn create_parent_dir(path: &Path) -> Result<(), AppError> {
