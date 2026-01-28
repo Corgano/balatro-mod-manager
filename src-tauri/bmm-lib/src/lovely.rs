@@ -34,9 +34,66 @@ struct CachedVersion {
     fetched_at: Instant,
 }
 
+/// Disk-persisted Lovely version cache
+#[derive(serde::Serialize, serde::Deserialize)]
+struct PersistedVersionCache {
+    version: String,
+    /// Unix timestamp in seconds when fetched
+    fetched_at_unix: u64,
+}
+
 /// Global cache for Lovely version (24 hour TTL)
 static VERSION_CACHE: OnceLock<Mutex<Option<CachedVersion>>> = OnceLock::new();
 const VERSION_CACHE_TTL_SECS: u64 = 60 * 60 * 24; // 24 hours
+
+/// Get the path to the Lovely version cache file
+fn get_version_cache_path() -> Option<PathBuf> {
+    dirs::config_dir().map(|d| d.join("Balatro").join("lovely_version_cache.json"))
+}
+
+/// Load Lovely version from disk cache if still fresh
+fn load_persisted_version_cache() -> Option<String> {
+    let path = get_version_cache_path()?;
+    let content = std::fs::read_to_string(&path).ok()?;
+    let cached: PersistedVersionCache = serde_json::from_str(&content).ok()?;
+
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()?
+        .as_secs();
+
+    if now.saturating_sub(cached.fetched_at_unix) < VERSION_CACHE_TTL_SECS {
+        log::debug!("Loaded Lovely version from disk cache: {}", cached.version);
+        Some(cached.version)
+    } else {
+        log::debug!("Lovely version disk cache expired");
+        None
+    }
+}
+
+/// Save Lovely version to disk cache
+fn save_persisted_version_cache(version: &str) {
+    if let Some(path) = get_version_cache_path() {
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        let cached = PersistedVersionCache {
+            version: version.to_string(),
+            fetched_at_unix: now,
+        };
+        if let Ok(json) = serde_json::to_string(&cached) {
+            if let Err(e) = std::fs::write(&path, json) {
+                log::warn!("Failed to save Lovely version cache: {}", e);
+            } else {
+                log::debug!("Saved Lovely version to disk cache: {}", version);
+            }
+        }
+    }
+}
 
 /// Ensures the Lovely version.dll exists in the game directory (Windows/Linux).
 ///
@@ -383,8 +440,9 @@ async fn download_love_appimage_and_extract(target_dir: &Path) -> Result<(), App
 
 /// Query GitHub for the latest Lovely release tag (e.g., "0.8.0").
 /// Results are cached for 24 hours to avoid blocking game launches.
+/// Cache persists to disk to survive app restarts.
 pub async fn get_latest_lovely_version() -> Result<String, AppError> {
-    // Check cache first
+    // Check in-memory cache first
     let cache = VERSION_CACHE.get_or_init(|| Mutex::new(None));
     {
         let guard = cache.lock().await;
@@ -394,6 +452,17 @@ pub async fn get_latest_lovely_version() -> Result<String, AppError> {
             log::debug!("Using cached Lovely version: {}", cached.version);
             return Ok(cached.version.clone());
         }
+    }
+
+    // Check disk cache (survives app restarts)
+    if let Some(version) = load_persisted_version_cache() {
+        // Populate in-memory cache from disk
+        let mut guard = cache.lock().await;
+        *guard = Some(CachedVersion {
+            version: version.clone(),
+            fetched_at: Instant::now(),
+        });
+        return Ok(version);
     }
 
     // Cache miss or expired - fetch from GitHub
@@ -444,7 +513,7 @@ pub async fn get_latest_lovely_version() -> Result<String, AppError> {
         ));
     }
 
-    // Update cache
+    // Update in-memory cache
     {
         let mut guard = cache.lock().await;
         *guard = Some(CachedVersion {
@@ -452,6 +521,9 @@ pub async fn get_latest_lovely_version() -> Result<String, AppError> {
             fetched_at: Instant::now(),
         });
     }
+
+    // Persist to disk for next app launch
+    save_persisted_version_cache(&version);
 
     log::debug!("Latest Lovely version: {}", version);
     Ok(version)
