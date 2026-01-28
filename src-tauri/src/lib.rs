@@ -485,6 +485,8 @@ pub fn run() {
             commands::backup::get_backups_directory,
             commands::backup::check_interrupted_restore,
             commands::backup::clear_interrupted_restore,
+            commands::health::check_health,
+            commands::health::reset_database,
             exit_application
         ])
         .build(tauri::generate_context!());

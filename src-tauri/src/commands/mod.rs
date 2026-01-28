@@ -2,6 +2,7 @@ pub mod backup;
 pub mod cache;
 pub mod detection;
 pub mod external;
+pub mod health;
 pub mod import;
 pub mod init;
 pub mod install;
@@ -15,5 +16,6 @@ pub mod system;
 pub mod thumbnails;
 
 // Re-export commands so `generate_handler!` can take flat names if desired.
+pub use health::{check_health, reset_database};
 pub use lovely::{check_lovely_update, is_lovely_installed, update_lovely_to_latest};
 pub use system::{check_balatro_running, check_steam_running};
