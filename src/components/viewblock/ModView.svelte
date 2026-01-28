@@ -1380,8 +1380,10 @@
               <span>Loading description...</span>
             </div>
           {:else}
-            <!-- eslint-disable-next-line svelte/no-at-html-tags -->
-            {@html renderedDescription}
+            <div class="desc-content" transition:fade={{ duration: 300, easing: cubicOut }}>
+              <!-- eslint-disable-next-line svelte/no-at-html-tags -->
+              {@html renderedDescription}
+            </div>
           {/if}
         </div>
       </div>

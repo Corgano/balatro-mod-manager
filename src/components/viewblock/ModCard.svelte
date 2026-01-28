@@ -389,7 +389,7 @@
       {mod.title}
     </h3>
     {#if !hideDescription && descriptionText && descriptionText.trim().length > 0}
-      <p>{truncateDynamic(stripMarkdown(descriptionText), $cardScale)}</p>
+      <p class="fade-in">{truncateDynamic(stripMarkdown(descriptionText), $cardScale)}</p>
     {:else if !hideDescription}
       <div class="desc-skeleton" aria-hidden="true">
         <div class="line" style="width: 92%"></div>
@@ -569,6 +569,19 @@
     word-break: break-word;
     overflow-wrap: anywhere;
     text-overflow: ellipsis;
+  }
+
+  .mod-info > p.fade-in {
+    animation: fade-in 0.3s ease-out;
+  }
+
+  @keyframes fade-in {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
   }
 
   .mod-info h3 {
