@@ -81,6 +81,20 @@ pub async fn ensure_assets_dirs_async() -> Result<(PathBuf, PathBuf), String> {
     Ok((thumbs, descs))
 }
 
+/// Returns paths to the mod details cache directory.
+/// Creates the directory if it doesn't exist (async version).
+pub async fn ensure_details_cache_dir_async() -> Result<PathBuf, String> {
+    let config_dir = dirs::config_dir().ok_or_else(|| "config dir not found".to_string())?;
+    let details_dir = config_dir
+        .join("Balatro")
+        .join("mod_assets")
+        .join("mod_details");
+    tokio::fs::create_dir_all(&details_dir)
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(details_dir)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

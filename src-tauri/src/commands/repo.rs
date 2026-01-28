@@ -1,7 +1,7 @@
 use std::cmp::Ordering;
 use std::path::PathBuf;
 
-use crate::assets::{ensure_assets_dirs_async, safe_slug};
+use crate::assets::{ensure_assets_dirs_async, ensure_details_cache_dir_async, safe_slug};
 use crate::bmi::{self, BmiClient, SortMode, SyncCache};
 use crate::lfs::{LfsError, resolve_lfs_pointer_bytes};
 use crate::models::{ModDownloads, ModMeta};
@@ -12,7 +12,7 @@ const BMI_CACHE_FILE: &str = "bmi_mods_cache";
 const THUMB_CACHE_TTL_SECS: u64 = 60 * 60 * 24 * 7;
 
 /// Unified mod details response - fetches all needed data in one API call
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ModDetails {
     pub description: String,
     pub requires_steamodded: bool,
@@ -22,40 +22,35 @@ pub struct ModDetails {
 
 /// Get all mod details in a single API call (description, requirements, repo URL)
 /// This replaces 3 separate `fetch_mod` calls with 1.
+/// Results are cached to disk to avoid repeated network requests.
 #[tauri::command]
 pub async fn get_mod_details(title: String, dir_name: String) -> Result<ModDetails, String> {
-    let (_, descs_dir) = ensure_assets_dirs_async().await?;
+    let details_dir = ensure_details_cache_dir_async().await?;
     let slug = safe_slug(&title);
-    let desc_path = descs_dir.join(format!("{slug}.md"));
+    let cache_path = details_dir.join(format!("{slug}.json"));
 
-    // Check cached description first
-    let cached_desc = if tokio::fs::metadata(&desc_path).await.is_ok() {
-        let cached = tokio::fs::read_to_string(&desc_path).await.ok();
-        cached.filter(|s| !s.trim().is_empty() && is_meaningful_description(s, &title))
-    } else {
-        None
-    };
+    // Check for cached mod details first
+    if let Ok(cached_json) = tokio::fs::read_to_string(&cache_path).await
+        && let Ok(cached) = serde_json::from_str::<ModDetails>(&cached_json)
+        // Validate cached data has meaningful content
+        && !cached.description.trim().is_empty()
+        && is_meaningful_description(&cached.description, &title)
+    {
+        log::debug!("Mod details cache hit: title='{}'", title);
+        return Ok(cached);
+    }
 
-    // If we have cached description, we still need requirements and repo URL
-    // But we can skip the API call if user doesn't need them
+    // Cache miss - fetch from API
+    log::info!("Mod details fetch: title='{}' id='{}'", title, dir_name);
     let client = BmiClient::new()?;
     let detail = client.fetch_mod(&dir_name).await?;
 
-    // Extract description - prefer the longer/more complete version
-    let description = cached_desc.unwrap_or_else(|| {
-        let text = pick_best_description(
-            detail.description_html.as_deref(),
-            detail.description.as_deref(),
-            detail.summary.as_deref(),
-        );
-        // Cache the description for next time
-        let path = desc_path.clone();
-        let text_clone = text.clone();
-        tokio::spawn(async move {
-            let _ = tokio::fs::write(&path, &text_clone).await;
-        });
-        text
-    });
+    // Extract description
+    let description = pick_best_description(
+        detail.description_html.as_deref(),
+        detail.description.as_deref(),
+        detail.summary.as_deref(),
+    );
 
     // Extract requirements
     let (requires_steamodded, requires_talisman) = bmi::derive_requires(&detail);
@@ -81,12 +76,23 @@ pub async fn get_mod_details(title: String, dir_name: String) -> Result<ModDetai
             })
         });
 
-    Ok(ModDetails {
+    let mod_details = ModDetails {
         description,
         requires_steamodded,
         requires_talisman,
         repo_url,
-    })
+    };
+
+    // Cache the result for future use
+    if let Ok(json) = serde_json::to_string_pretty(&mod_details) {
+        if let Err(e) = tokio::fs::write(&cache_path, &json).await {
+            log::warn!("Failed to cache mod details for {}: {}", title, e);
+        } else {
+            log::debug!("Mod details cached: title='{}'", title);
+        }
+    }
+
+    Ok(mod_details)
 }
 
 #[tauri::command]
