@@ -154,6 +154,34 @@ pub fn run() {
                             e
                         );
                     }
+
+                    // Clean up empty directories in Mods folder on startup
+                    if let Ok(entries) = std::fs::read_dir(&mods_dir) {
+                        for entry in entries.flatten() {
+                            let path = entry.path();
+                            if path.is_dir() {
+                                // Skip known system directories
+                                if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                                    let lower = name.to_lowercase();
+                                    if lower.contains("lovely")
+                                        || lower.starts_with('.')
+                                        || name == "BMM-Compat"
+                                    {
+                                        continue;
+                                    }
+                                }
+                                // Remove if empty (no files, only maybe empty subdirs)
+                                if is_dir_empty_recursive(&path)
+                                    && std::fs::remove_dir_all(&path).is_ok()
+                                {
+                                    log::info!(
+                                        "Cleaned up empty directory on startup: {}",
+                                        path.display()
+                                    );
+                                }
+                            }
+                        }
+                    }
                 }
 
                 // Sync compat helper
@@ -317,6 +345,40 @@ pub fn run() {
                         consecutive_stable_checks = 0;
                         // Clear cache so next detection reflects changes and notify UI
                         local_mod_detection::clear_detection_cache();
+
+                        // Clean up empty directories in Mods folder
+                        if let Some(config_dir) = dirs::config_dir() {
+                            let mods_dir = config_dir.join("Balatro").join("Mods");
+                            if let Ok(entries) = std::fs::read_dir(&mods_dir) {
+                                for entry in entries.flatten() {
+                                    let path = entry.path();
+                                    if path.is_dir() {
+                                        // Skip known system directories
+                                        if let Some(name) =
+                                            path.file_name().and_then(|n| n.to_str())
+                                        {
+                                            let lower = name.to_lowercase();
+                                            if lower.contains("lovely")
+                                                || lower.starts_with('.')
+                                                || name == "BMM-Compat"
+                                            {
+                                                continue;
+                                            }
+                                        }
+                                        // Remove if empty (no files, only maybe empty subdirs)
+                                        if is_dir_empty_recursive(&path)
+                                            && std::fs::remove_dir_all(&path).is_ok()
+                                        {
+                                            log::info!(
+                                                "Cleaned up empty directory: {}",
+                                                path.display()
+                                            );
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
                         // Emit with full_refresh since we don't know exactly what changed
                         let _ = handle_for_events.emit(
                             "installed-mods-changed",
@@ -550,4 +612,21 @@ fn clamp_window_to_monitor(window: &tauri::WebviewWindow) {
     if let Err(e) = window.set_position(tauri::Position::Physical(new_pos)) {
         log::warn!("Failed to clamp window position: {e}");
     }
+}
+
+/// Check if a directory is empty (contains no files, only possibly empty subdirectories).
+fn is_dir_empty_recursive(path: &std::path::Path) -> bool {
+    let Ok(entries) = std::fs::read_dir(path) else {
+        return false;
+    };
+    for entry in entries.flatten() {
+        let entry_path = entry.path();
+        if entry_path.is_file() {
+            return false;
+        }
+        if entry_path.is_dir() && !is_dir_empty_recursive(&entry_path) {
+            return false;
+        }
+    }
+    true
 }
