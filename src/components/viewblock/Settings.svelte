@@ -36,6 +36,7 @@
     cleanedEntries: 0,
   });
   let isDiscordRpcEnabled = $state(false);
+  let isAnalyticsEnabled = $state(true);
   let isLinux = $state(false);
   let linuxPrefix = $state("");
   let isCompatHelperEnabled = $state(true);
@@ -104,6 +105,21 @@
     } catch (error) {
       console.error("Failed to set Discord RPC status:", error);
       addMessage("Failed to update Discord Rich Presence status", "error");
+    }
+  }
+
+  async function handleAnalyticsChange() {
+    const newValue = !isAnalyticsEnabled;
+    try {
+      await invoke("set_analytics_status", { enabled: newValue });
+      isAnalyticsEnabled = newValue;
+      addMessage(
+        `Anonymous usage data ${newValue ? "enabled" : "disabled"}`,
+        "success",
+      );
+    } catch (error) {
+      console.error("Failed to set analytics status:", error);
+      addMessage("Failed to update analytics setting", "error");
     }
   }
 
@@ -227,6 +243,7 @@
     compat_helper: boolean;
     linux_prefix: string;
     launch_mode: string;
+    analytics_enabled: boolean;
   }
 
   onMount(() => {
@@ -255,6 +272,7 @@
         isBackgroundAnimationEnabled = settings.background_enabled;
         backgroundEnabled.set(isBackgroundAnimationEnabled);
         isCompatHelperEnabled = settings.compat_helper;
+        isAnalyticsEnabled = settings.analytics_enabled;
         if (isLinux) {
           linuxPrefix = settings.linux_prefix;
           if (!linuxPrefix) {
@@ -571,6 +589,24 @@
       <p class="description-small">
         Show your Balatro activity in Discord. Displays your current status and
         mod manager usage.
+      </p>
+
+      <h3>Privacy</h3>
+      <div class="console-settings">
+        <span class="label-text">Send anonymous usage data</span>
+        <div class="switch-container">
+          <label class="switch">
+            <input
+              type="checkbox"
+              checked={isAnalyticsEnabled}
+              onchange={handleAnalyticsChange}
+            /> <span class="slider"></span>
+          </label>
+        </div>
+      </div>
+      <p class="description-small">
+        Helps improve BMM. No personal data is collected. Self-hosted on our
+        own server. Can be turned off at any time.
       </p>
 
       <h3>Developer Options</h3>

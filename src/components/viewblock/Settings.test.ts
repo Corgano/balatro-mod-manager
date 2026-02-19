@@ -65,6 +65,7 @@ describe("Settings view", () => {
           compat_helper: true,
           linux_prefix: "",
           launch_mode: "modded",
+          analytics_enabled: true,
         };
       }
       if (command === "get_balatro_path") {

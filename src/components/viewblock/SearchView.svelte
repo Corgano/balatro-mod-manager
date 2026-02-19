@@ -48,6 +48,9 @@
 
   function handleModClick(mod: Mod) {
     currentModView.set(mod);
+    invoke("track_event", { name: "mod_browsed", props: { mod: mod.title } }).catch(
+      () => {},
+    );
   }
 
   const { onCheckDependencies } = $props<{
@@ -328,6 +331,12 @@
       const results = searchIndex.search(searchTerm);
 
       searchResults = results.map((idx: number) => mods[idx]);
+      if (searchResults.length > 0) {
+        invoke("track_event", {
+          name: "mod_searched",
+          props: { query: searchTerm, results: searchResults.length },
+        }).catch(() => {});
+      }
     } catch (error) {
       console.error("Search failed:", error);
       searchResults = [];

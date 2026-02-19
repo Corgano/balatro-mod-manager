@@ -1,3 +1,4 @@
+mod analytics;
 mod assets;
 mod bmi;
 pub mod commands;
@@ -106,6 +107,25 @@ pub fn run() {
                     && let Ok(rpc) = state.discord_rpc.try_lock()
                 {
                     rpc.set_enabled(discord_rpc_enabled);
+                }
+
+                // Track app_launch if analytics is not opted out
+                match db.is_analytics_enabled() {
+                    Ok(true) => {
+                        let version = env!("CARGO_PKG_VERSION").to_string();
+                        tauri::async_runtime::spawn(async move {
+                            // Page view first — makes the Overview dashboard count visits
+                            crate::analytics::send_pageview().await;
+                            crate::analytics::send_event(
+                                "app_launch",
+                                serde_json::json!({}),
+                                &version,
+                            )
+                            .await;
+                        });
+                    }
+                    Ok(false) => {}
+                    Err(e) => log::warn!("Failed to read analytics setting: {e}"),
                 }
 
                 // Sync launch mode injector state
@@ -549,6 +569,9 @@ pub fn run() {
             commands::backup::clear_interrupted_restore,
             commands::health::check_health,
             commands::health::reset_database,
+            commands::analytics::get_analytics_status,
+            commands::analytics::set_analytics_status,
+            commands::analytics::track_event,
             exit_application
         ])
         .build(tauri::generate_context!());

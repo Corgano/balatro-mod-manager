@@ -2051,6 +2051,9 @@
 
   function handleModClick(mod: Mod) {
     currentModView.set(mod);
+    invoke("track_event", { name: "mod_browsed", props: { mod: mod.title } }).catch(
+      () => {},
+    );
   }
 
   let showSearch = $derived($currentCategory === "Search");

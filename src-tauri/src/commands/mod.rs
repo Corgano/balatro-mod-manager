@@ -1,3 +1,4 @@
+pub mod analytics;
 pub mod backup;
 pub mod cache;
 pub mod detection;
