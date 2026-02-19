@@ -98,7 +98,7 @@
   import { openExternal } from "$lib/opener";
 
   // Helper to convert absolute file paths to asset:// URLs using Tauri's native convertFileSrc
-  function toAssetUrl(path: string | null | undefined): string | null {
+  function toAssetUrl(path: string | null | void): string | null {
     if (!path) return null;
     const s = path.trim();
     if (s.length === 0) return null;
@@ -394,7 +394,7 @@
   }
 
   function hasMeaningfulDescription(
-    desc: string | null | undefined,
+    desc: string | null | void,
     title: string,
   ): boolean {
     if (!desc) return false;
@@ -1605,7 +1605,7 @@
           continue;
         if (attemptedDescriptions.has(m.title)) continue;
         if (inflightDescriptions.has(m.title)) continue;
-        const dir = m._dirName as string | undefined;
+        const dir = m._dirName as string | void;
         if (!dir) continue;
         try {
           inflightDescriptions.add(m.title);
@@ -1639,7 +1639,7 @@
       .filter((m) => !m.description || m.description.trim().length === 0)
       .map((m) => ({
         title: m.title,
-        dir: m._dirName as string | undefined,
+        dir: m._dirName as string | void,
       }))
       .filter((x) => Boolean(x.dir));
     if (candidates.length === 0) return;
@@ -1788,7 +1788,7 @@
         const m = mods[idx];
         if (!m) continue;
         if (!$installationStatus[m.title]) continue; // only for installed mods
-        const dir = m._dirName as string | undefined;
+        const dir = m._dirName as string | void;
         if (!dir) continue;
         try {
           const dataUrl = await invoke<string | null>(

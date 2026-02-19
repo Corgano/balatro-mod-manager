@@ -51,7 +51,7 @@
     const { open } = await import("@tauri-apps/plugin-dialog");
     const { platform } = await import("@tauri-apps/plugin-os");
 
-    let filters: DialogFilter[] | undefined;
+    let filters: DialogFilter[] | null = null;
 
     if (selectMode === "executable") {
       const currentPlatform = await platform();
@@ -68,7 +68,7 @@
         selectMode === "directory"
           ? "Select Balatro Directory"
           : "Select Balatro Executable",
-      filters: filters,
+      filters: filters ?? undefined,
     });
 
     if (selected) {
@@ -96,7 +96,7 @@
         const storedPath = (await invoke("get_balatro_path")) as
           | string
           | null
-          | undefined;
+          | void;
         const normalizedPath =
           typeof storedPath === "string" && storedPath.length > 0
             ? storedPath

@@ -12,6 +12,26 @@
   "rules": {
     "no-unused-vars": ["warn", { "argsIgnorePattern": "^_", "varsIgnorePattern": "^_", "caughtErrorsIgnorePattern": "^_" }],
     "no-unassigned-vars": "off",
-    "no-unused-expressions": "off"
+    "no-unused-expressions": "off",
+    "no-explicit-any": "error",
+    "no-restricted-types": [
+      "error",
+      {
+        "types": {
+          "undefined": {
+            "message": "Avoid explicit `undefined` types. Use optional params/properties (`?`) or `null`/`void` where intentional."
+          },
+          "Function": {
+            "message": "Avoid `Function`; use an explicit function signature."
+          },
+          "Object": {
+            "message": "Avoid `Object`; use a concrete object type."
+          },
+          "{}": {
+            "message": "Avoid `{}`; use a concrete object shape."
+          }
+        }
+      }
+    ]
   }
 }

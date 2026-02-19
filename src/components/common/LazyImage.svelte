@@ -5,12 +5,12 @@
 
   export let src: string;
   export let alt: string = "";
-  export let fallbackSrc: string | undefined;
+  export let fallbackSrc: string | void;
   export let defaultSrc: string = "/images/cover.jpg";
   export let className: string = "";
   // Optional caching by title: when provided, we try to use a cached
   // thumbnail and persist successful remote loads for future sessions.
-  export let cacheTitle: string | undefined;
+  export let cacheTitle: string | void;
   export let enableCache: boolean = true;
   export let deferLoad: boolean = false;
   export let hasThumbnail: boolean = true;
@@ -92,7 +92,7 @@
     });
   }
 
-  function isValidSrc(val: string | undefined | null): boolean {
+  function isValidSrc(val: string | void | null): boolean {
     if (!val) return false;
     const s = val.trim();
     if (s.length === 0) return false;
@@ -119,7 +119,7 @@
   }
 
   // Convert absolute file path to asset:// URL using Tauri's native convertFileSrc
-  function toAssetUrl(path: string | undefined | null): string | null {
+  function toAssetUrl(path: string | void | null): string | null {
     if (!path) return null;
     const s = path.trim();
     if (s.length === 0) return null;
@@ -135,7 +135,7 @@
     return convertFileSrc(s);
   }
 
-  function fileUrlForAbsolute(path: string | undefined | null): string | null {
+  function fileUrlForAbsolute(path: string | void | null): string | null {
     if (!path) return null;
     const s = path.trim();
     if (s.length === 0) return null;
@@ -156,7 +156,7 @@
     return encodeURI(`${prefix}${normalized}`);
   }
 
-  function resolveLocal(path: string | undefined | null): string | null {
+  function resolveLocal(path: string | void | null): string | null {
     if (!path) return null;
     const s = path.trim();
     if (s.length === 0) return null;
@@ -199,7 +199,7 @@
     return s.replace(/^-+/, "").replace(/-+$/, "");
   }
 
-  async function buildCachePaths(title: string | undefined | null) {
+  async function buildCachePaths(title: string | void | null) {
     if (!title || title.trim().length === 0) return { path: null, url: null };
     const key = title.trim();
     if (cacheUrlMemo.has(key)) {
@@ -232,7 +232,7 @@
     return resolveLocal(defaultSrc) || `${assets}/images/cover.jpg`;
   }
 
-  function isDefaultResolved(path: string | null | undefined): boolean {
+  function isDefaultResolved(path: string | null | void): boolean {
     if (!path) return false;
     const r = resolveLocal(path);
     return (

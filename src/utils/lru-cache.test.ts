@@ -119,11 +119,11 @@ describe("LRUCache", () => {
       expect(numCache.get(2)).toBe("two");
     });
 
-    it("should handle undefined values", () => {
-      const undefinedCache = new LRUCache<string, undefined>(3);
-      undefinedCache.set("a", undefined);
-      expect(undefinedCache.has("a")).toBe(true);
-      expect(undefinedCache.get("a")).toBeUndefined();
+    it("should handle void values", () => {
+      const voidCache = new LRUCache<string, void>(3);
+      voidCache.set("a", undefined);
+      expect(voidCache.has("a")).toBe(true);
+      expect(voidCache.get("a")).toBeUndefined();
     });
 
     it("should handle null values", () => {

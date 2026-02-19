@@ -11,14 +11,11 @@
   import { forceRefreshCache } from "../stores/modCache";
 
   // Component props for callbacks
-  export let onUninstalled:
-    | ((event: {
-        detail: { modName: string; success: boolean; action: string };
-      }) => void)
-    | undefined = undefined;
+  export let onUninstalled: (event: {
+    detail: { modName: string; success: boolean; action: string };
+  }) => void = () => {};
 
-  export let onError: ((event: { detail: unknown }) => void) | undefined =
-    undefined;
+  export let onError: (event: { detail: unknown }) => void = () => {};
 
   // Expose component state as props - but also subscribe to the store
   export let show = false;

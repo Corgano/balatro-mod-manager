@@ -57,7 +57,7 @@
     return mod;
   };
 
-  const installIfNeeded = async (mod: Mod | undefined) => {
+  const installIfNeeded = async (mod?: Mod) => {
     if (!mod) return;
     if (get(installationStatus)[mod.title]) return;
     if (get(loadingStates2)[mod.title]) return;
@@ -229,7 +229,7 @@
     collectionId: string,
     modTitle: string,
     modId: string | null,
-    mod: Mod | undefined,
+    mod?: Mod,
   ) {
     const collection = $collectionsStore.find((c) => c.id === collectionId);
     if (!collection) return;

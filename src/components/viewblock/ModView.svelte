@@ -133,7 +133,7 @@
   }
 
   function hasMeaningfulDescription(
-    desc: string | null | undefined,
+    desc: string | null | void,
     title: string,
   ): boolean {
     if (!desc) return false;
@@ -158,7 +158,7 @@
   }
 
   function shouldFetchFullDescription(
-    desc: string | null | undefined,
+    desc: string | null | void,
     title: string,
   ): boolean {
     if (!desc || desc.trim().length === 0) return true;
@@ -926,7 +926,7 @@
     const current = cached ?? m.description ?? "";
     if (!shouldFetchFullDescription(current, m.title)) return;
     if (attemptedDescriptions.has(m.title)) return;
-    const dir = m._dirName as string | undefined;
+    const dir = m._dirName as string | void;
     if (!dir) return;
     const modTitle = m.title; // Capture title for stale check
     attemptedDescriptions.add(m.title);

@@ -17,7 +17,7 @@ export class LRUCache<K, V> {
    * Get a value from the cache.
    * Accessing a key moves it to the "most recently used" position.
    */
-  get(key: K): V | undefined {
+  get(key: K): V | void {
     if (!this.cache.has(key)) {
       return undefined;
     }

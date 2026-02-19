@@ -26,7 +26,7 @@
     return mod;
   };
 
-  const installIfNeeded = async (mod: Mod | undefined) => {
+  const installIfNeeded = async (mod?: Mod) => {
     if (!mod) return;
     if (get(installationStatus)[mod.title]) return;
     if (get(loadingStates2)[mod.title]) return;
