@@ -15,7 +15,9 @@ export function invokeTyped<C extends keyof InvokeMap>(
   args?: Args<C>,
 ): Promise<Result<C>> {
   const invokeArgs =
-    args === undefined ? undefined : (args as unknown as Record<string, unknown>);
+    args === undefined
+      ? undefined
+      : (args as unknown as Record<string, unknown>);
   return invoke<Result<C>>(cmd, invokeArgs);
 }
 

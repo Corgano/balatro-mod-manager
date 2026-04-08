@@ -152,7 +152,9 @@ describe("BackupsPanel", () => {
   it("opens the create-backup popup when create button is clicked", async () => {
     render(BackupsPanel);
 
-    await fireEvent.click(screen.getByRole("button", { name: /create backup/i }));
+    await fireEvent.click(
+      screen.getByRole("button", { name: /create backup/i }),
+    );
 
     expect(mockPopup.get()).toEqual({ visible: true });
   });

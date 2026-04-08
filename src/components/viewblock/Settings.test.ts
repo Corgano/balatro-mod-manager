@@ -45,9 +45,27 @@ function createMockMod(title: string) {
 }
 
 describe("Settings view", () => {
+  let mockStorage: Record<string, string> = {};
+
   beforeEach(() => {
     vi.clearAllMocks();
-    localStorage.clear();
+    mockStorage = {};
+    vi.stubGlobal("localStorage", {
+      getItem: (key: string) => mockStorage[key] ?? null,
+      setItem: (key: string, value: string) => {
+        mockStorage[key] = value;
+      },
+      removeItem: (key: string) => {
+        delete mockStorage[key];
+      },
+      clear: () => {
+        mockStorage = {};
+      },
+      key: (i: number) => Object.keys(mockStorage)[i] ?? null,
+      get length() {
+        return Object.keys(mockStorage).length;
+      },
+    });
     modsStore.set([createMockMod("mod-a")]);
     searchResults.set([createMockMod("mod-b")]);
     currentModView.set(createMockMod("mod-c"));
@@ -87,10 +105,16 @@ describe("Settings view", () => {
     });
   });
 
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it("opens the mods folder from Settings", async () => {
     render(Settings);
 
-    await fireEvent.click(screen.getByRole("button", { name: /open mods folder/i }));
+    await fireEvent.click(
+      screen.getByRole("button", { name: /open mods folder/i }),
+    );
 
     await waitFor(() => {
       expect(invokeMock).toHaveBeenCalledWith("get_mods_folder");

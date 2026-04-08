@@ -123,18 +123,21 @@ export type UninstallResult = {
   action: "cascade" | "force" | "single";
 };
 
+function readVersionCache(key: string): string[] {
+  if (typeof window === "undefined") return [];
+  try {
+    return JSON.parse(localStorage.getItem(key) || "[]");
+  } catch {
+    return [];
+  }
+}
+
 export const cachedVersions = writable<{
   steamodded: string[];
   talisman: string[];
 }>({
-  steamodded:
-    typeof window !== "undefined"
-      ? JSON.parse(localStorage.getItem("version-cache-steamodded") || "[]")
-      : [],
-  talisman:
-    typeof window !== "undefined"
-      ? JSON.parse(localStorage.getItem("version-cache-talisman") || "[]")
-      : [],
+  steamodded: readVersionCache("version-cache-steamodded"),
+  talisman: readVersionCache("version-cache-talisman"),
 });
 
 if (typeof window !== "undefined") {
@@ -322,7 +325,14 @@ export const loadingStates2 = writable<{ [key: string]: boolean }>({});
 // });
 
 function createPersistentCategory() {
-  const storedCategory = localStorage.getItem("currentCategory") || "Popular";
+  let storedCategory = "Popular";
+  if (typeof window !== "undefined") {
+    try {
+      storedCategory = localStorage.getItem("currentCategory") || "Popular";
+    } catch {
+      // Ignore storage errors
+    }
+  }
   const { subscribe, set } = writable(storedCategory);
 
   return {

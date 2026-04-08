@@ -605,8 +605,8 @@
         </div>
       </div>
       <p class="description-small">
-        Helps improve BMM. No personal data is collected. Self-hosted on our
-        own server. Can be turned off at any time.
+        Helps improve BMM. No personal data is collected. Self-hosted on our own
+        server. Can be turned off at any time.
       </p>
 
       <h3>Developer Options</h3>
