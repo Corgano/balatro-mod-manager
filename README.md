@@ -67,11 +67,11 @@ sudo apt install ./Balatro.Mod.Manager_*_amd64.deb
   git clone https://github.com/skyline69/balatro-mod-manager.git
   cd balatro-mod-manager
   ```
-- Install runtimes once (GNOME 47 + toolchain extensions):
+- Install runtimes once (GNOME 50 + toolchain extensions):
   ```bash
-  flatpak install org.gnome.Platform//47 org.gnome.Sdk//47 \
-    org.freedesktop.Sdk.Extension.node20//24.08 \
-    org.freedesktop.Sdk.Extension.rust-stable//24.08
+  flatpak install org.gnome.Platform//50 org.gnome.Sdk//50 \
+    org.freedesktop.Sdk.Extension.node20//25.08 \
+    org.freedesktop.Sdk.Extension.rust-stable//25.08
   ```
 - Build + bundle from this repo:
   ```bash

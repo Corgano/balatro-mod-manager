@@ -157,7 +157,7 @@ if [[ -n "$RELEASE_URL" ]]; then
     if curl -fsSL "$RELEASE_URL" -o "$FLATPAK_BUNDLE"; then
         ensure_flathub_remote
         REQUIRED_RELEASE_RUNTIMES=(
-            "org.gnome.Platform//47"
+            "org.gnome.Platform//50"
         )
         MISSING_RELEASE_RUNTIMES=()
         for runtime in "${REQUIRED_RELEASE_RUNTIMES[@]}"; do
@@ -217,10 +217,10 @@ fi
 echo -e "${GREEN}flatpak-builder ✓${NC}"
 
 RUNTIMES=(
-    "org.gnome.Platform//47"
-    "org.gnome.Sdk//47"
-    "org.freedesktop.Sdk.Extension.node20//24.08"
-    "org.freedesktop.Sdk.Extension.rust-stable//24.08"
+    "org.gnome.Platform//50"
+    "org.gnome.Sdk//50"
+    "org.freedesktop.Sdk.Extension.node20//25.08"
+    "org.freedesktop.Sdk.Extension.rust-stable//25.08"
 )
 
 MISSING_RUNTIMES=()
