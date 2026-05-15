@@ -12,6 +12,7 @@
 
   import "../app.css";
   import UpdateAvailablePopup from "../components/UpdateAvailablePopup.svelte";
+  import RecoveryScreen from "../components/RecoveryScreen.svelte";
   import { updatePromptDisabled } from "../stores/update";
   import { invoke } from "@tauri-apps/api/core";
 
@@ -116,20 +117,43 @@
     }
   }
 
+  /**
+   * Make absolutely sure the window becomes visible. If anything else in
+   * startup throws (deserialisation crash, plugin import error, network
+   * hang etc.) the user must still get a window. Falls back to a single
+   * deadline-based show.
+   */
+  let windowShown = false;
+  async function forceShowWindow(reason: string) {
+    if (windowShown) return;
+    windowShown = true;
+    try {
+      const appWindow = Window.getCurrent();
+      await appWindow.show();
+      await appWindow.setFocus();
+    } catch (e) {
+      console.warn(`forceShowWindow (${reason}) failed:`, e);
+    }
+  }
+
   async function setupAppWindow() {
-    const appWindow = Window.getCurrent();
-
-    // Wait for the next frame to ensure the page is painted
-    await new Promise<void>((resolve) => {
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
+    try {
+      // Wait for the next frame to ensure the page is painted, but never
+      // longer than 1500ms. If raf never fires (rare WebView2 hang), the
+      // deadline below shows the window anyway.
+      await new Promise<void>((resolve) => {
+        let resolved = false;
+        const done = () => {
+          if (resolved) return;
+          resolved = true;
           resolve();
-        });
+        };
+        requestAnimationFrame(() => requestAnimationFrame(done));
+        setTimeout(done, 1500);
       });
-    });
-
-    await appWindow.show();
-    await appWindow.setFocus();
+    } finally {
+      await forceShowWindow("setupAppWindow");
+    }
   }
 
   onMount(() => {
@@ -137,11 +161,27 @@
       document.documentElement.dataset.theme = enabled ? "dark" : "light";
       document.documentElement.style.colorScheme = enabled ? "dark" : "light";
     });
+
+    // Last-resort safety net: if nothing showed the window within 3 s of
+    // mount, show it ourselves. Prevents the "process alive, window
+    // hidden" failure mode reported on Windows.
+    const safetyNet = window.setTimeout(() => {
+      forceShowWindow("safety-net-timeout");
+    }, 3000);
+
+    const onUnhandledError = () => forceShowWindow("unhandled-error");
+    window.addEventListener("error", onUnhandledError);
+    window.addEventListener("unhandledrejection", onUnhandledError);
+
     detectPlatform();
     setupAppWindow();
     checkForUpdate();
+
     return () => {
       unsubscribeTheme();
+      window.clearTimeout(safetyNet);
+      window.removeEventListener("error", onUnhandledError);
+      window.removeEventListener("unhandledrejection", onUnhandledError);
     };
   });
 </script>
@@ -164,7 +204,12 @@
       out:blur={{ duration: 150 }}
       class="page-content"
     >
-      {@render children()}
+      <svelte:boundary onerror={(e) => console.error("Page boundary:", e)}>
+        {@render children()}
+        {#snippet failed(error)}
+          <RecoveryScreen {error} />
+        {/snippet}
+      </svelte:boundary>
     </div>
   {/key}
 </div>

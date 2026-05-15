@@ -570,6 +570,7 @@ pub fn run() {
             commands::backup::clear_interrupted_restore,
             commands::health::check_health,
             commands::health::reset_database,
+            commands::health::clear_app_state,
             commands::analytics::get_analytics_status,
             commands::analytics::set_analytics_status,
             commands::analytics::track_event,

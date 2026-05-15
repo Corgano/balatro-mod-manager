@@ -276,3 +276,40 @@ pub async fn reset_database(state: tauri::State<'_, AppState>) -> Result<(), Str
     log::info!("Database reset completed");
     Ok(())
 }
+
+/// Wipe transient on-disk caches that can drift out of sync and cause the
+/// frontend to crash on hydration (mod index cache, thumbnails, details
+/// cache). Installed mods, settings, and Lovely state stay intact because
+/// they live in the SQLite database, not in these caches.
+#[tauri::command]
+pub async fn clear_app_state() -> Result<(), String> {
+    let config_dir = dirs::config_dir().ok_or_else(|| "config directory not found".to_string())?;
+    let balatro = config_dir.join("Balatro");
+
+    let targets = [
+        balatro.join("mod_index_cache"),
+        balatro.join("mod_assets"),
+        balatro.join("mod_details"),
+    ];
+
+    let mut removed = 0usize;
+    for path in targets.iter() {
+        if path.exists() {
+            match std::fs::remove_dir_all(path) {
+                Ok(()) => {
+                    removed += 1;
+                    log::info!("clear_app_state: removed {}", path.display());
+                }
+                Err(e) => {
+                    log::warn!(
+                        "clear_app_state: failed to remove {}: {}",
+                        path.display(),
+                        e
+                    );
+                }
+            }
+        }
+    }
+    log::info!("clear_app_state: cleared {} cache directory(ies)", removed);
+    Ok(())
+}

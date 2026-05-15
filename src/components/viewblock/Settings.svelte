@@ -66,6 +66,13 @@
     isClearingCache = true;
     try {
       await invoke("clear_cache");
+      // Also wipe on-disk catalog/thumbnail/details directories so a stale
+      // entry can't keep crashing the next load.
+      try {
+        await invoke("clear_app_state");
+      } catch (e) {
+        console.warn("clear_app_state failed:", e);
+      }
       // Also clear small UI caches persisted in localStorage
       try {
         localStorage.removeItem("version-cache-steamodded");
