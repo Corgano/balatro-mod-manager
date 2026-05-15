@@ -35,6 +35,15 @@ import {
 const ANIMATION_DURATION = 120;
 
 /**
+ * Maximum lifetime of the transitioning flag. The longest legitimate chain
+ * is ANIMATION_DURATION + a microtask, so 600ms is generous. If we exceed
+ * it something dropped the clear-call (Tauri webview hiccup, navigation
+ * race) and we must release the click-blocker overlay so the UI stays
+ * interactive.
+ */
+const TRANSITION_WATCHDOG_MS = 600;
+
+/**
  * Popup types that can be managed by the popup manager.
  */
 export type PopupType =
@@ -73,9 +82,34 @@ const popupStack = writable<PopupState[]>([]);
 let isTransitioning = false;
 export const isPopupTransitioning = writable(false);
 
+let transitionWatchdog: ReturnType<typeof setTimeout> | null = null;
+
+function clearTransitionWatchdog() {
+  if (transitionWatchdog !== null) {
+    clearTimeout(transitionWatchdog);
+    transitionWatchdog = null;
+  }
+}
+
 function setTransitioning(value: boolean) {
   isTransitioning = value;
   isPopupTransitioning.set(value);
+  clearTransitionWatchdog();
+  if (value && typeof setTimeout !== "undefined") {
+    // Auto-release the blocker if no caller clears the flag within the
+    // watchdog window. Prevents a permanently unclickable UI when an
+    // open/close chain is interrupted mid-transition.
+    transitionWatchdog = setTimeout(() => {
+      transitionWatchdog = null;
+      if (isTransitioning) {
+        console.warn(
+          "popupManager: transition watchdog fired; forcing isTransitioning=false",
+        );
+        isTransitioning = false;
+        isPopupTransitioning.set(false);
+      }
+    }, TRANSITION_WATCHDOG_MS);
+  }
 }
 
 /**
