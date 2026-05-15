@@ -40,6 +40,29 @@ Scroll down to find **▸Assets** and download the right version of the installe
 - macOS: `Balatro.Mod.Manager_…_universal.dmg`
 - Linux: Flatpak (recommended), AUR, or `Balatro.Mod.Manager_…_amd64.AppImage`
 
+### Installing on macOS
+
+The macOS build is signed ad-hoc (not notarized by Apple), so Gatekeeper blocks the first launch. After installing once, the app opens normally on every subsequent launch.
+
+1. Mount the `.dmg` and drag **Balatro Mod Manager** into `/Applications`.
+2. Try to open it. macOS will refuse with either *"Apple cannot verify..."* or *"is damaged and can't be opened"*. Close the dialog.
+3. Pick one of the following bypasses:
+
+   **Option A — System Settings (macOS 14 and newer, no Terminal):**
+   - Open **System Settings → Privacy & Security**.
+   - Scroll to the **Security** section. You should see a line about Balatro Mod Manager being blocked, with an **Open Anyway** button. Click it and confirm.
+   - If no button appears (macOS 15+ sometimes hides it for "damaged" bundles), use Option B.
+
+   **Option B — Terminal one-liner (works on every macOS version):**
+   ```bash
+   xattr -dr com.apple.quarantine "/Applications/Balatro Mod Manager.app"
+   ```
+   Then double-click the app normally.
+
+   **Option C — Older macOS (13 and below):** right-click the app → **Open** → confirm in the dialog.
+
+Why this happens: shipping notarized builds requires an active Apple Developer Program membership ($99/year). The app is ad-hoc signed so it runs on Apple Silicon, but Apple's notarization service is what would silence Gatekeeper. The friction is one-time per install.
+
 ### Arch Linux (AUR)
 
 Install using your preferred AUR helper:

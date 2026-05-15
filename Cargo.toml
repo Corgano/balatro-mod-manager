@@ -11,3 +11,29 @@ bmm-lib = { path = "src-tauri/bmm-lib", version = "0.4.1" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
+# Keep dev `target/` small. Tauri pulls hundreds of crates, so default
+# full debug info and per-crate incremental caches blow up to ~100 GB. The
+# settings below cut that to ~10–15 GB while keeping useful backtraces.
+[profile.dev]
+# Line tables only: backtraces still resolve to source lines, but per-crate
+# debug info shrinks ~50–70 %.
+debug = "line-tables-only"
+# Incremental builds add a `.incremental/` cache that often outweighs the
+# final artifacts. Disable for noticeable space savings; rebuilds get a bit
+# slower but cargo's per-crate caching still kicks in.
+incremental = false
+split-debuginfo = "unpacked"
+
+# Strip debug info from third-party crates entirely. We almost never step
+# into them with a debugger; backtraces still work because addresses resolve
+# via the unstripped system libraries.
+[profile.dev.package."*"]
+debug = false
+
+# Release profile: smaller, faster binary for ship builds.
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = "debuginfo"
+opt-level = 3
+
