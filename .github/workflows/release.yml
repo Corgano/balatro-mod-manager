@@ -15,7 +15,7 @@ jobs:
       release_notes: ${{ steps.notes.outputs.RELEASE_NOTES }}
       app_version: ${{ steps.version.outputs.APP_VERSION }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
           fetch-tags: true
@@ -90,7 +90,7 @@ jobs:
           find artifacts -type f -name '*.exe' -print -quit
       - name: Upload unsigned files for signing
         id: upload-unsigned-files
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: unsigned-files-${{ github.run_id }}
           path: |

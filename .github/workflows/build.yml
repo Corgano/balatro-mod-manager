@@ -21,7 +21,7 @@ jobs:
             args: ""
     runs-on: ${{ matrix.platform }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
       # Linux system dependencies for Tauri bundles
@@ -48,7 +48,7 @@ jobs:
       # No Apple Developer ID is required; users bypass Gatekeeper on first launch.
       # See README "Installing on macOS" for the end-user instructions.
       - name: Setup Bun
-        uses: oven-sh/setup-bun@v1
+        uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
       - name: install Rust stable
@@ -87,7 +87,7 @@ jobs:
       # Upload artifacts by platform
       - name: Upload macOS artifacts
         if: matrix.platform == 'macos-latest'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: macos-app
           path: |
@@ -98,7 +98,7 @@ jobs:
           retention-days: 1
       - name: Upload Windows artifacts
         if: matrix.platform == 'windows-latest'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: windows-app
           path: |
@@ -109,7 +109,7 @@ jobs:
           retention-days: 1
       - name: Upload Linux artifacts
         if: matrix.platform == 'ubuntu-22.04'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: linux-app
           path: |
@@ -126,7 +126,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
       - name: Install Flatpak tooling
@@ -152,7 +152,7 @@ jobs:
           flatpak build-export --no-update-summary repo build-dir
           flatpak build-bundle repo balatro-mod-manager.flatpak io.balatro.ModManager master
       - name: Upload Flatpak bundle
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: linux-flatpak
           path: balatro-mod-manager.flatpak
