@@ -713,7 +713,7 @@ pub async fn batch_fetch_thumbnails_repo(inputs: Vec<ModThumbInput>) -> Result<u
     let client = BmiClient::new()?;
 
     let concurrency = 12usize;
-    let saved = stream::iter(pending.into_iter())
+    let saved = stream::iter(pending)
         .map(|m| {
             let client = client.clone();
             let thumbs_dir = thumbs_dir.clone();
