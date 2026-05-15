@@ -39,7 +39,7 @@
   let isAnalyticsEnabled = $state(true);
   let isLinux = $state(false);
   let linuxPrefix = $state("");
-  let isCompatHelperEnabled = $state(true);
+  let isCompatHelperEnabled = $state(false);
   let showLinuxHelp = $state(false);
   let activeHelpImage = $state<{ src: string; alt: string } | null>(null);
 
