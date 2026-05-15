@@ -779,6 +779,7 @@ mod tests {
             path: "/path/to/mod".to_string(),
             dependencies: vec!["Steamodded".to_string()],
             current_version: Some("1.0.0".to_string()),
+            orphaned: false,
         };
 
         let record = ModRecord::from(installed);

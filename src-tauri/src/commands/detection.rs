@@ -105,6 +105,77 @@ pub async fn reindex_mods(
     map_error(result)
 }
 
+/// Result of reconciling installed mods against the remote index.
+#[derive(serde::Serialize)]
+pub struct OrphanReconcileResult {
+    pub skipped: bool,
+    pub changed: Vec<String>,
+    pub orphan_total: usize,
+}
+
+/// Reconcile the orphaned flag for installed mods against the latest remote
+/// index. Marks installed mods missing from `remote_titles` as orphaned, and
+/// clears the flag for mods that have reappeared.
+///
+/// A safety threshold mirrors the frontend prune guard: a tiny incoming set
+/// (likely an API hiccup) must not cause every installed mod to be flagged.
+#[tauri::command]
+pub async fn reconcile_orphan_mods(
+    state: tauri::State<'_, AppState>,
+    app_handle: tauri::AppHandle,
+    remote_titles: Vec<String>,
+) -> Result<OrphanReconcileResult, String> {
+    let mut db = state.db.lock().unwrap_or_else(|e| e.into_inner());
+    let installed = map_error(db.get_installed_mods())?;
+    let non_orphan_count = installed.iter().filter(|m| !m.orphaned).count();
+
+    // Safety: skip when the remote returned nothing, or returned far fewer
+    // entries than we have tracked. Mirrors frontend mergeIncomingMods guard.
+    let threshold = std::cmp::max(10usize, non_orphan_count / 2);
+    if remote_titles.is_empty() || remote_titles.len() < threshold {
+        log::info!(
+            "reconcile_orphan_mods: skipped (remote={}, tracked_non_orphan={}, threshold={})",
+            remote_titles.len(),
+            non_orphan_count,
+            threshold
+        );
+        return Ok(OrphanReconcileResult {
+            skipped: true,
+            changed: Vec::new(),
+            orphan_total: installed.iter().filter(|m| m.orphaned).count(),
+        });
+    }
+
+    let present: std::collections::HashSet<String> = remote_titles.into_iter().collect();
+    let changed = map_error(db.reconcile_orphaned_mods(&present))?;
+    let orphan_total = map_error(db.get_installed_mods())?
+        .iter()
+        .filter(|m| m.orphaned)
+        .count();
+
+    if !changed.is_empty() {
+        log::info!(
+            "reconcile_orphan_mods: {} mod(s) changed orphan state, {} total orphaned",
+            changed.len(),
+            orphan_total
+        );
+        let _ = app_handle.emit(
+            "installed-mods-changed",
+            ModsChangedEvent {
+                added: Vec::new(),
+                removed: Vec::new(),
+                full_refresh: true,
+            },
+        );
+    }
+
+    Ok(OrphanReconcileResult {
+        skipped: false,
+        changed,
+        orphan_total,
+    })
+}
+
 /// Internal helper to perform the actual reindexing logic.
 /// Returns (files_removed, db_entries_cleaned). Currently we only clean DB entries.
 pub fn reindex_db(db: &Database) -> Result<(usize, usize), AppError> {

@@ -14,6 +14,8 @@ export interface Mod {
   _dirName?: string;
   _installedPath?: string;
   _hasThumbnail?: boolean;
+  /** True when this mod is tracked locally but no longer present in the remote index. */
+  orphaned?: boolean;
   categories: Category[];
   colors: {
     color1: string;
@@ -165,6 +167,8 @@ export interface DependencyCheck {
 export interface InstalledMod {
   name: string;
   path: string;
+  /** True when the remote index no longer lists this mod. */
+  orphaned?: boolean;
   // collection_hash: string | null;
 }
 

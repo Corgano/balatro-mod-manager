@@ -552,6 +552,7 @@ pub fn run() {
             commands::import::process_mod_archive,
             commands::detection::get_detected_local_mods,
             commands::detection::reindex_mods,
+            commands::detection::reconcile_orphan_mods,
             commands::detection::delete_manual_mod,
             commands::detection::backup_local_mod,
             commands::detection::restore_from_backup,

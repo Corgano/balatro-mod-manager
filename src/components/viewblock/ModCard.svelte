@@ -377,6 +377,14 @@
     />
 
     <div class="tags">
+      {#if mod.orphaned}
+        <span
+          class="tag orphaned"
+          title="This mod was removed from the remote index. It is still installed locally and can be uninstalled at any time."
+        >
+          Removed from index
+        </span>
+      {/if}
       <!-- <span class="tag updated"> -->
       <!-- 	<Clock size={13} /> -->
       <!-- 	{mod.lastUpdated} -->
@@ -549,6 +557,24 @@
     right: 0.35rem;
     display: flex;
     gap: 0.5rem;
+  }
+
+  .tag {
+    font-family: "M6X11", monospace;
+    font-size: calc(0.75rem * var(--card-scale, 1));
+    padding: 0.2rem 0.45rem;
+    border-radius: 4px;
+    line-height: 1;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    backdrop-filter: blur(2px);
+  }
+
+  .tag.orphaned {
+    background: rgba(192, 64, 56, 0.92);
+    color: #fff;
+    border: 1px solid rgba(255, 255, 255, 0.25);
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
   }
 
   .mod-info {

@@ -33,10 +33,15 @@ pub struct InstalledMod {
     pub dependencies: Vec<String>,
     /// Currently installed version string, if known.
     pub current_version: Option<String>,
+    /// True when the mod is no longer present in the remote index.
+    /// The mod still exists locally; this flag is set by reconciliation
+    /// after a successful catalog fetch.
+    #[serde(default)]
+    pub orphaned: bool,
 }
 
 impl Database {
-    const CURRENT_DB_VERSION: (u32, u32) = (1, 2); // Update this when schema changes
+    const CURRENT_DB_VERSION: (u32, u32) = (1, 3); // Update this when schema changes
 
     /// Converts a version tuple to a string representation.
     fn version_to_string(v: (u32, u32)) -> String {
@@ -428,7 +433,8 @@ impl Database {
                 name TEXT PRIMARY KEY,
                 path TEXT NOT NULL,
                 dependencies TEXT NOT NULL DEFAULT '[]',
-                current_version TEXT
+                current_version TEXT,
+                orphaned INTEGER NOT NULL DEFAULT 0
             )",
             [],
         )
@@ -466,7 +472,7 @@ impl Database {
 
     pub fn get_mod_details(&self, mod_name: &str) -> Result<InstalledMod, AppError> {
         let mut stmt = self.conn.prepare(
-            "SELECT name, path, dependencies, current_version FROM installed_mods WHERE name = ?1",
+            "SELECT name, path, dependencies, current_version, orphaned FROM installed_mods WHERE name = ?1",
         )?;
 
         let mut rows = stmt.query([mod_name])?;
@@ -477,6 +483,7 @@ impl Database {
                 path: row.get(1)?,
                 dependencies: serde_json::from_str(&row.get::<_, String>(2)?)?,
                 current_version: row.get(3)?,
+                orphaned: row.get::<_, i64>(4)? != 0,
             })
         } else {
             Err(AppError::InvalidState(format!("Mod {mod_name} not found")))
@@ -533,7 +540,7 @@ impl Database {
     pub fn get_installed_mods(&self) -> Result<Vec<InstalledMod>, AppError> {
         // Use prepare_cached for frequently called queries to avoid re-parsing SQL
         let mut stmt = self.conn.prepare_cached(
-            "SELECT name, path, dependencies, current_version FROM installed_mods",
+            "SELECT name, path, dependencies, current_version, orphaned FROM installed_mods",
         )?;
         let mut mods = Vec::new();
         let mut rows = stmt.query([])?;
@@ -544,6 +551,7 @@ impl Database {
                 path: row.get(1)?,
                 dependencies: serde_json::from_str(&row.get::<_, String>(2)?)?,
                 current_version: row.get(3)?,
+                orphaned: row.get::<_, i64>(4)? != 0,
             });
         }
 
@@ -637,6 +645,43 @@ impl Database {
                 .execute("DELETE FROM installed_mods WHERE path = ?1", [path])?;
         }
         Ok(())
+    }
+
+    /// Reconcile the orphaned flag for every installed mod given the set of
+    /// titles currently present in the remote index. Names not found in
+    /// `present` get `orphaned = 1`; names found get `orphaned = 0`.
+    /// Comparison is case-insensitive. Runs inside a single transaction.
+    /// Returns the list of mod names whose orphaned state changed.
+    pub fn reconcile_orphaned_mods(
+        &mut self,
+        present: &std::collections::HashSet<String>,
+    ) -> Result<Vec<String>, AppError> {
+        let lowered: std::collections::HashSet<String> =
+            present.iter().map(|s| s.to_lowercase()).collect();
+
+        let tx = self.conn.transaction()?;
+        let mut changed: Vec<String> = Vec::new();
+        {
+            let mut stmt = tx.prepare("SELECT name, orphaned FROM installed_mods")?;
+            let rows = stmt
+                .query_map([], |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)? != 0))
+                })?
+                .collect::<Result<Vec<_>, _>>()?;
+            for (name, prev) in rows {
+                let should_be_orphan = !lowered.contains(&name.to_lowercase());
+                if should_be_orphan != prev {
+                    let flag: i64 = if should_be_orphan { 1 } else { 0 };
+                    tx.execute(
+                        "UPDATE installed_mods SET orphaned = ?1 WHERE name = ?2",
+                        rusqlite::params![flag, name],
+                    )?;
+                    changed.push(name);
+                }
+            }
+        }
+        tx.commit()?;
+        Ok(changed)
     }
 
     pub fn get_installation_path(&self) -> Result<Option<String>, AppError> {
@@ -981,6 +1026,67 @@ mod tests {
         assert_eq!(deps.get("Steamodded").unwrap().len(), 2); // ModA and ModB
         assert_eq!(deps.get("Talisman").unwrap().len(), 1); // ModB
 
+        Ok(())
+    }
+
+    #[test]
+    fn test_reconcile_orphaned_mods() -> Result<(), AppError> {
+        use std::collections::HashSet;
+        let mut db = create_memory_db()?;
+
+        db.add_installed_mod("Alpha", "/p/alpha", &[], None)?;
+        db.add_installed_mod("Beta", "/p/beta", &[], None)?;
+        db.add_installed_mod("Gamma", "/p/gamma", &[], None)?;
+
+        // Initially no orphans.
+        for m in db.get_installed_mods()? {
+            assert!(!m.orphaned, "{} should not be orphaned", m.name);
+        }
+
+        // Remote has Alpha + Gamma only -> Beta becomes orphan.
+        let mut present: HashSet<String> = HashSet::new();
+        present.insert("Alpha".to_string());
+        present.insert("Gamma".to_string());
+        let mut changed = db.reconcile_orphaned_mods(&present)?;
+        changed.sort();
+        assert_eq!(changed, vec!["Beta".to_string()]);
+
+        let mods = db.get_installed_mods()?;
+        for m in &mods {
+            if m.name == "Beta" {
+                assert!(m.orphaned, "Beta must be orphan");
+            } else {
+                assert!(!m.orphaned, "{} must not be orphan", m.name);
+            }
+        }
+
+        // Re-running with same set should produce no changes.
+        let changed = db.reconcile_orphaned_mods(&present)?;
+        assert!(changed.is_empty());
+
+        // Beta reappears in remote -> orphan cleared.
+        present.insert("beta".to_string()); // case-insensitive
+        let changed = db.reconcile_orphaned_mods(&present)?;
+        assert_eq!(changed, vec!["Beta".to_string()]);
+        let beta = db.get_mod_details("Beta")?;
+        assert!(!beta.orphaned);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_add_installed_mod_clears_orphan_flag() -> Result<(), AppError> {
+        use std::collections::HashSet;
+        let mut db = create_memory_db()?;
+        db.add_installed_mod("Foo", "/p/foo", &[], None)?;
+        // Mark orphan via reconcile with empty remote set
+        let empty: HashSet<String> = HashSet::new();
+        db.reconcile_orphaned_mods(&empty)?;
+        assert!(db.get_mod_details("Foo")?.orphaned);
+        // Reinstalling should reset orphaned to default (0) because INSERT OR
+        // REPLACE writes a fresh row.
+        db.add_installed_mod("Foo", "/p/foo", &[], None)?;
+        assert!(!db.get_mod_details("Foo")?.orphaned);
         Ok(())
     }
 

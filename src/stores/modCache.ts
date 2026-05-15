@@ -138,6 +138,7 @@ const createModCache = () => {
             const formattedMods = installed.map((mod) => ({
               name: mod.name,
               path: mod.path,
+              orphaned: mod.orphaned === true,
             }));
 
             cache.set(formattedMods);

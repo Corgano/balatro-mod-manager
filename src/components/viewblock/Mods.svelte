@@ -1475,6 +1475,37 @@
       );
     }
 
+    // Reconcile orphaned mods in the database against the fresh remote index.
+    // Backend applies the same safety threshold the frontend prune uses.
+    invoke<{
+      skipped: boolean;
+      changed: string[];
+      orphan_total: number;
+    }>("reconcile_orphan_mods", { remoteTitles: titles })
+      .then((res) => {
+        if (!res || res.skipped) return;
+        if (res.changed.length === 0) return;
+        const orphanedNow = new Set(
+          res.changed.filter((name) => !mods.some((m) => m.title === name)),
+        );
+        modsStore.update((arr) =>
+          arr.map((m) =>
+            orphanedNow.has(m.title)
+              ? { ...m, orphaned: true }
+              : mods.some((nm) => nm.title === m.title)
+                ? { ...m, orphaned: false }
+                : m,
+          ),
+        );
+        if (orphanedNow.size > 0) {
+          addMessage(
+            `${orphanedNow.size} installed mod${orphanedNow.size === 1 ? "" : "s"} removed from index`,
+            "info",
+          );
+        }
+      })
+      .catch((e) => console.warn("reconcile_orphan_mods failed", e));
+
     // Persist refreshed upstream catalog to Rust cache
     try {
       const forCache = mods.map((m) => ({
@@ -1962,9 +1993,14 @@
       installedMods = await fetchCachedMods();
       if (!installedMods || installedMods.length === 0) return;
       modsStore.update((arr) => {
-        const existingTitles = new Set(arr.map((m) => m.title));
+        const existingByTitle = new Map(arr.map((m) => [m.title, m]));
+        const orphanFromDb = new Map(
+          installedMods
+            .filter((m) => m.orphaned === true)
+            .map((m) => [m.name, true as const]),
+        );
         const additions: Mod[] = installedMods
-          .filter((m) => !existingTitles.has(m.name))
+          .filter((m) => !existingByTitle.has(m.name))
           .map((m) => ({
             title: m.name,
             description: "",
@@ -1983,8 +2019,13 @@
             _hasThumbnail: false,
             // Keep private installed path for potential future local reads
             _installedPath: m.path,
+            orphaned: m.orphaned === true,
           }));
-        return additions.length ? [...additions, ...arr] : arr;
+        const merged = additions.length ? [...additions, ...arr] : arr;
+        // Sync orphan flag onto existing entries that already had a card.
+        return merged.map((m) =>
+          orphanFromDb.has(m.title) ? { ...m, orphaned: true } : m,
+        );
       });
 
       // Immediately reflect installationStatus so filters show
