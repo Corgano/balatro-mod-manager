@@ -19,11 +19,11 @@
 //! within the target directory.
 
 use crate::errors::AppError;
+use crate::http::shared_client;
 use crate::local_mod_detection::{
     ensure_proton_mod_dir_link, mod_dir_candidates, resolve_mods_dir_path,
 };
 use flate2::read::GzDecoder;
-use reqwest::Client;
 use reqwest::header::{CONTENT_DISPOSITION, CONTENT_TYPE};
 use std::fs::{self, File};
 use std::io::Read;
@@ -85,7 +85,7 @@ const DIR_REMOVE_BASE_DELAY_MS: u64 = 50;
 /// or extraction fails.
 pub async fn install_mod(url: String, folder_name: Option<String>) -> Result<PathBuf, AppError> {
     log::info!("Starting mod download from: {}", url);
-    let client = Client::new();
+    let client = shared_client();
     let response = client.get(&url).send().await.map_err(|e| {
         if e.is_timeout() {
             log::error!("Request timed out for URL: {}", url);

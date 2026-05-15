@@ -30,6 +30,12 @@ pub struct ThumbnailManager {
 
 const THUMB_CACHE_TTL_SECS: u64 = 60 * 60 * 24 * 7;
 
+/// Upper bound on the dedupe set. Exceeding this triggers a trim down to
+/// `ENQUEUED_TRIM_TO`, so memory stays O(1) even if a session enqueues
+/// many distinct titles.
+const ENQUEUED_CAP: usize = 4096;
+const ENQUEUED_TRIM_TO: usize = 2048;
+
 impl ThumbnailManager {
     pub fn new() -> Self {
         // Smaller bounded queues to avoid memory spikes - high priority gets processed first
@@ -147,21 +153,39 @@ impl ThumbnailManager {
         if file_exists_for_title_sync(&title) {
             return;
         }
-        if let Ok(mut set) = self.enqueued.lock()
-            && !set.insert(title.clone())
-        {
-            return; // already queued
+        // Insert into dedupe set. If it would exceed the cap, drop the oldest
+        // half (FIFO-ish — HashSet iteration order is arbitrary but stable
+        // enough here) so the set cannot grow without bound when the queue
+        // sees thousands of distinct titles per session.
+        if let Ok(mut set) = self.enqueued.lock() {
+            if !set.insert(title.clone()) {
+                return; // already queued
+            }
+            if set.len() > ENQUEUED_CAP {
+                let drop_n = set.len() - ENQUEUED_TRIM_TO;
+                let stale: Vec<String> = set.iter().take(drop_n).cloned().collect();
+                for k in stale {
+                    set.remove(&k);
+                }
+            }
         }
         let req = ThumbReq {
-            title,
+            title: title.clone(),
             url,
             attempts: 0,
             priority,
         };
-        if priority {
-            let _ = self.tx_high.try_send(req);
+        let send_result = if priority {
+            self.tx_high.try_send(req)
         } else {
-            let _ = self.tx_low.try_send(req);
+            self.tx_low.try_send(req)
+        };
+        if send_result.is_err() {
+            // Channel full or closed. Clear the dedupe entry so a later call
+            // can retry instead of leaving the title pinned forever.
+            if let Ok(mut set) = self.enqueued.lock() {
+                set.remove(&title);
+            }
         }
     }
 

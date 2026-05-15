@@ -96,7 +96,7 @@ pub struct ModInstaller {
 impl ModInstaller {
     pub fn new(mod_type: ModType) -> Self {
         Self {
-            client: reqwest::Client::new(),
+            client: crate::http::shared_client(),
             mod_type,
         }
     }

@@ -13,6 +13,7 @@
 //! - **Linux (native LOVE)**: Uses `liblovely.so` with `LD_PRELOAD`
 
 use crate::errors::AppError;
+use crate::http::{shared_client, shared_no_redirect_client};
 #[cfg(any(target_os = "windows", target_os = "linux"))]
 use std::fs::File;
 #[cfg(target_os = "linux")]
@@ -345,10 +346,7 @@ async fn download_love_appimage_and_extract(target_dir: &Path) -> Result<(), App
 
     log::info!("Downloading LOVE AppImage from: {}", appimage_url);
 
-    let client = reqwest::Client::builder()
-        .user_agent("balatro-mod-manager")
-        .build()
-        .map_err(|e| AppError::Network(e.to_string()))?;
+    let client = shared_client();
 
     let response = client.get(appimage_url).send().await.map_err(|e| {
         log::error!("Failed to connect to LOVE AppImage download: {}", e);
@@ -468,11 +466,7 @@ pub async fn get_latest_lovely_version() -> Result<String, AppError> {
     // Cache miss or expired - fetch from GitHub
     log::debug!("Querying GitHub for latest Lovely release version");
 
-    let client = reqwest::Client::builder()
-        .redirect(reqwest::redirect::Policy::none())
-        .timeout(Duration::from_secs(10))
-        .build()
-        .map_err(|e| AppError::Network(e.to_string()))?;
+    let client = shared_no_redirect_client();
 
     let resp = client
         .get("https://github.com/ethangreen-dev/lovely-injector/releases/latest")
@@ -754,7 +748,7 @@ async fn download_and_install_lovely(target_path: &Path) -> Result<(), AppError>
     log::info!("Downloading Lovely injector for macOS from: {}", url);
 
     // Download latest release
-    let client = reqwest::Client::new();
+    let client = shared_client();
     let response = client.get(&url).send().await.map_err(|e| {
         log::error!("Failed to download Lovely injector: {}", e);
         AppError::Network(e.to_string())
@@ -890,7 +884,7 @@ async fn download_version_dll(target_path: &PathBuf) -> Result<(), AppError> {
     log::info!("Downloading Lovely injector for Windows from: {}", url);
 
     // Download the ZIP file
-    let client = reqwest::Client::new();
+    let client = shared_client();
     let response = client.get(url).send().await.map_err(|e| {
         log::error!("Failed to download Lovely injector for Windows: {}", e);
         AppError::Network(format!("Failed to download Lovely injector: {e}"))

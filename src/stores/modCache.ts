@@ -219,14 +219,32 @@ try {
       })
         .then((un) => {
           window.__bmmInstalledModsUnlisten = un;
+          // Always tear down on full-page unload (webview reload, app exit).
+          // HMR has its own dispose hook below for module replacement.
+          const unloadHandler = () => {
+            try {
+              window.__bmmInstalledModsUnlisten?.();
+            } catch (err) {
+              console.warn("Failed to unlisten installed-mods on unload:", err);
+            }
+            window.__bmmInstalledModsListenerAttached = false;
+            window.__bmmInstalledModsUnlisten = undefined;
+          };
+          try {
+            window.addEventListener("beforeunload", unloadHandler, {
+              once: true,
+            });
+          } catch (_) {
+            // ignore — beforeunload unsupported in some embeddings
+          }
           if (import.meta?.hot) {
             import.meta.hot.dispose(() => {
               try {
-                window.__bmmInstalledModsUnlisten?.();
-              } catch (err) {
-                console.warn("Failed to dispose installed-mods listener:", err);
+                window.removeEventListener("beforeunload", unloadHandler);
+              } catch (_) {
+                /* ignore */
               }
-              window.__bmmInstalledModsListenerAttached = false;
+              unloadHandler();
             });
           }
         })

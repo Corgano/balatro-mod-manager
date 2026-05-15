@@ -34,6 +34,8 @@ pub mod discord_rpc;
 pub mod errors;
 /// Automatic Balatro installation path detection.
 pub mod finder;
+/// Shared HTTP client singletons.
+pub mod http;
 /// Mod installation and uninstallation logic.
 pub mod installer;
 /// Scanning Mods folder and detecting untracked mods.

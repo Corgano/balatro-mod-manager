@@ -96,6 +96,10 @@
   } from "../../stores/modStore";
   import { browser } from "$app/environment";
   import { openExternal } from "$lib/opener";
+  import { mapWithConcurrency } from "../../utils/concurrency";
+
+  /** Max parallel mod-update invocations to keep the Tauri IPC queue healthy. */
+  const UPDATE_ALL_CONCURRENCY = 6;
 
   // Helper to convert absolute file paths to asset:// URLs using Tauri's native convertFileSrc
   function toAssetUrl(path: string | null | void): string | null {
@@ -859,6 +863,26 @@
         clearTimeout(scrollIdleTimer);
         scrollIdleTimer = null;
       }
+      if (paginationIdleTimer !== null) {
+        clearTimeout(paginationIdleTimer);
+        paginationIdleTimer = null;
+      }
+      if (hydrationTimer !== null) {
+        clearTimeout(hydrationTimer);
+        hydrationTimer = null;
+      }
+      if (thumbRefreshTimer !== null) {
+        clearTimeout(thumbRefreshTimer);
+        thumbRefreshTimer = null;
+      }
+      if (loadingLocalModsTimer !== null) {
+        clearTimeout(loadingLocalModsTimer);
+        loadingLocalModsTimer = null;
+      }
+      if (catalogRetryTimer !== null) {
+        clearTimeout(catalogRetryTimer);
+        catalogRetryTimer = null;
+      }
       try {
         observerLocal?.disconnect();
       } catch (_) {
@@ -958,27 +982,32 @@
         return;
       }
 
-      const previousEnabledMap: Record<string, boolean> = Object.fromEntries(
-        await Promise.all(
-          modsToUpdate.map(async (mod) => {
-            const cached = $modEnabledStore?.[mod.title];
-            if (cached !== undefined) {
-              return [mod.title, cached] as const;
-            }
+      const enabledEntries = await mapWithConcurrency(
+        modsToUpdate,
+        UPDATE_ALL_CONCURRENCY,
+        async (mod) => {
+          const cached = $modEnabledStore?.[mod.title];
+          if (cached !== undefined) {
+            return [mod.title, cached] as const;
+          }
 
-            try {
-              const enabled = await invoke<boolean>("is_mod_enabled", {
-                modName: mod.title,
-              });
-              return [mod.title, enabled] as const;
-            } catch (error) {
-              console.error(
-                `Failed to read enabled state for ${mod.title}:`,
-                error,
-              );
-              return [mod.title, true] as const;
-            }
-          }),
+          try {
+            const enabled = await invoke<boolean>("is_mod_enabled", {
+              modName: mod.title,
+            });
+            return [mod.title, enabled] as const;
+          } catch (error) {
+            console.error(
+              `Failed to read enabled state for ${mod.title}:`,
+              error,
+            );
+            return [mod.title, true] as const;
+          }
+        },
+      );
+      const previousEnabledMap: Record<string, boolean> = Object.fromEntries(
+        enabledEntries.map((r, i) =>
+          r.status === "fulfilled" ? r.value : [modsToUpdate[i].title, true],
         ),
       );
 
@@ -987,9 +1016,12 @@
         loadingStates2.update((s) => ({ ...s, [mod.title]: true }));
       }
 
-      // Run all updates in parallel
-      const updateResults = await Promise.allSettled(
-        modsToUpdate.map(async (mod) => {
+      // Run updates with bounded concurrency so the IPC queue stays healthy
+      // even when the user has dozens of installed mods.
+      const updateResults = await mapWithConcurrency(
+        modsToUpdate,
+        UPDATE_ALL_CONCURRENCY,
+        async (mod) => {
           try {
             if (mod.title.toLowerCase() === "steamodded") {
               const latestReleaseURL = await invoke<string>(
@@ -1026,7 +1058,7 @@
               `Failed to update ${mod.title}: ${error instanceof Error ? error.message : String(error)}`,
             );
           }
-        }),
+        },
       );
 
       // Process results

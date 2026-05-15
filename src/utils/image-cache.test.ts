@@ -5,12 +5,18 @@ const mockExists = vi.fn();
 const mockReadFile = vi.fn();
 const mockWriteFile = vi.fn();
 const mockMkdir = vi.fn();
+const mockReadDir = vi.fn().mockResolvedValue([]);
+const mockStat = vi.fn();
+const mockRemove = vi.fn().mockResolvedValue(undefined);
 
 vi.mock("@tauri-apps/plugin-fs", () => ({
   exists: (...args: unknown[]) => mockExists(...args),
   readFile: (...args: unknown[]) => mockReadFile(...args),
   writeFile: (...args: unknown[]) => mockWriteFile(...args),
   mkdir: (...args: unknown[]) => mockMkdir(...args),
+  readDir: (...args: unknown[]) => mockReadDir(...args),
+  stat: (...args: unknown[]) => mockStat(...args),
+  remove: (...args: unknown[]) => mockRemove(...args),
 }));
 
 vi.mock("@tauri-apps/api/path", () => ({

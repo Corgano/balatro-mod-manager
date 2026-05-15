@@ -34,11 +34,17 @@ use std::os::unix::fs::symlink;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Mutex;
-use std::time::UNIX_EPOCH;
+use std::time::{Instant, UNIX_EPOCH};
+
+// Time-to-live for the detection cache. Even if the fingerprint hasn't
+// changed, drop the cached result after this window so a long-running
+// process eventually re-scans and picks up subtle changes (e.g. metadata
+// edits that don't bump the parent directory's mtime).
+const DETECTION_CACHE_TTL_SECS: u64 = 300;
 
 // Simple cache of detected local mods keyed by a lightweight fingerprint of the Mods directory
 lazy_static! {
-    static ref DETECTION_CACHE: Mutex<Option<(ScanFingerprint, Vec<DetectedMod>)>> =
+    static ref DETECTION_CACHE: Mutex<Option<(ScanFingerprint, Instant, Vec<DetectedMod>)>> =
         Mutex::new(None);
 }
 
@@ -843,14 +849,15 @@ pub fn detect_manual_mods_cached(
 
     let fp = compute_fingerprint(&mods_dir);
     if let Ok(mut guard) = DETECTION_CACHE.lock() {
-        if let Some((cached_fp, cached_mods)) = &*guard
+        if let Some((cached_fp, cached_at, cached_mods)) = &*guard
             && cached_fp == &fp
+            && cached_at.elapsed().as_secs() < DETECTION_CACHE_TTL_SECS
         {
             return Ok(cached_mods.clone());
         }
-        // Miss: compute fresh
+        // Miss or expired: compute fresh
         let fresh = detect_manual_mods(db, cached_catalog_mods)?;
-        *guard = Some((fp, fresh.clone()));
+        *guard = Some((fp, Instant::now(), fresh.clone()));
         Ok(fresh)
     } else {
         // In the unlikely event of a poisoned mutex, fall back to direct scan
