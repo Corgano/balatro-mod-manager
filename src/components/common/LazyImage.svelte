@@ -1,7 +1,13 @@
 <script lang="ts">
   import { onMount, onDestroy, createEventDispatcher } from "svelte";
   import { assets } from "$app/paths";
-  import { LRUCache } from "../../utils/lru-cache";
+  import {
+    cacheUrlMemo,
+    thumbMemo,
+    acquireLoadSlot,
+    setMaxConcurrentLoads,
+    observeIntersection,
+  } from "../../utils/image-loader-shared";
 
   export let src: string;
   export let alt: string = "";
@@ -29,9 +35,9 @@
   const isLinux =
     platformData === "linux" ||
     (ua && ua.includes("linux") && !ua.includes("android"));
-  const MAX_CONCURRENT_LOADS = isLinux ? 2 : 6;
-  let inflightLoads = 0;
-  const loadWaiters: Array<() => void> = [];
+  // Tell the shared limiter what the current platform's cap should be.
+  // Called every component mount, but the setter is idempotent.
+  setMaxConcurrentLoads(isLinux ? 2 : 6);
   let releaseCurrent: (() => void) | null = null;
 
   let wrapper: HTMLDivElement | null = null;
@@ -49,47 +55,22 @@
   let showSpinnerOverlay = false;
   // When we decide to show default for a given src, remember it so we don't retry
   let lockDefaultFor: string | null = null;
-  // Avoid duplicate cache writes in a single session
+  // Avoid duplicate cache writes in a single session (per instance, fine).
   const seenCacheTitles = new Set<string>();
   // One-shot cache recheck timer to update image after background caching
   let cacheRecheckTimer: number | null = null;
   const CACHE_RECHECK_DELAY_MS = 6000;
-  // IntersectionObserver to avoid loading offscreen images
-  let observer: IntersectionObserver | null = null;
+  // Shared intersection observer pool handles offscreen loading.
+  let unobserve: (() => void) | null = null;
   let inView = false;
-  let pendingRelease: (() => void) | null = null;
   let localFileFallback: string | null = null;
   let triedLocalFileFallback = false;
-  const cacheUrlMemo = new LRUCache<string, string | null>(500);
-  const thumbMemo = new LRUCache<string, string>(500);
 
   function releaseSlot() {
     if (releaseCurrent) {
       releaseCurrent();
       releaseCurrent = null;
     }
-    if (pendingRelease) {
-      pendingRelease();
-      pendingRelease = null;
-    }
-  }
-
-  function acquireSlot(): Promise<() => void> {
-    return new Promise((resolve) => {
-      const grant = () => {
-        inflightLoads = Math.max(0, inflightLoads) + 1;
-        resolve(() => {
-          inflightLoads = Math.max(0, inflightLoads - 1);
-          const next = loadWaiters.shift();
-          if (next) next();
-        });
-      };
-      if (inflightLoads < MAX_CONCURRENT_LOADS) {
-        grant();
-      } else {
-        loadWaiters.push(grant);
-      }
-    });
   }
 
   function isValidSrc(val: string | void | null): boolean {
@@ -294,7 +275,7 @@
       return;
     }
     try {
-      releaseCurrent = await acquireSlot();
+      releaseCurrent = await acquireLoadSlot();
     } catch (_) {
       releaseCurrent = null;
     }
@@ -572,21 +553,18 @@
 
   function ensureObserved() {
     if (inView || !wrapper) return;
-    if (observer) return;
-    observer = new IntersectionObserver(
-      (entries) => {
-        const entry = entries[0];
-        if (entry && entry.isIntersecting) {
-          inView = true;
-          observer?.disconnect();
-          observer = null;
-          // Now actually start loading
-          tryLoadCachedOrStart();
-        }
+    if (unobserve) return;
+    unobserve = observeIntersection(
+      wrapper,
+      (entry) => {
+        if (!entry.isIntersecting) return;
+        inView = true;
+        unobserve?.();
+        unobserve = null;
+        tryLoadCachedOrStart();
       },
-      { root: null, rootMargin: isLinux ? "0px" : "150px", threshold: 0.01 },
+      { rootMargin: isLinux ? "0px" : "150px", threshold: 0.01 },
     );
-    observer.observe(wrapper);
   }
 
   onMount(() => {
@@ -602,9 +580,9 @@
       cacheRecheckTimer = null;
     }
     releaseSlot();
-    if (observer) {
-      observer.disconnect();
-      observer = null;
+    if (unobserve) {
+      unobserve();
+      unobserve = null;
     }
   });
 
