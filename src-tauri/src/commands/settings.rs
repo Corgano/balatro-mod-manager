@@ -1,7 +1,6 @@
 use crate::compat_helper;
 use crate::state::AppState;
 use crate::util::map_error;
-use bmm_lib::lovely;
 
 #[tauri::command]
 pub async fn get_lovely_console_status(state: tauri::State<'_, AppState>) -> Result<bool, String> {
@@ -126,10 +125,6 @@ pub async fn set_launch_mode(
             mode
         ));
     }
-
-    // Toggle the injector files based on mode
-    let enable_injector = mode == "modded";
-    map_error(lovely::set_injector_enabled(enable_injector))?;
 
     // Save the preference to database
     let db = state.db.lock().unwrap_or_else(|e| e.into_inner());

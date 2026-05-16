@@ -18,7 +18,6 @@ use tauri_plugin_window_state::StateFlags;
 
 use bmm_lib::{
     database::Database, discord_rpc::DiscordRpcManager, errors::AppError, local_mod_detection,
-    lovely,
 };
 
 use crate::models::{ModsChangedEvent, Payload};
@@ -126,24 +125,6 @@ pub fn run() {
                     }
                     Ok(false) => {}
                     Err(e) => log::warn!("Failed to read analytics setting: {e}"),
-                }
-
-                // Sync launch mode injector state
-                match db.get_launch_mode() {
-                    Ok(mode) => {
-                        let enable_injector = mode == "modded";
-                        if let Err(e) = lovely::set_injector_enabled(enable_injector) {
-                            log::warn!(
-                                "Failed to sync launch mode injector state on startup: {}",
-                                e
-                            );
-                        } else {
-                            log::debug!("Launch mode synced on startup: {}", mode);
-                        }
-                    }
-                    Err(e) => {
-                        log::warn!("Failed to read launch mode on startup: {}", e);
-                    }
                 }
 
                 // Remove legacy GitHub-based local clone directory if it exists

@@ -14,6 +14,7 @@
 
 use crate::errors::AppError;
 use crate::http::{shared_client, shared_no_redirect_client};
+use std::ffi::OsString;
 #[cfg(any(target_os = "windows", target_os = "linux"))]
 use std::fs::File;
 #[cfg(target_os = "linux")]
@@ -107,6 +108,8 @@ pub async fn ensure_version_dll_exists(game_path: &Path) -> Result<PathBuf, AppE
 
     #[cfg(target_os = "linux")]
     {
+        restore_disabled_injector_file(&dll_path)?;
+
         // On Linux, cache the DLL and copy on each launch to survive Steam file verification
         let config_dir = dirs::config_dir()
             .ok_or_else(|| AppError::DirNotFound(PathBuf::from("config directory")))?;
@@ -118,7 +121,15 @@ pub async fn ensure_version_dll_exists(game_path: &Path) -> Result<PathBuf, AppE
 
         let cached_dll = bins_dir.join("version.dll");
         if !cached_dll.exists() {
-            download_version_dll(&cached_dll).await?;
+            if dll_path.exists() {
+                fs::copy(&dll_path, &cached_dll).map_err(|e| AppError::FileCopy {
+                    source: dll_path.display().to_string(),
+                    dest: cached_dll.display().to_string(),
+                    source_error: e.to_string(),
+                })?;
+            } else {
+                download_version_dll(&cached_dll).await?;
+            }
         }
 
         // Always copy to game directory (may have been removed by Steam)
@@ -141,6 +152,7 @@ pub async fn ensure_version_dll_exists(game_path: &Path) -> Result<PathBuf, AppE
     #[cfg(target_os = "windows")]
     {
         // On Windows, download directly to game directory
+        restore_disabled_injector_file(&dll_path)?;
         if !dll_path.exists() {
             download_version_dll(&dll_path).await?;
         }
@@ -213,6 +225,7 @@ pub async fn ensure_lovely_exists() -> Result<PathBuf, AppError> {
 
         let lovely_path = bins_dir.join("liblovely.dylib");
 
+        restore_disabled_injector_file(&lovely_path)?;
         if !lovely_path.exists() {
             download_and_install_lovely(&lovely_path).await?;
         }
@@ -539,6 +552,16 @@ pub async fn remove_installed_lovely() -> Result<(), AppError> {
                     source: e.to_string(),
                 })?;
         }
+        if let Some(disabled_lovely_path) = disabled_injector_path(&lovely_path)
+            && disabled_lovely_path.exists()
+        {
+            tokio::fs::remove_file(&disabled_lovely_path)
+                .await
+                .map_err(|e| AppError::FileWrite {
+                    path: disabled_lovely_path.clone(),
+                    source: e.to_string(),
+                })?;
+        }
         Ok(())
     }
 
@@ -557,12 +580,27 @@ pub async fn remove_installed_lovely() -> Result<(), AppError> {
                         source: e.to_string(),
                     })?;
             }
+            if let Some(disabled_dll_path) = disabled_injector_path(&dll_path)
+                && disabled_dll_path.exists()
+            {
+                tokio::fs::remove_file(&disabled_dll_path)
+                    .await
+                    .map_err(|e| AppError::FileWrite {
+                        path: disabled_dll_path.clone(),
+                        source: e.to_string(),
+                    })?;
+            }
             // Also remove liblovely.so on Linux
             #[cfg(target_os = "linux")]
             {
                 let so_path = game_path.join("liblovely.so");
                 if so_path.exists() {
                     let _ = tokio::fs::remove_file(&so_path).await;
+                }
+                if let Some(disabled_so_path) = disabled_injector_path(&so_path)
+                    && disabled_so_path.exists()
+                {
+                    let _ = tokio::fs::remove_file(&disabled_so_path).await;
                 }
             }
         }
@@ -578,9 +616,21 @@ pub async fn remove_installed_lovely() -> Result<(), AppError> {
                     let _ = tokio::fs::remove_file(&cached_dll).await;
                     log::info!("Removed cached version.dll");
                 }
+                if let Some(disabled_cached_dll) = disabled_injector_path(&cached_dll)
+                    && disabled_cached_dll.exists()
+                {
+                    let _ = tokio::fs::remove_file(&disabled_cached_dll).await;
+                    log::info!("Removed cached version.dll.disabled");
+                }
                 if cached_so.exists() {
                     let _ = tokio::fs::remove_file(&cached_so).await;
                     log::info!("Removed cached liblovely.so");
+                }
+                if let Some(disabled_cached_so) = disabled_injector_path(&cached_so)
+                    && disabled_cached_so.exists()
+                {
+                    let _ = tokio::fs::remove_file(&disabled_cached_so).await;
+                    log::info!("Removed cached liblovely.so.disabled");
                 }
             }
         }
@@ -596,8 +646,45 @@ pub async fn remove_installed_lovely() -> Result<(), AppError> {
     }
 }
 
+fn disabled_injector_path(active_path: &Path) -> Option<PathBuf> {
+    let file_name = active_path.file_name()?;
+    let mut disabled_name = OsString::from(file_name);
+    disabled_name.push(".disabled");
+    Some(active_path.with_file_name(disabled_name))
+}
+
+/// Returns true if an active injector file or its legacy `.disabled` variant exists.
+pub fn injector_artifact_exists(active_path: &Path) -> bool {
+    active_path.exists()
+        || disabled_injector_path(active_path)
+            .as_deref()
+            .is_some_and(Path::exists)
+}
+
+fn restore_disabled_injector_file(active_path: &Path) -> Result<bool, AppError> {
+    if active_path.exists() {
+        return Ok(false);
+    }
+
+    let Some(disabled_path) = disabled_injector_path(active_path) else {
+        return Ok(false);
+    };
+
+    if !disabled_path.exists() {
+        return Ok(false);
+    }
+
+    std::fs::rename(&disabled_path, active_path).map_err(|e| AppError::FileWrite {
+        path: active_path.to_path_buf(),
+        source: format!("Failed to restore injector: {}", e),
+    })?;
+
+    Ok(true)
+}
+
 /// Set whether the Lovely injector is enabled or disabled by renaming files.
 /// When disabled, the injector file is renamed to .disabled so it won't load.
+/// This is a legacy escape hatch; launch mode should use runtime flags instead.
 /// Returns Ok(()) if successful, or an error if the operation fails.
 pub fn set_injector_enabled(enabled: bool) -> Result<(), AppError> {
     #[cfg(target_os = "macos")]
@@ -1059,5 +1146,32 @@ mod tests {
         toggle_injector_file(&active, &disabled, false).unwrap();
         assert!(!active.exists());
         assert!(!disabled.exists());
+    }
+
+    #[test]
+    fn test_injector_artifact_exists_detects_disabled_file() {
+        let dir = tempdir().unwrap();
+        let active = dir.path().join("version.dll");
+        let disabled = dir.path().join("version.dll.disabled");
+
+        std::fs::write(&disabled, b"disabled").unwrap();
+
+        assert!(injector_artifact_exists(&active));
+    }
+
+    #[test]
+    fn test_restore_disabled_injector_file_reenables_existing_artifact() {
+        let dir = tempdir().unwrap();
+        let active = dir.path().join("version.dll");
+        let disabled = dir.path().join("version.dll.disabled");
+
+        std::fs::write(&disabled, b"disabled").unwrap();
+
+        let restored = restore_disabled_injector_file(&active).unwrap();
+
+        assert!(restored);
+        assert!(active.exists());
+        assert!(!disabled.exists());
+        assert_eq!(std::fs::read(&active).unwrap(), b"disabled");
     }
 }

@@ -9,7 +9,7 @@ use crate::state::AppState;
 
 /// Check whether Lovely is currently installed/present on this system.
 /// - macOS: checks for `~/Library/Application Support/Balatro/bins/liblovely.dylib` (via config dir)
-/// - Windows/Linux (Proton/Wine): checks that a `version.dll` exists in the Balatro game directory
+/// - Windows/Linux (Proton/Wine): checks for a `version.dll` artifact in the Balatro game directory
 #[tauri::command]
 pub async fn is_lovely_installed(_state: tauri::State<'_, AppState>) -> Result<bool, String> {
     #[cfg(target_os = "macos")]
@@ -20,7 +20,7 @@ pub async fn is_lovely_installed(_state: tauri::State<'_, AppState>) -> Result<b
             .join("Balatro")
             .join("bins")
             .join("liblovely.dylib");
-        Ok(lovely_path.exists())
+        Ok(lovely::injector_artifact_exists(&lovely_path))
     }
 
     #[cfg(target_os = "windows")]
@@ -29,14 +29,14 @@ pub async fn is_lovely_installed(_state: tauri::State<'_, AppState>) -> Result<b
         let db = _state.db.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(path) = db.get_installation_path().map_err(|e| e.to_string())? {
             let dll = PathBuf::from(path).join("version.dll");
-            return Ok(dll.exists());
+            return Ok(lovely::injector_artifact_exists(&dll));
         }
 
         // Fallback to first detected Balatro path
         let candidates = bmm_lib::finder::get_balatro_paths_cached();
         if let Some(p) = candidates.first() {
             let dll = p.join("version.dll");
-            return Ok(dll.exists());
+            return Ok(lovely::injector_artifact_exists(&dll));
         }
         return Ok(false);
     }
@@ -50,7 +50,9 @@ pub async fn is_lovely_installed(_state: tauri::State<'_, AppState>) -> Result<b
             // Check for both native (liblovely.so) and Proton (version.dll)
             let so = path.join("liblovely.so");
             let dll = path.join("version.dll");
-            return Ok(so.exists() || dll.exists());
+            return Ok(
+                lovely::injector_artifact_exists(&so) || lovely::injector_artifact_exists(&dll)
+            );
         }
 
         // Fallback to first detected Balatro path
@@ -58,7 +60,9 @@ pub async fn is_lovely_installed(_state: tauri::State<'_, AppState>) -> Result<b
         if let Some(p) = candidates.first() {
             let so = p.join("liblovely.so");
             let dll = p.join("version.dll");
-            return Ok(so.exists() || dll.exists());
+            return Ok(
+                lovely::injector_artifact_exists(&so) || lovely::injector_artifact_exists(&dll)
+            );
         }
         Ok(false)
     }
