@@ -1378,34 +1378,41 @@
   }
 
   function mapCachedMods(items: CachedModItem[]): Mod[] {
-    return items.map((item) => {
-      const image = item.image?.trim() || "/images/cover.jpg";
-      const hasThumb = !/\/images\/cover\.jpg$/i.test(image);
-      const cachedId =
-        item.id ||
-        (item.downloadURL?.startsWith("bmi://")
-          ? item.downloadURL.slice("bmi://".length)
-          : (item.folderName ?? undefined));
-      return {
-        id: cachedId,
-        title: item.title,
-        description: item.description ?? "",
-        image,
-        imageFallback: hasThumb ? image : undefined,
-        colors: item.colors ?? getRandomColorPair(),
-        categories: item.categories ?? [],
-        requires_steamodded: item.requires_steamodded ?? false,
-        requires_talisman: item.requires_talisman ?? false,
-        publisher: item.publisher ?? "",
-        repo: item.repo ?? "",
-        downloadURL: item.downloadURL ?? "",
-        folderName: item.folderName ?? null,
-        version: item.version ?? null,
-        installed: item.installed ?? false,
-        last_updated: 0,
-        _hasThumbnail: hasThumb,
-      };
-    });
+    const seen = new Set<string>();
+    return items
+      .filter((item) => {
+        if (seen.has(item.title)) return false;
+        seen.add(item.title);
+        return true;
+      })
+      .map((item) => {
+        const image = item.image?.trim() || "/images/cover.jpg";
+        const hasThumb = !/\/images\/cover\.jpg$/i.test(image);
+        const cachedId =
+          item.id ||
+          (item.downloadURL?.startsWith("bmi://")
+            ? item.downloadURL.slice("bmi://".length)
+            : (item.folderName ?? undefined));
+        return {
+          id: cachedId,
+          title: item.title,
+          description: item.description ?? "",
+          image,
+          imageFallback: hasThumb ? image : undefined,
+          colors: item.colors ?? getRandomColorPair(),
+          categories: item.categories ?? [],
+          requires_steamodded: item.requires_steamodded ?? false,
+          requires_talisman: item.requires_talisman ?? false,
+          publisher: item.publisher ?? "",
+          repo: item.repo ?? "",
+          downloadURL: item.downloadURL ?? "",
+          folderName: item.folderName ?? null,
+          version: item.version ?? null,
+          installed: item.installed ?? false,
+          last_updated: 0,
+          _hasThumbnail: hasThumb,
+        };
+      });
   }
 
   function applyCachedDetails(items: CachedModItem[]) {
@@ -1891,7 +1898,14 @@
     modsStore.update((arr) => {
       const incoming = new Map<string, Mod>();
       for (const m of incomingMods) incoming.set(m.title, m);
-      const incomingOrder = incomingMods.map((m) => m.title);
+      const seen = new Set<string>();
+      const incomingOrder: string[] = [];
+      for (const m of incomingMods) {
+        if (!seen.has(m.title)) {
+          seen.add(m.title);
+          incomingOrder.push(m.title);
+        }
+      }
       const existingRemoteCount = arr.reduce(
         (n, it) => n + (it._dirName ? 1 : 0),
         0,
@@ -3257,7 +3271,7 @@
                   </div>
                 {:else}
                   <div class="mods-grid collections-mods-grid">
-                    {#each selectedCollectionMods as mod, index (mod.title)}
+                    {#each selectedCollectionMods as mod, index (mod.downloadURL || mod.repo || mod.title)}
                       <div class="virtual-cell" style="--card-index: {index}">
                         <ModCard
                           {mod}
@@ -3543,7 +3557,7 @@
                   class="mods-grid"
                   class:has-local-mods={localMods.length > 0}
                 >
-                  {#each visiblePaginatedMods.filter( (m) => filteredEnabledMods.some((e) => e.title === m.title), ) as mod, index (`${animationNonce}-${$currentCategory}-enabled-${mod.title}`)}
+                  {#each visiblePaginatedMods.filter( (m) => filteredEnabledMods.some((e) => e.title === m.title), ) as mod, index (`${animationNonce}-${$currentCategory}-enabled-${mod.downloadURL || mod.repo || mod.title}`)}
                     <div class="virtual-cell" style="--card-index: {index}">
                       <ModCard
                         {mod}
@@ -3572,7 +3586,7 @@
                   class="mods-grid"
                   class:has-local-mods={localMods.length > 0}
                 >
-                  {#each visiblePaginatedMods.filter( (m) => filteredDisabledMods.some((e) => e.title === m.title), ) as mod, index (`${animationNonce}-${$currentCategory}-disabled-${mod.title}`)}
+                  {#each visiblePaginatedMods.filter( (m) => filteredDisabledMods.some((e) => e.title === m.title), ) as mod, index (`${animationNonce}-${$currentCategory}-disabled-${mod.downloadURL || mod.repo || mod.title}`)}
                     <div class="virtual-cell" style="--card-index: {index}">
                       <ModCard
                         {mod}
@@ -3591,7 +3605,7 @@
               {#if filteredEnabledMods.length === 0 && filteredDisabledMods.length === 0 && !$installedModsSearchStore}
                 <!-- Fallback: show installed catalog mods before enabled state resolves -->
                 <div class="mods-grid">
-                  {#each visiblePaginatedMods as mod, index (`${animationNonce}-${$currentCategory}-fallback-${mod.title}`)}
+                  {#each visiblePaginatedMods as mod, index (`${animationNonce}-${$currentCategory}-fallback-${mod.downloadURL || mod.repo || mod.title}`)}
                     <div class="virtual-cell" style="--card-index: {index}">
                       <ModCard
                         {mod}
@@ -3619,7 +3633,7 @@
           {:else}
             <!-- Original non-InstalledMods categories -->
             <div class="mods-grid">
-              {#each visiblePaginatedMods as mod, index (`${animationNonce}-${$currentCategory}-${mod.title}`)}
+              {#each visiblePaginatedMods as mod, index (`${animationNonce}-${$currentCategory}-${mod.downloadURL || mod.repo || mod.title}`)}
                 <div class="virtual-cell" style="--card-index: {index}">
                   <ModCard
                     {mod}

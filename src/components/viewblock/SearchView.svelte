@@ -401,7 +401,7 @@
         </p>
       {:else if searchResults.length > 0}
         <div transition:fade={{ duration: 100 }} class="results-wrapper">
-          {#each searchResults as mod (mod.title)}
+          {#each searchResults as mod (mod.downloadURL || mod.repo || mod.title)}
             <ModCard
               {mod}
               oninstallclick={installMod}
