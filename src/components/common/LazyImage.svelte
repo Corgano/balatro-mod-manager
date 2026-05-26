@@ -65,6 +65,7 @@
   let inView = false;
   let localFileFallback: string | null = null;
   let triedLocalFileFallback = false;
+  let loadGeneration = 0;
 
   function releaseSlot() {
     if (releaseCurrent) {
@@ -263,10 +264,12 @@
       lockDefaultFor = src ?? null;
       return;
     }
+    const gen = ++loadGeneration;
     triedFallback = false;
     usingDefault = false;
     triedLocalFileFallback = false;
     const { url: cacheUrl } = await buildCachePaths(cacheTitle);
+    if (gen !== loadGeneration) return;
     localFileFallback = cacheUrl;
     const resolved = resolveLocal(src);
     if (!resolved) {
@@ -274,10 +277,15 @@
       lockDefaultFor = src ?? null;
       return;
     }
+    releaseSlot();
     try {
       releaseCurrent = await acquireLoadSlot();
     } catch (_) {
       releaseCurrent = null;
+    }
+    if (gen !== loadGeneration) {
+      releaseSlot();
+      return;
     }
     if (isLinux) {
       if (typeof requestIdleCallback !== "undefined") {
@@ -285,6 +293,10 @@
       }
       // Spread work over frames to avoid main-thread spikes
       await new Promise((res) => requestAnimationFrame(() => res(null)));
+      if (gen !== loadGeneration) {
+        releaseSlot();
+        return;
+      }
     }
     currentSrc = resolved;
     // Treat non-network sources as immediately loaded (no timeout)
@@ -574,6 +586,7 @@
   });
 
   onDestroy(() => {
+    loadGeneration++;
     clearTimer();
     if (cacheRecheckTimer !== null) {
       clearTimeout(cacheRecheckTimer);
