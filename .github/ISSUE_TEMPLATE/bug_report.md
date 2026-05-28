@@ -15,12 +15,12 @@ assignees: ""
 **To Reproduce**
 Steps to reproduce the behavior:  
 
-```
-*  Go to '...'
-* Click on '....'
-* Scroll down to '....'
-* See error
-```
+
+`*  Go to '...'`  
+`* Click on '....'`  
+`* Scroll down to '....'`  
+`* See error`  
+
 **Expected behavior**  
 
 `A clear and concise description of what you expected to happen.`
