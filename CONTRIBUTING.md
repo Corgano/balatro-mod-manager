@@ -1,4 +1,4 @@
-# How to add your own mods
+# How to add your own mod
 Go to [The index](https://github.com/skyline69/balatro-mod-index) then read the instructions in [README.md](https://github.com/skyline69/balatro-mod-index/blob/main/README.md) (Make sure to read the entire thing!)  
 
 # How to change/add code
