@@ -97,6 +97,7 @@
   import { browser } from "$app/environment";
   import { openExternal } from "$lib/opener";
   import { mapWithConcurrency } from "../../utils/concurrency";
+  import { fuzzyFilter } from "../../utils/fuzzy";
 
   /** Max parallel mod-update invocations to keep the Tauri IPC queue healthy. */
   const UPDATE_ALL_CONCURRENCY = 6;
@@ -142,36 +143,23 @@
   // Search state for Installed Mods filter (uses store for cross-component access)
   let installedSearchInputRef: HTMLInputElement | null = $state(null);
 
-  function matchesInstalledSearch(
-    name: string,
-    authorOrPublisher?: string | string[],
-  ): boolean {
-    const searchValue = $installedModsSearchStore;
-    if (!searchValue.trim()) return true;
-    const query = searchValue.toLowerCase().trim();
-    const normalizedName = name.toLowerCase();
-    if (normalizedName.includes(query)) return true;
-    if (authorOrPublisher) {
-      if (Array.isArray(authorOrPublisher)) {
-        return authorOrPublisher.some((a) => a.toLowerCase().includes(query));
-      }
-      return authorOrPublisher.toLowerCase().includes(query);
-    }
-    return false;
-  }
+  // Build the searchable text for a catalog / local mod.
+  const catalogModText = (m: Mod) => `${m.title} ${m.publisher ?? ""}`;
+  const localModText = (m: LocalMod) =>
+    `${m.name} ${(m.author ?? []).join(" ")}`;
 
-  // Filtered versions of enabled/disabled lists based on search
+  // Filtered versions of enabled/disabled lists based on fuzzy search.
   let filteredEnabledMods = $derived(
-    enabledMods.filter((m) => matchesInstalledSearch(m.title, m.publisher)),
+    fuzzyFilter(enabledMods, $installedModsSearchStore, catalogModText),
   );
   let filteredDisabledMods = $derived(
-    disabledMods.filter((m) => matchesInstalledSearch(m.title, m.publisher)),
+    fuzzyFilter(disabledMods, $installedModsSearchStore, catalogModText),
   );
   let filteredEnabledLocalMods = $derived(
-    enabledLocalMods.filter((m) => matchesInstalledSearch(m.name, m.author)),
+    fuzzyFilter(enabledLocalMods, $installedModsSearchStore, localModText),
   );
   let filteredDisabledLocalMods = $derived(
-    disabledLocalMods.filter((m) => matchesInstalledSearch(m.name, m.author)),
+    fuzzyFilter(disabledLocalMods, $installedModsSearchStore, localModText),
   );
 
   // Derived values for BulkActionBar

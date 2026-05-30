@@ -19,14 +19,13 @@
   },
   "license": "GPL-3.0",
   "dependencies": {
+    "@leeoniya/ufuzzy": "^1.0.19",
     "@tauri-apps/api": "^2.11.0",
     "@tauri-apps/plugin-dialog": "^2.7.1",
     "@tauri-apps/plugin-fs": "^2.5.1",
     "@tauri-apps/plugin-os": "~2.3.2",
     "@tauri-apps/plugin-shell": "^2.3.5",
-    "@tauri-apps/plugin-window-state": "^2.4.1",
-    "@types/flexsearch": "^0.7.42",
-    "flexsearch": "^0.8.212"
+    "@tauri-apps/plugin-window-state": "^2.4.1"
   },
   "devDependencies": {
     "@sveltejs/adapter-static": "^3.0.10",

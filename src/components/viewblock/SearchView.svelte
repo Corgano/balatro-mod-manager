@@ -18,7 +18,7 @@
       t = setTimeout(() => fn(...args), wait);
     };
   }
-  import FlexSearch from "flexsearch";
+  import { fuzzySearch } from "../../utils/fuzzy";
   import { currentModView } from "../../stores/modStore";
   import { invoke } from "@tauri-apps/api/core";
   import { fetchCachedMods } from "../../stores/modCache";
@@ -35,12 +35,9 @@
   let searchQuery = $state("");
   let searchResults = $state<Mod[]>([]);
   let isSearching = $state(false);
-  type SearchIndex = {
-    add: (id: number, text: string) => void;
-    search: (query: string) => number[];
-  } | null;
-  let searchIndex: SearchIndex = $state(null);
   let mods = $state<Mod[]>([]);
+  // Cached searchable haystack, parallel to `mods`. Rebuilt when the catalog changes.
+  let haystack: string[] = [];
   let lastModCount = 0; // Track mod count to avoid unnecessary rebuilds
   let installedMods = $state<InstalledMod[]>([]);
   let mod = $state<Mod | null>(null);
@@ -250,53 +247,16 @@
     }
   });
 
-  // Debounced index rebuild to avoid blocking main thread
+  // Debounced haystack rebuild to avoid blocking main thread
   const rebuildIndex = debounce((currentMods: Mod[]) => {
     if (currentMods.length === 0) return;
-    const IndexCtor = (
-      FlexSearch as unknown as {
-        Index: new (opts: {
-          tokenize: string;
-          preset: string;
-          cache: boolean;
-        }) => {
-          add: (id: number, text: string) => void;
-          search: (q: string) => number[];
-        };
-      }
-    ).Index;
-    searchIndex = new IndexCtor({
-      tokenize: "forward",
-      preset: "match",
-      cache: true,
-    });
-    currentMods.forEach((mod, idx) => {
-      const searchText = `${mod.title} ${mod.publisher}`.toLowerCase();
-      if (searchIndex) searchIndex.add(idx, searchText);
-    });
+    haystack = currentMods.map(
+      (mod) => `${mod.title} ${mod.publisher} ${mod.description ?? ""}`,
+    );
     lastModCount = currentMods.length;
   }, 100);
 
   onMount(() => {
-    // Initialize the search index
-    const IndexCtor = (
-      FlexSearch as unknown as {
-        Index: new (opts: {
-          tokenize: string;
-          preset: string;
-          cache: boolean;
-        }) => {
-          add: (id: number, text: string) => void;
-          search: (q: string) => number[];
-        };
-      }
-    ).Index;
-    searchIndex = new IndexCtor({
-      tokenize: "forward",
-      preset: "match",
-      cache: true,
-    });
-
     $effect(() => {
       if (searchInput) {
         searchInput.focus();
@@ -319,7 +279,7 @@
   });
 
   const handleSearch = debounce(() => {
-    if (!searchIndex || searchQuery.length < 2) {
+    if (haystack.length === 0 || searchQuery.length < 2) {
       searchResults = [];
       showSpinner = false;
       return;
@@ -329,9 +289,9 @@
 
     try {
       const searchTerm = searchQuery.toLowerCase();
-      const results = searchIndex.search(searchTerm);
+      const results = fuzzySearch(haystack, searchTerm);
 
-      searchResults = results.map((idx: number) => mods[idx]);
+      searchResults = results.map((idx) => mods[idx]);
       if (searchResults.length > 0) {
         invoke("track_event", {
           name: "mod_searched",
