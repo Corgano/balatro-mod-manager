@@ -88,26 +88,37 @@ fn set_mod_enabled_at_path(mod_dir: &Path, enabled: bool) -> Result<(), String> 
     Ok(())
 }
 
+/// Resolve an installed mod's path by name, holding the global DB lock only
+/// for the lookup itself.
+///
+/// The `.lovelyignore` toggling below is plain filesystem work that does not
+/// touch the database, yet the database lives behind a single process-wide
+/// `Mutex`. Holding that lock across the (potentially slow, e.g. Windows
+/// Defender scanning freshly written files) I/O would block *every* other
+/// command that needs the DB, freezing the whole UI. So we copy out the path
+/// and drop the guard before doing any filesystem work.
+fn installed_mod_path(state: &AppState, mod_name: &str) -> Result<PathBuf, String> {
+    let db = state.db.lock().unwrap_or_else(|e| e.into_inner());
+    let installed_mods = db.get_installed_mods()?;
+    installed_mods
+        .iter()
+        .find(|m| m.name == mod_name)
+        .map(|m| PathBuf::from(&m.path))
+        .ok_or_else(|| format!("Mod not found: {mod_name}"))
+}
+
 #[tauri::command]
 pub async fn is_mod_enabled(
     state: tauri::State<'_, AppState>,
     mod_name: String,
 ) -> Result<bool, String> {
-    let db = state.db.lock().unwrap_or_else(|e| e.into_inner());
-    let installed_mods = db.get_installed_mods()?;
-    let mod_dir = &installed_mods
-        .iter()
-        .find(|m| m.name == mod_name)
-        .ok_or_else(|| format!("Mod not found: {mod_name}"))?
-        .path
-        .clone();
-    let mod_dir: &Path = Path::new(mod_dir);
+    let mod_dir = installed_mod_path(&state, &mod_name)?;
 
     if !mod_dir.exists() {
         return Err(format!("Mod directory not found: {mod_name}"));
     }
 
-    Ok(is_enabled_recursive(mod_dir))
+    Ok(is_enabled_recursive(&mod_dir))
 }
 
 #[tauri::command]
@@ -116,16 +127,12 @@ pub async fn toggle_mod_enabled(
     mod_name: String,
     enabled: bool,
 ) -> Result<(), String> {
-    let db = state.db.lock().unwrap_or_else(|e| e.into_inner());
-    let installed_mods = db.get_installed_mods()?;
-    let mod_dir = &installed_mods
-        .iter()
-        .find(|m| m.name == mod_name)
-        .ok_or_else(|| format!("Mod not found: {mod_name}"))?
-        .path
-        .clone();
-    let mod_dir: &Path = Path::new(mod_dir);
-    set_mod_enabled_at_path(mod_dir, enabled)
+    let mod_dir = installed_mod_path(&state, &mod_name)?;
+    // Run the (blocking, parallel) filesystem work off the async runtime's
+    // worker threads so a slow toggle never starves other commands.
+    tauri::async_runtime::spawn_blocking(move || set_mod_enabled_at_path(&mod_dir, enabled))
+        .await
+        .map_err(|e| format!("Toggle task failed: {e}"))?
 }
 
 #[tauri::command]
@@ -150,13 +157,15 @@ pub async fn toggle_mods_enabled_batch(
     disabled: Vec<String>,
     local_paths: Option<Vec<String>>,
 ) -> Result<(), String> {
-    let db = state.db.lock().unwrap_or_else(|e| e.into_inner());
-    let installed_mods = db.get_installed_mods()?;
-    let path_map: HashMap<String, PathBuf> = installed_mods
-        .into_iter()
-        .map(|m| (m.name, PathBuf::from(m.path)))
-        .collect();
-    let mut path_map = path_map;
+    // Resolve DB-tracked paths under the lock, then release it before doing
+    // any filesystem work (see `installed_mod_path`).
+    let mut path_map: HashMap<String, PathBuf> = {
+        let db = state.db.lock().unwrap_or_else(|e| e.into_inner());
+        db.get_installed_mods()?
+            .into_iter()
+            .map(|m| (m.name, PathBuf::from(m.path)))
+            .collect()
+    };
 
     if let Some(paths) = local_paths {
         for p in paths {
@@ -185,9 +194,14 @@ pub async fn toggle_mods_enabled_batch(
         }
     }
 
-    tasks
-        .par_iter()
-        .try_for_each(|(path, enabled)| set_mod_enabled_at_path(path, *enabled))?;
+    // Off-load the blocking parallel filesystem work from the async runtime.
+    tauri::async_runtime::spawn_blocking(move || {
+        tasks
+            .par_iter()
+            .try_for_each(|(path, enabled)| set_mod_enabled_at_path(path, *enabled))
+    })
+    .await
+    .map_err(|e| format!("Batch toggle task failed: {e}"))??;
 
     Ok(())
 }
@@ -200,12 +214,18 @@ pub async fn enabled_state_map(
 ) -> Result<HashMap<String, bool>, String> {
     let mut out: HashMap<String, bool> = HashMap::new();
 
-    // DB-installed mods
-    let db = state.db.lock().unwrap_or_else(|e| e.into_inner());
-    let installed_mods = db.get_installed_mods().map_err(|e| e.to_string())?;
-    for m in installed_mods {
-        let p = PathBuf::from(&m.path);
-        out.insert(m.name, is_enabled_recursive(&p));
+    // Resolve DB-tracked mods under the lock, then release it before the
+    // (potentially slow) recursive filesystem scans below.
+    let installed_mods: Vec<(String, PathBuf)> = {
+        let db = state.db.lock().unwrap_or_else(|e| e.into_inner());
+        db.get_installed_mods()
+            .map_err(|e| e.to_string())?
+            .into_iter()
+            .map(|m| (m.name, PathBuf::from(m.path)))
+            .collect()
+    };
+    for (name, p) in installed_mods {
+        out.insert(name, is_enabled_recursive(&p));
     }
 
     // Local mods passed from frontend
