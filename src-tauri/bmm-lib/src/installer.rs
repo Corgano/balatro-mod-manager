@@ -483,14 +483,43 @@ fn handle_zip(archive_path: &Path, mod_dir: &Path, mod_name: &str) -> Result<Pat
 
     log::debug!("ZIP archive contains {} entries", zip.len());
 
-    // Determine if ZIP has root files
-    let has_root_files = (0..zip.len()).try_fold(false, |acc, i| -> Result<bool, AppError> {
+    // Inspect the archive layout to decide whether it has a single wrapper
+    // directory that should be stripped (like GitHub source zips, which wrap
+    // everything in `<repo>-<ref>/`) or whether the mod files live at the
+    // archive root and must be kept as-is.
+    //
+    // We only strip when there is exactly ONE top-level directory and no files
+    // at the root. Mod release zips frequently ship sibling directories at the
+    // root (e.g. `lib/`, `lovely/`, `src/`); blindly stripping to the first
+    // entry there would discard every sibling but the first (see #363).
+    let mut has_root_files = false;
+    let mut top_level: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for i in 0..zip.len() {
         let file = zip.by_index(i).map_err(|e| AppError::FileRead {
             path: mod_dir.to_path_buf(),
             source: format!("Zip entry error: {e}"),
         })?;
-        Ok(acc || !file.name().contains('/'))
-    })?;
+        let name = file.name();
+        if name.starts_with("__MACOSX/") || name.starts_with("__MACOSX\\") {
+            continue;
+        }
+        let normalized = name.trim_start_matches("./").trim_start_matches(".\\");
+        let first = normalized.split(['/', '\\']).next().unwrap_or("");
+        if first.is_empty() {
+            continue;
+        }
+        // A file sitting directly at the archive root has no path separator.
+        if !file.is_dir()
+            && !normalized
+                .trim_end_matches(['/', '\\'])
+                .contains(['/', '\\'])
+        {
+            has_root_files = true;
+        }
+        top_level.insert(first.to_string());
+    }
+
+    let single_wrapper_dir = !has_root_files && top_level.len() == 1;
 
     // The target directory where the mod will be installed
     let target_dir = mod_dir.join(mod_name);
@@ -515,8 +544,9 @@ fn handle_zip(archive_path: &Path, mod_dir: &Path, mod_name: &str) -> Result<Pat
         }
     };
 
-    if has_root_files {
-        // For ZIPs with root files - extract directly to staging
+    if !single_wrapper_dir {
+        // Mod files live at the archive root (root files and/or multiple
+        // top-level directories) - extract them directly, preserving layout.
         fs::create_dir_all(&staging_dir).map_err(|e| AppError::DirCreate {
             path: staging_dir.clone(),
             source: e.to_string(),
@@ -536,7 +566,7 @@ fn handle_zip(archive_path: &Path, mod_dir: &Path, mod_name: &str) -> Result<Pat
             });
         }
     } else {
-        // For ZIPs with a folder structure
+        // Single wrapper directory - strip it and keep the inner contents.
         fs::create_dir_all(&staging_dir).map_err(|e| AppError::DirCreate {
             path: staging_dir.clone(),
             source: e.to_string(),
@@ -1138,6 +1168,46 @@ mod tests {
         assert!(file_path.exists());
         let content = std::fs::read_to_string(file_path).unwrap();
         assert_eq!(content, "docs");
+    }
+
+    #[test]
+    fn handle_zip_preserves_multiple_top_level_dirs() {
+        use std::io::Write;
+        use zip::ZipWriter;
+        use zip::write::FileOptions;
+
+        // Archive whose root holds several sibling directories with NO single
+        // wrapper folder and no root files (e.g. a mod release zip packaged as
+        // lib/, lovely/, src/). Regression test for #363: the installer used to
+        // assume a single wrapper dir and keep only the first one, discarding
+        // the siblings.
+        let mut buf: Vec<u8> = Vec::new();
+        {
+            let cursor = std::io::Cursor::new(&mut buf);
+            let mut zw = ZipWriter::new(cursor);
+            let opts: FileOptions<'_, ()> = FileOptions::default();
+            zw.start_file("lib/helper.lua", opts).unwrap();
+            zw.write_all(b"lib").unwrap();
+            zw.start_file("lovely/patch.toml", opts).unwrap();
+            zw.write_all(b"lovely").unwrap();
+            zw.start_file("src/main.lua", opts).unwrap();
+            zw.write_all(b"src").unwrap();
+            zw.finish().unwrap();
+        }
+
+        let td = tempdir().unwrap();
+        let mod_dir = td.path();
+        let archive_path = td.path().join("test.zip");
+        std::fs::write(&archive_path, &buf).unwrap();
+
+        let out = handle_zip(&archive_path, mod_dir, "DVPreview").unwrap();
+
+        assert!(out.join("lib/helper.lua").exists(), "lib/ was discarded");
+        assert!(
+            out.join("lovely/patch.toml").exists(),
+            "lovely/ was discarded"
+        );
+        assert!(out.join("src/main.lua").exists(), "src/ was discarded");
     }
 
     #[test]
