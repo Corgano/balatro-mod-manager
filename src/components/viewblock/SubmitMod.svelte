@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { Upload, ExternalLink, Github } from "lucide-svelte";
+  import { Upload, ExternalLink } from "lucide-svelte";
+  import Github from "../GithubIcon.svelte";
   import { openExternal } from "$lib/opener";
 
   const HELPER_URL = "https://bmi-helper.dasguney.com/";

@@ -5,6 +5,8 @@ edition = "2024"
 
 [dependencies]
 anyhow = "1.0.102"
+# bincode 3.0.0 ships with no cargo features (no `serde`) and would change the
+# on-disk cache format; pinned to 2.x intentionally.
 bincode = { version = "2.0", features = ["serde"] }
 bytes = "1.11.1"
 chrono = { version = "0.4.44", features = ["serde"] }
@@ -22,7 +24,7 @@ log = "0.4.30"
 once_cell = "1.21.4"
 regex = "1.12.3"
 reqwest = { version = "0.13", features = ["json"] }
-rusqlite = { version = "0.38.0", features = ["bundled"] }
+rusqlite = { version = "0.40.0", features = ["bundled"] }
 serde = { version = "1.0.228", features = ["serde_derive"] }
 serde_json = "1.0.150"
 serde_repr = "0.1.20"
@@ -30,7 +32,7 @@ tar = "0.4.46"
 tauri = "2.11.2"
 tempfile = "3.27.0"
 tokio = { version = "1.52.3", features = ["full"] }
-zip = { version = "7.2.0", default-features = false, features = ["deflate"] }
+zip = { version = "8.6.0", default-features = false, features = ["deflate"] }
 
 [dev-dependencies]
 tempfile = "3.27.0"
@@ -40,8 +42,8 @@ tokio = { version = "1.52.3", features = ["full", "test-util"] }
 rstest = "0.26.1"
 
 [target.'cfg(windows)'.dependencies]
-winreg = "0.55.0"
-sysinfo = "0.38"
+winreg = "0.56.0"
+sysinfo = "0.39"
 
 [target.'cfg(unix)'.dependencies]
 libproc = "0.14.11"

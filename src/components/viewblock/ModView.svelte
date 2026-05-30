@@ -6,10 +6,10 @@
     Trash2,
     User,
     ArrowLeft,
-    Github,
     RefreshCw,
     Layers,
   } from "lucide-svelte";
+  import Github from "../GithubIcon.svelte";
   import { onMount, onDestroy } from "svelte";
   import {
     currentModView,
