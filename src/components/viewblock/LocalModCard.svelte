@@ -397,7 +397,6 @@
     padding: 1rem;
     box-sizing: border-box;
     background-size: 100% 200%;
-    transition: all 0.3s ease;
     background-image: repeating-linear-gradient(
       -45deg,
       var(--bg-color),

@@ -66,10 +66,11 @@ function createPersistentBoolean(key: string, fallback: boolean) {
 }
 
 // Controls how large mod cards render in the grid/search views
-// Range: 0.75x – 1.4x
+export const CARD_SCALE_MIN = 0.5;
+export const CARD_SCALE_MAX = 1.4;
 export const cardScale = createPersistentNumber("ui.cardScale", 1, {
-  min: 0.75,
-  max: 1.4,
+  min: CARD_SCALE_MIN,
+  max: CARD_SCALE_MAX,
 });
 
 export const darkMode = createPersistentBoolean("ui.darkMode", false);

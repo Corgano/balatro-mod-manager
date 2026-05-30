@@ -45,10 +45,29 @@
   import { isLinuxPlatform } from "$lib/platform";
   import { backupsStore } from "../../stores/backups";
 
+  import { CARD_SCALE_MIN, CARD_SCALE_MAX } from "../../stores/ui";
   let currentSection = $state("mods");
   let isLinux = $state(false);
   let hasMounted = $state(false);
   let appVersion = $state("");
+
+  function handleCardScaleKey(e: KeyboardEvent) {
+    if (currentSection !== "mods") return;
+    if (!e.ctrlKey) return;
+    if (e.key === "=" || e.key === "+") {
+      e.preventDefault();
+      $cardScale = Math.min(
+        $cardScale + 0.05,
+        CARD_SCALE_MAX ?? 1.4,
+      );
+    } else if (e.key === "-") {
+      e.preventDefault();
+      $cardScale = Math.max(
+        $cardScale - 0.05,
+        CARD_SCALE_MIN ?? 0.5,
+      );
+    }
+  }
 
   let requiresPopupDismissedAt = 0;
   let wasRequiresPopupVisible = false;
@@ -322,6 +341,7 @@
   <ShaderBackgroundComp darkMode={$darkMode} />
 {/if}
 
+<svelte:window onkeydown={handleCardScaleKey} />
 <div class="main-page">
   <header>
     <div class="header-content">
@@ -463,6 +483,11 @@
     padding: 2rem;
     box-sizing: border-box;
     background: transparent;
+    text-shadow:
+      -1px -1px 0 #000,
+      1px -1px 0 #000,
+      -1px 1px 0 #000,
+      1px 1px 0 #000;
   }
   header {
     margin-bottom: -1rem;
@@ -473,11 +498,6 @@
     font-size: 3rem;
     margin-bottom: 2rem;
     font-family: "M6X11", sans-serif;
-    text-shadow:
-      -2px -2px 0 #000,
-      2px -2px 0 #000,
-      -2px 2px 0 #000,
-      2px 2px 0 #000;
   }
 
   nav {
@@ -515,6 +535,7 @@
     overflow: hidden;
     max-height: calc(100vh - 12rem);
     min-height: 0;
+    transition: --card-scale 0.15s ease;
   }
 
   .content.modal-open {
@@ -577,11 +598,6 @@
     right: 1rem;
     color: var(--ui-text);
     font-family: "M6X11", sans-serif;
-    text-shadow:
-      -1px -1px 0 #000,
-      1px -1px 0 #000,
-      -1px 1px 0 #000,
-      1px 1px 0 #000;
   }
   .header-content {
     position: relative;

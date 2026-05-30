@@ -23,7 +23,7 @@
     searchResults,
   } from "../../stores/modStore";
   import { descriptionsStore } from "../../stores/descriptions";
-  import { cardScale, darkMode } from "../../stores/ui";
+  import { cardScale, darkMode, CARD_SCALE_MIN, CARD_SCALE_MAX } from "../../stores/ui";
   import { browser } from "$app/environment";
 
   let isReindexing = $state(false);
@@ -570,8 +570,8 @@
         <input
           class="range"
           type="range"
-          min="0.75"
-          max="1.4"
+          min={CARD_SCALE_MIN}
+          max={CARD_SCALE_MAX}
           step="0.05"
           bind:value={$cardScale}
           aria-label="Card size"
@@ -579,6 +579,9 @@
       </div>
       <p class="description-small">
         Adjust how large mod cards render. Smaller cards fit more per row.
+      </p>
+      <p class="description-small hotkey-hint">
+        Ctrl+Scroll or Ctrl+= / Ctrl+- to adjust from anywhere
       </p>
 
       <div class="console-settings">
