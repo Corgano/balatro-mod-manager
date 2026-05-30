@@ -223,11 +223,6 @@ To clean the build files, use the provided taskfile:
 
 > Font by Daniel Linssen
 
-# Contributing
-
-Would like to contribute by adding a mod that you couldn't find on the manager?
-
-Feel free to check the [Balatro Mod Index](https://github.com/skyline69/balatro-mod-index) repo and look at the README to know how to process.
 
 # Code Signing
 
