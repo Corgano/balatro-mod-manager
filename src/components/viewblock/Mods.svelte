@@ -952,7 +952,43 @@
     Object.values($updateAvailableStore).some((value) => value === true),
   );
 
+  let updatesCount = $derived(
+    Object.values($updateAvailableStore).filter((v) => v === true).length,
+  );
+
+  let updateModsList = $derived(
+    Object.entries($updateAvailableStore)
+      .filter(([, v]) => v === true)
+      .map(([name]) => ({
+        name,
+        version: modVersions[name] ?? null,
+      })),
+  );
+
   let isUpdatingAll = $state(false);
+  let showUpdateTooltip = $state(false);
+  let updateTooltipTimer: ReturnType<typeof setTimeout> | null = null;
+
+  let localEnabledCollapsed = $state(false);
+
+  let modVersions = $state<Record<string, { installed: string; latest: string }>>({});
+  let localDisabledCollapsed = $state(false);
+  let catalogEnabledCollapsed = $state(false);
+  let catalogDisabledCollapsed = $state(false);
+
+  function onUpdateButtonMouseEnter() {
+    updateTooltipTimer = setTimeout(() => {
+      showUpdateTooltip = true;
+    }, 800);
+  }
+
+  function onUpdateButtonMouseLeave() {
+    if (updateTooltipTimer) {
+      clearTimeout(updateTooltipTimer);
+      updateTooltipTimer = null;
+    }
+    showUpdateTooltip = false;
+  }
 
   async function updateAllMods(e?: Event) {
     if (e) e.preventDefault();
@@ -1080,6 +1116,14 @@
 
       // Refresh the installed mods list
       await refreshInstalledMods();
+
+      // Re-apply success state to override stale backend comparisons
+      for (const title of successful) {
+        updateAvailableStore.update((s) => ({
+          ...s,
+          [title]: false,
+        }));
+      }
 
       // Show success message
       if (successful.length > 0) {
@@ -1210,6 +1254,11 @@
           [modToInstall.title]: false,
         }));
         await refreshInstalledMods();
+        // Re-apply to override stale backend comparison
+        updateAvailableStore.update((s) => ({
+          ...s,
+          [modToInstall.title]: false,
+        }));
       } catch (error) {
         console.error("Failed to install mod:", error);
         const raw = error instanceof Error ? error.message : String(error);
@@ -2277,9 +2326,29 @@
     }
   });
 
-  function sortMods(mods: Mod[], _sortOption: SortOption): Mod[] {
-    // Sorting is provided by the server; preserve incoming order.
-    return mods;
+  function sortMods(mods: Mod[], option: SortOption): Mod[] {
+    const sorted = [...mods];
+    switch (option) {
+      case SortOption.NameAsc:
+        sorted.sort((a, b) => a.title.localeCompare(b.title));
+        break;
+      case SortOption.NameDesc:
+        sorted.sort((a, b) => b.title.localeCompare(a.title));
+        break;
+      case SortOption.LastUpdatedDesc:
+        sorted.sort((a, b) => b.last_updated - a.last_updated);
+        break;
+      case SortOption.LastUpdatedAsc:
+        sorted.sort((a, b) => a.last_updated - b.last_updated);
+        break;
+      case SortOption.DownloadsDesc:
+        sorted.sort((a, b) => (b.downloads_total ?? 0) - (a.downloads_total ?? 0));
+        break;
+      case SortOption.DownloadsAsc:
+        sorted.sort((a, b) => (a.downloads_total ?? 0) - (b.downloads_total ?? 0));
+        break;
+    }
+    return sorted;
   }
 
   // Add sort handler
@@ -2308,7 +2377,6 @@
       currentPage.set(1);
       startPage = 1;
     }
-    refreshCatalogInBackground(false).catch(() => {});
   }
 
   function handleClickOutsideSort(event: MouseEvent) {
@@ -2328,17 +2396,13 @@
     };
   });
 
-  // Keep for backwards compat if used elsewhere
   function handleSortChange(event: Event) {
     const select = event.target as HTMLSelectElement;
     currentSort.set(select.value as SortOption);
-    // Derived values react to $currentSort; no manual assignment needed
-    // Reset to first page when sort changes to prevent out-of-bounds issues
     if ($currentPage > 1) {
       currentPage.set(1);
       startPage = 1;
     }
-    refreshCatalogInBackground(false).catch(() => {});
   }
 
   function handleCreateCollection() {
@@ -2885,12 +2949,7 @@
   let visiblePaginatedMods: Mod[] = $state([]);
 
   function updateVirtualWindow() {
-    // For Installed Mods view, apply renderLimitCatalog for virtual scrolling
-    if (isInstalledMods) {
-      visiblePaginatedMods = paginatedMods.slice(0, renderLimitCatalog);
-    } else {
-      visiblePaginatedMods = paginatedMods;
-    }
+    visiblePaginatedMods = paginatedMods;
   }
 
   // Whenever the visible page changes, try to quickly hydrate from cache and recalc window
@@ -2904,12 +2963,8 @@
     renderLimitLocal = Math.min(60, localMax || 60);
     if (observerLocal && localSentinel) observerLocal.observe(localSentinel);
 
-    // Reset catalog render limit and attach observer for Installed Mods
-    if (isInstalledMods) {
-      renderLimitCatalog = Math.min(36, paginatedMods.length || 36);
-      if (observerCatalog && catalogSentinel) {
-        observerCatalog.observe(catalogSentinel);
-      }
+    if (observerCatalog && catalogSentinel) {
+      observerCatalog.observe(catalogSentinel);
     }
 
     updateVirtualWindow();
@@ -3014,6 +3069,7 @@
         updates: Record<string, boolean>;
         thumbnails: Record<string, string>;
         descriptions: Record<string, string>;
+        versions: Record<string, { installed: string; latest: string }>;
       }>("mods_state_summary", {
         localPaths,
         catalogTitles: paginatedMods.map((m) => m.title),
@@ -3044,6 +3100,7 @@
       );
       modEnabledStore.set(summary.enabled || {});
       updateAvailableStore.set(summary.updates || {});
+      modVersions = summary.versions || {};
       // Apply cached thumbnails for installed mods
       const thumbMap = summary.thumbnails || {};
       if (Object.keys(thumbMap).length > 0) {
@@ -3093,8 +3150,6 @@
       cat === "Installed Mods" &&
       prevCategory !== "Installed Mods"
     ) {
-      // Category just switched to Installed Mods - reset virtual scroll limit
-      renderLimitCatalog = 36;
       refreshInstalledMods();
       if (sortedAndFilteredMods.length === 0) {
         seedInstalledPlaceholders();
@@ -3334,15 +3389,36 @@
                     class:updating={isUpdatingAll}
                     onclick={updateAllMods}
                     disabled={isUpdatingAll}
-                    title={isUpdatingAll
-                      ? "Updating mods..."
-                      : "Update all mods with available updates"}
+                    onmouseenter={onUpdateButtonMouseEnter}
+                    onmouseleave={onUpdateButtonMouseLeave}
                   >
                     <RefreshCw
                       size={18}
                       class={isUpdatingAll ? "spinning" : ""}
                     />
-                    <span>{isUpdatingAll ? "Updating..." : "Update All"}</span>
+                    <span>{isUpdatingAll ? "Updating..." : `Update ${updatesCount} Mod${updatesCount === 1 ? "" : "s"}`}</span>
+                    {#if showUpdateTooltip && !isUpdatingAll}
+                      <div class="update-tooltip">
+                        <div class="update-tooltip-header">
+                          <span class="update-tooltip-header-name">Mod</span>
+                          <span class="update-tooltip-header-versions">Version</span>
+                        </div>
+                        {#each updateModsList as item}
+                          <div class="update-tooltip-item">
+                            <span class="update-tooltip-item-name">{item.name}</span>
+                            <span class="update-tooltip-item-versions">
+                              {#if item.version}
+                                <span class="update-tooltip-ver-old">{item.version.installed}</span>
+                                <span class="update-tooltip-arrow">→</span>
+                                <span class="update-tooltip-ver-new">{item.version.latest}</span>
+                              {:else}
+                                <span class="update-tooltip-ver-new">new</span>
+                              {/if}
+                            </span>
+                          </div>
+                        {/each}
+                      </div>
+                    {/if}
                   </button>
                 {/if}
               </div>
@@ -3462,6 +3538,7 @@
           }}
         >
           {#if $currentCategory === "Installed Mods"}
+            <div class="scroll-spacer"></div>
             {#if showLoadingLocalMods}
               <div class="section-divider">
                 <span class="section-label">Local Mods</span>
@@ -3477,58 +3554,78 @@
 
               <!-- Enabled Local Mods -->
               {#if filteredEnabledLocalMods.length > 0}
-                <div class="subsection-divider enabled">
+                <div
+                  class="subsection-divider enabled"
+                  class:collapsed={localEnabledCollapsed}
+                  role="button"
+                  tabindex="0"
+                  onclick={() => (localEnabledCollapsed = !localEnabledCollapsed)}
+                  onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); localEnabledCollapsed = !localEnabledCollapsed; } }}
+                >
                   <span class="status-dot enabled"></span>
                   <span class="subsection-label">Enabled</span>
+                  <span class="subsection-collapse-hint">{localEnabledCollapsed ? "Click to Expand" : "Click to Collapse"}</span>
                   <span class="subsection-count"
                     >{filteredEnabledLocalMods.length} active</span
                   >
                 </div>
-                <div class="mods-grid local-mods-grid">
-                  {#each visibleEnabledLocal as mod, index (`${animationNonce}-local-enabled-${mod.name}`)}
-                    <div class="virtual-cell" style="--card-index: {index}">
-                      <LocalModCard
-                        {mod}
-                        onUninstall={handleModUninstalled}
-                        onToggleEnabled={handleModToggled}
-                        showCheckbox={true}
-                      />
-                    </div>
-                  {/each}
-                  <div
-                    bind:this={localSentinel}
-                    class="render-sentinel"
-                    aria-hidden="true"
-                  ></div>
-                </div>
+                {#if !localEnabledCollapsed}
+                  <div class="mods-grid local-mods-grid">
+                    {#each visibleEnabledLocal as mod, index (`${animationNonce}-local-enabled-${mod.name}`)}
+                      <div class="virtual-cell" style="--card-index: {index}">
+                        <LocalModCard
+                          {mod}
+                          onUninstall={handleModUninstalled}
+                          onToggleEnabled={handleModToggled}
+                          showCheckbox={true}
+                        />
+                      </div>
+                    {/each}
+                    <div
+                      bind:this={localSentinel}
+                      class="render-sentinel"
+                      aria-hidden="true"
+                    ></div>
+                  </div>
+                {/if}
               {/if}
 
               <!-- Disabled Local Mods -->
               {#if filteredDisabledLocalMods.length > 0}
-                <div class="subsection-divider disabled">
+                <div
+                  class="subsection-divider disabled"
+                  class:collapsed={localDisabledCollapsed}
+                  role="button"
+                  tabindex="0"
+                  onclick={() => (localDisabledCollapsed = !localDisabledCollapsed)}
+                  onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); localDisabledCollapsed = !localDisabledCollapsed; } }}
+                >
                   <span class="status-dot disabled"></span>
                   <span class="subsection-label">Disabled</span>
+                  <span class="subsection-collapse-hint">{localDisabledCollapsed ? "Click to Expand" : "Click to Collapse"}</span>
                   <span class="subsection-count"
                     >{filteredDisabledLocalMods.length} inactive</span
                   >
                 </div>
-                <div class="mods-grid local-mods-grid">
-                  {#each visibleDisabledLocal as mod, index (`${animationNonce}-local-disabled-${mod.name}`)}
-                    <div class="virtual-cell" style="--card-index: {index}">
-                      <LocalModCard
-                        {mod}
-                        onUninstall={handleModUninstalled}
-                        onToggleEnabled={handleModToggled}
-                        showCheckbox={true}
-                      />
-                    </div>
-                  {/each}
-                  <div
-                    bind:this={localSentinel}
-                    class="render-sentinel"
-                    aria-hidden="true"
-                  ></div>
-                </div>
+                {#if !localDisabledCollapsed}
+                  <div class="mods-grid local-mods-grid">
+                    {#each visibleDisabledLocal as mod, index (`${animationNonce}-local-disabled-${mod.name}`)}
+                      <div class="virtual-cell" style="--card-index: {index}">
+                        <LocalModCard
+                          {mod}
+                          onUninstall={handleModUninstalled}
+                          onToggleEnabled={handleModToggled}
+                          showCheckbox={true}
+                        />
+                      </div>
+                    {/each}
+                    <div
+                      bind:this={localSentinel}
+                      class="render-sentinel"
+                      aria-hidden="true"
+                    ></div>
+                  </div>
+                {/if}
               {/if}
 
               <!-- Mod Manager Catalog Section Header -->
@@ -3555,42 +3652,61 @@
             {#if paginatedMods.length > 0}
               <!-- Enabled Catalog Mods -->
               {#if filteredEnabledMods.length > 0}
-                <div class="subsection-divider enabled">
+                <div
+                  class="subsection-divider enabled"
+                  class:collapsed={catalogEnabledCollapsed}
+                  role="button"
+                  tabindex="0"
+                  onclick={() => (catalogEnabledCollapsed = !catalogEnabledCollapsed)}
+                  onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); catalogEnabledCollapsed = !catalogEnabledCollapsed; } }}
+                >
                   <span class="status-dot enabled"></span>
                   <span class="subsection-label">Enabled</span>
+                  <span class="subsection-collapse-hint">{catalogEnabledCollapsed ? "Click to Expand" : "Click to Collapse"}</span>
                   <span class="subsection-count"
                     >{filteredEnabledMods.length} active</span
                   >
                 </div>
-                <div
-                  class="mods-grid"
-                  class:has-local-mods={localMods.length > 0}
-                >
-                  {#each visibleEnabledCatalog as mod, index (`${animationNonce}-${$currentCategory}-enabled-${mod.downloadURL || mod.repo || mod.title}`)}
-                    <div class="virtual-cell" style="--card-index: {index}">
-                      <ModCard
-                        {mod}
-                        deferImages={paginating}
-                        onmodclick={handleModClick}
-                        oninstallclick={installMod}
-                        onuninstallclick={uninstallMod}
-                        onToggleEnabled={handleModToggled}
-                        showCheckbox={true}
-                      />
-                    </div>
-                  {/each}
-                </div>
+                {#if !catalogEnabledCollapsed}
+                  <div
+                    class="mods-grid"
+                    class:has-local-mods={localMods.length > 0}
+                  >
+                    {#each visibleEnabledCatalog as mod, index (`${animationNonce}-${$currentCategory}-enabled-${mod.downloadURL || mod.repo || mod.title}`)}
+                      <div class="virtual-cell" style="--card-index: {index}">
+                        <ModCard
+                          {mod}
+                          deferImages={paginating}
+                          onmodclick={handleModClick}
+                          oninstallclick={installMod}
+                          onuninstallclick={uninstallMod}
+                          onToggleEnabled={handleModToggled}
+                          showCheckbox={true}
+                        />
+                      </div>
+                    {/each}
+                  </div>
+                {/if}
               {/if}
 
               <!-- Disabled Catalog Mods -->
               {#if filteredDisabledMods.length > 0}
-                <div class="subsection-divider disabled">
+                <div
+                  class="subsection-divider disabled"
+                  class:collapsed={catalogDisabledCollapsed}
+                  role="button"
+                  tabindex="0"
+                  onclick={() => (catalogDisabledCollapsed = !catalogDisabledCollapsed)}
+                  onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); catalogDisabledCollapsed = !catalogDisabledCollapsed; } }}
+                >
                   <span class="status-dot disabled"></span>
                   <span class="subsection-label">Disabled</span>
+                  <span class="subsection-collapse-hint">{catalogDisabledCollapsed ? "Click to Expand" : "Click to Collapse"}</span>
                   <span class="subsection-count"
                     >{filteredDisabledMods.length} inactive</span
                   >
                 </div>
+<<<<<<< HEAD
                 <div
                   class="mods-grid"
                   class:has-local-mods={localMods.length > 0}
@@ -3609,6 +3725,28 @@
                     </div>
                   {/each}
                 </div>
+=======
+                {#if !catalogDisabledCollapsed}
+                  <div
+                    class="mods-grid"
+                    class:has-local-mods={localMods.length > 0}
+                  >
+                    {#each visiblePaginatedMods.filter( (m) => filteredDisabledMods.some((e) => e.title === m.title), ) as mod, index (`${animationNonce}-${$currentCategory}-disabled-${mod.downloadURL || mod.repo || mod.title}`)}
+                      <div class="virtual-cell" style="--card-index: {index}">
+                        <ModCard
+                          {mod}
+                          deferImages={paginating}
+                          onmodclick={handleModClick}
+                          oninstallclick={installMod}
+                          onuninstallclick={uninstallMod}
+                          onToggleEnabled={handleModToggled}
+                          showCheckbox={true}
+                        />
+                      </div>
+                    {/each}
+                  </div>
+                {/if}
+>>>>>>> 12b4327 (fix: re-apply update state after refresh to prevent stale version comparison)
               {/if}
 
               {#if filteredEnabledMods.length === 0 && filteredDisabledMods.length === 0 && !$installedModsSearchStore}
@@ -3726,6 +3864,80 @@
     background: var(--ui-info);
   }
 
+  .update-tooltip {
+    position: absolute;
+    top: calc(100% + 8px);
+    left: 0;
+    z-index: 3001;
+    background: var(--ui-panel-muted-strong);
+    border: 1px solid var(--ui-panel-muted-border);
+    border-radius: 6px;
+    padding: 0.3rem 0;
+    min-width: 280px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+    pointer-events: none;
+  }
+
+  .update-tooltip-header {
+    display: flex;
+    align-items: center;
+    padding: 0.15rem 0.6rem 0.15rem 0.8rem;
+    font-size: 0.75rem;
+    font-family: "M6X11", sans-serif;
+    color: var(--ui-text-muted);
+    border-bottom: 1px solid var(--ui-panel-muted-border);
+    margin-bottom: 0.15rem;
+  }
+
+  .update-tooltip-header-name {
+    flex: 1;
+    text-align: left;
+  }
+
+  .update-tooltip-header-versions {
+    text-align: right;
+    margin-right: 0.2rem;
+  }
+
+  .update-tooltip-item {
+    display: flex;
+    align-items: center;
+    padding: 0.2rem 0.6rem 0.2rem 0.8rem;
+    font-size: 0.8rem;
+    white-space: nowrap;
+    color: var(--ui-text);
+    font-family: "M6X11", sans-serif;
+  }
+
+  .update-tooltip-item + .update-tooltip-item {
+    border-top: 1px solid var(--ui-panel-muted-border);
+  }
+
+  .update-tooltip-item-name {
+    flex: 1;
+    text-align: left;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .update-tooltip-item-versions {
+    text-align: right;
+    flex-shrink: 0;
+  }
+
+  .update-tooltip-ver-old {
+    color: var(--ui-text-muted);
+  }
+
+  .update-tooltip-arrow {
+    color: var(--ui-text-muted);
+    margin: 0 0.3rem;
+  }
+
+  .update-tooltip-ver-new {
+    color: var(--ui-info);
+  }
+
   .update-all-button-top:disabled:hover {
     background: var(--ui-info);
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
@@ -3803,6 +4015,30 @@
     padding: 0.5rem 2rem;
     margin: 0.75rem 2rem 0.5rem 2rem;
     border-radius: 6px;
+    cursor: pointer;
+    user-select: none;
+    transition: opacity 0.15s ease;
+    position: relative;
+  }
+
+  .subsection-divider:hover {
+    opacity: 0.85;
+  }
+
+  .subsection-divider.collapsed {
+    opacity: 0.6;
+  }
+
+  .subsection-divider .subsection-collapse-hint {
+    font-family: "M6X11", sans-serif;
+    font-size: 1rem;
+    color: var(--ui-text);
+    opacity: 0.4;
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    white-space: nowrap;
+    pointer-events: none;
   }
 
   .subsection-divider.enabled {
@@ -4591,6 +4827,10 @@
     transform: translateZ(0);
     will-change: scroll-position;
     overscroll-behavior: contain;
+  }
+
+  .scroll-spacer {
+    height: 75px;
   }
 
   .mods-grid {

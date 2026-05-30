@@ -246,6 +246,13 @@ pub struct ModsStateSummary {
     pub updates: std::collections::HashMap<String, bool>,
     pub thumbnails: std::collections::HashMap<String, String>,
     pub descriptions: std::collections::HashMap<String, String>,
+    pub versions: std::collections::HashMap<String, ModVersionPair>,
+}
+
+#[derive(Serialize)]
+pub struct ModVersionPair {
+    pub installed: String,
+    pub latest: String,
 }
 
 /// Return installed list, enabled map, and updates map in a single IPC.
@@ -309,6 +316,7 @@ pub async fn mods_state_summary(
     }
 
     let mut updates: HashMap<String, bool> = HashMap::new();
+    let mut versions: HashMap<String, ModVersionPair> = HashMap::new();
     for m in &installed_list {
         let key = m.name.to_lowercase();
         let installed_version = {
@@ -323,6 +331,10 @@ pub async fn mods_state_summary(
         let remote = by_title.get(&key).or_else(|| by_folder.get(&key));
         if let Some(remote_version) = remote {
             updates.insert(m.name.clone(), remote_version != &installed_version);
+            versions.insert(m.name.clone(), ModVersionPair {
+                installed: installed_version,
+                latest: remote_version.clone(),
+            });
         } else {
             updates.insert(m.name.clone(), false);
         }
@@ -379,6 +391,7 @@ pub async fn mods_state_summary(
         updates,
         thumbnails,
         descriptions,
+        versions,
     })
 }
 
@@ -413,12 +426,14 @@ mod tests {
             updates: std::collections::HashMap::from([("Mod1".to_string(), false)]),
             thumbnails: std::collections::HashMap::new(),
             descriptions: std::collections::HashMap::new(),
+            versions: std::collections::HashMap::new(),
         };
         let json = serde_json::to_string(&summary).unwrap();
         assert!(json.contains("Mod1"));
         assert!(json.contains("installed"));
         assert!(json.contains("enabled"));
         assert!(json.contains("updates"));
+        assert!(json.contains("versions"));
     }
 
     #[test]
@@ -439,6 +454,7 @@ mod tests {
             updates: std::collections::HashMap::new(),
             thumbnails: std::collections::HashMap::new(),
             descriptions: std::collections::HashMap::new(),
+            versions: std::collections::HashMap::new(),
         };
         assert!(summary.installed.is_empty());
         assert!(summary.enabled.is_empty());
