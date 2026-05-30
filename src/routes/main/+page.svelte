@@ -20,7 +20,6 @@
   } from "../../stores/modStore";
   import { backgroundEnabled } from "../../stores/modStore";
   import { selectedModStore, dependentsStore } from "../../stores/modStore";
-  import { currentPage, paginationWindow } from "../../stores/modStore";
   import {
     installationStatus,
     showWarningPopup,
@@ -151,23 +150,6 @@
     securityPopupStore.update((s) => ({ ...s, visible: false }));
     storedDownloadAction = null;
     originalDownloadAction = null;
-  }
-
-  function nextPage() {
-    if ($currentPage < $paginationWindow.totalPages) {
-      currentPage.update((n) => n + 1);
-    }
-  }
-
-  function previousPage() {
-    if ($currentPage > 1) {
-      currentPage.update((n) => n - 1);
-    }
-  }
-
-  function goToPage(page: number) {
-    if (page < 1 || page > $paginationWindow.totalPages) return;
-    currentPage.set(page);
   }
 
   function handleProceedDownload() {
@@ -413,35 +395,7 @@
     </div>
   </div>
 
-  {#if currentSection === "mods" && !$currentModView && $currentCategory !== "Search" && $currentCategory !== "Collections" && $currentCategory !== "Installed Mods" && $paginationWindow.totalPages > 1}
-    <div
-      class="pagination-footer"
-      in:fade={{ duration: 150 }}
-      out:fade={{ duration: 120 }}
-    >
-      <div class="pagination-controls">
-        <button onclick={previousPage} disabled={$currentPage === 1}>
-          Previous
-        </button>
-        {#each Array(Math.min($paginationWindow.maxVisiblePages, $paginationWindow.totalPages)) as _, i (i)}
-          {#if $paginationWindow.startPage + i <= $paginationWindow.totalPages}
-            <button
-              class:active={$currentPage === $paginationWindow.startPage + i}
-              onclick={() => goToPage($paginationWindow.startPage + i)}
-            >
-              {$paginationWindow.startPage + i}
-            </button>
-          {/if}
-        {/each}
-        <button
-          onclick={nextPage}
-          disabled={$currentPage === $paginationWindow.totalPages}
-        >
-          Next
-        </button>
-      </div>
-    </div>
-  {/if}
+
 
   <RequiresPopup />
 
@@ -604,51 +558,6 @@
     margin-bottom: 2rem;
   }
 
-  .pagination-footer {
-    position: fixed;
-    left: 50%;
-    bottom: 1.1rem;
-    transform: translateX(-50%);
-    display: flex;
-    justify-content: center;
-    z-index: 1400;
-  }
-
-  .pagination-controls {
-    display: flex;
-    gap: 0.4rem;
-    padding: 0;
-    background: transparent;
-    border: none;
-    box-shadow: none;
-  }
-
-  .pagination-controls button {
-    padding: 0.45rem 0.9rem;
-    background: var(--ui-mod-chip-bg);
-    border: 1px solid var(--ui-mod-chip-border);
-    color: var(--ui-mod-chip-text);
-    font-family: "M6X11", sans-serif;
-    font-size: 0.9rem;
-    cursor: pointer;
-    border-radius: 3px;
-    transition: all 0.2s ease;
-  }
-
-  .pagination-controls button:hover:not(:disabled) {
-    background: var(--ui-mod-chip-active-bg);
-    color: var(--ui-mod-chip-active-text);
-  }
-
-  .pagination-controls button.active {
-    background: var(--ui-mod-chip-active-bg);
-    color: var(--ui-mod-chip-active-text);
-  }
-
-  .pagination-controls button:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
   header {
     margin-bottom: -1rem;
   }

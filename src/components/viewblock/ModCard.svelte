@@ -106,7 +106,19 @@
     const needed = titleEl.scrollWidth;
     if (available > 0 && needed > 0) {
       const ratio = Math.min(1, available / needed);
-      titleScale = Math.max(0.8, ratio);
+      const current = titleScale;
+      if (current < 1) {
+        // Hysteresis to prevent flapping:
+        // only scale back up if there's 5%+ extra room,
+        // only scale further down if ratio drops 5%+ below current
+        if (ratio >= 1.05) {
+          titleScale = 1;
+        } else if (ratio < current - 0.05) {
+          titleScale = Math.max(0.8, ratio);
+        }
+      } else {
+        titleScale = Math.max(0.8, ratio);
+      }
     } else {
       titleScale = 1;
     }

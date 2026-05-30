@@ -382,7 +382,12 @@
     releaseSlot();
     dispatch("load");
 
-    // If a remote image loaded successfully, persist it to the cache for future use
+    // Store in in-memory cache so re-mounted components get it instantly
+    if (enableCache && cacheTitle && currentSrc) {
+      thumbMemo.set(cacheTitle, currentSrc);
+    }
+
+    // If a remote image loaded successfully, persist it to disk for future sessions
     if (
       enableCache &&
       cacheTitle &&

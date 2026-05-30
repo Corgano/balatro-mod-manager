@@ -18,7 +18,6 @@
     uninstallDialogStore,
     currentCategory,
     updateAvailableStore,
-    currentPage,
     modEnabledStore,
   } from "../../stores/modStore";
   import type { InstalledMod, Mod } from "../../stores/modStore";
@@ -1337,7 +1336,6 @@
                 <button
                   class="category-tag"
                   onclick={() => {
-                    currentPage.set(1);
                     currentModView.set(null);
                     currentCategory.set(getCategoryName(category));
                     setTimeout(() => {

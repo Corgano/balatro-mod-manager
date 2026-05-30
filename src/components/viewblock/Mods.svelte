@@ -76,11 +76,6 @@
   import { listen } from "@tauri-apps/api/event";
   import { get, writable } from "svelte/store";
   import { addMessage } from "$lib/stores";
-  import {
-    currentPage,
-    itemsPerPage,
-    paginationWindow,
-  } from "../../stores/modStore";
   import ModCard from "./ModCard.svelte";
   import LocalModCard from "./LocalModCard.svelte";
   import BulkActionBar from "../BulkActionBar.svelte";
@@ -2280,12 +2275,9 @@
   });
 
   function handleCategoryClick(category: string) {
-    currentPage.set(1);
-    startPage = 1; // Reset sliding window
     currentCategory.set(category);
     scrollToTop();
     markPaginating();
-    updateVirtualWindow();
     // Clear selection when leaving Installed Mods view
     if (category !== "Installed Mods") {
       clearSelection();
@@ -2373,10 +2365,6 @@
   function selectSortOption(value: SortOption) {
     currentSort.set(value);
     sortDropdownOpen = false;
-    if ($currentPage > 1) {
-      currentPage.set(1);
-      startPage = 1;
-    }
   }
 
   function handleClickOutsideSort(event: MouseEvent) {
@@ -2399,10 +2387,6 @@
   function handleSortChange(event: Event) {
     const select = event.target as HTMLSelectElement;
     currentSort.set(select.value as SortOption);
-    if ($currentPage > 1) {
-      currentPage.set(1);
-      startPage = 1;
-    }
   }
 
   function handleCreateCollection() {
@@ -2930,31 +2914,12 @@
     }
   });
 
-  let totalPages = $derived(
-    Math.ceil(sortedAndFilteredMods.length / $itemsPerPage),
-  );
+  let paginatedMods = $derived(sortedAndFilteredMods);
 
-  // For Installed Mods, show all mods (bypass pagination)
-  let isInstalledMods = $derived($currentCategory === "Installed Mods");
+  let visiblePaginatedMods = $derived(paginatedMods);
 
-  let paginatedMods = $derived(
-    isInstalledMods
-      ? sortedAndFilteredMods
-      : sortedAndFilteredMods.slice(
-          ($currentPage - 1) * $itemsPerPage,
-          $currentPage * $itemsPerPage,
-        ),
-  );
-
-  let visiblePaginatedMods: Mod[] = $state([]);
-
-  function updateVirtualWindow() {
-    visiblePaginatedMods = paginatedMods;
-  }
-
-  // Whenever the visible page changes, try to quickly hydrate from cache and recalc window
+  // Whenever mods change, try to quickly hydrate from cache
   $effect(() => {
-    // touch dependency
     paginatedMods;
     const localMax = Math.max(
       enabledLocalMods.length,
@@ -2967,7 +2932,6 @@
       observerCatalog.observe(catalogSentinel);
     }
 
-    updateVirtualWindow();
     scheduleHydration();
   });
 
@@ -2977,9 +2941,6 @@
       visibleHydrateTimer = null;
     }
   });
-
-  const maxVisiblePages = 5;
-  let startPage = $state(1);
 
   let visibleEnabledLocal = $derived(
     filteredEnabledLocalMods.slice(0, renderLimitLocal),
@@ -3018,38 +2979,6 @@
       });
     }, delay) as unknown as number;
   }
-
-  function updatePaginationWindow() {
-    if ($currentPage > startPage + maxVisiblePages - 1) {
-      startPage = $currentPage - maxVisiblePages + 1;
-    } else if ($currentPage < startPage) {
-      startPage = $currentPage;
-    }
-  }
-
-  let lastPage = $state<number | null>(null);
-  $effect(() => {
-    const page = $currentPage;
-    updatePaginationWindow();
-    if (lastPage === null) {
-      lastPage = page;
-      return;
-    }
-    if (page !== lastPage) {
-      lastPage = page;
-      updatePaginationWindow();
-      scrollToTop();
-      markPaginating();
-    }
-  });
-
-  $effect(() => {
-    paginationWindow.set({
-      startPage,
-      totalPages,
-      maxVisiblePages,
-    });
-  });
 
   async function refreshInstalledMods() {
     try {
