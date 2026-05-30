@@ -2931,6 +2931,18 @@
   let visibleDisabledLocal = $derived(
     filteredDisabledLocalMods.slice(0, renderLimitLocal),
   );
+
+  // Windowed views of the installed enabled/disabled catalog mods. These are
+  // sliced AFTER splitting by enabled state, so the render limit applies to
+  // each section independently. (Slicing the combined catalog first and then
+  // filtering would only ever surface whichever enabled mods happened to land
+  // in the top `renderLimitCatalog` of the full sorted list.)
+  let visibleEnabledCatalog = $derived(
+    filteredEnabledMods.slice(0, renderLimitCatalog),
+  );
+  let visibleDisabledCatalog = $derived(
+    filteredDisabledMods.slice(0, renderLimitCatalog),
+  );
   let observerLocal: IntersectionObserver | null = null;
 
   function scheduleHydration() {
@@ -3545,7 +3557,7 @@
                   class="mods-grid"
                   class:has-local-mods={localMods.length > 0}
                 >
-                  {#each visiblePaginatedMods.filter( (m) => filteredEnabledMods.some((e) => e.title === m.title), ) as mod, index (`${animationNonce}-${$currentCategory}-enabled-${mod.downloadURL || mod.repo || mod.title}`)}
+                  {#each visibleEnabledCatalog as mod, index (`${animationNonce}-${$currentCategory}-enabled-${mod.downloadURL || mod.repo || mod.title}`)}
                     <div class="virtual-cell" style="--card-index: {index}">
                       <ModCard
                         {mod}
@@ -3574,7 +3586,7 @@
                   class="mods-grid"
                   class:has-local-mods={localMods.length > 0}
                 >
-                  {#each visiblePaginatedMods.filter( (m) => filteredDisabledMods.some((e) => e.title === m.title), ) as mod, index (`${animationNonce}-${$currentCategory}-disabled-${mod.downloadURL || mod.repo || mod.title}`)}
+                  {#each visibleDisabledCatalog as mod, index (`${animationNonce}-${$currentCategory}-disabled-${mod.downloadURL || mod.repo || mod.title}`)}
                     <div class="virtual-cell" style="--card-index: {index}">
                       <ModCard
                         {mod}
@@ -3610,7 +3622,7 @@
               {/if}
 
               <!-- Virtual scroll sentinel for catalog mods - triggers loading more when visible -->
-              {#if visiblePaginatedMods.length < paginatedMods.length}
+              {#if visibleEnabledCatalog.length < filteredEnabledMods.length || visibleDisabledCatalog.length < filteredDisabledMods.length}
                 <div
                   bind:this={catalogSentinel}
                   class="virtual-scroll-sentinel"
