@@ -84,10 +84,10 @@
   });
 
   onMount(async () => {
-    isLinux = await isLinuxPlatform();
     if (titleEl) {
       unobserveTitle = observeResize(titleEl, debouncedUpdateTitleScale);
     }
+    isLinux = await isLinuxPlatform();
   });
 
   onDestroy(() => {

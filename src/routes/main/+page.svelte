@@ -32,7 +32,7 @@
   import UninstallDialog from "../../components/UninstallDialog.svelte";
   import { onMount } from "svelte";
   import { lovelyPopupStore } from "../../stores/modStore";
-  import { cardScale, darkMode } from "../../stores/ui";
+  import { cardScale, CARD_SCALE_MIN, CARD_SCALE_MAX, darkMode } from "../../stores/ui";
   import { get } from "svelte/store";
   import ReportIssue from "../../components/ReportIssue.svelte";
   import CollectionPicker from "../../components/CollectionPicker.svelte";
@@ -44,7 +44,6 @@
   import { isLinuxPlatform } from "$lib/platform";
   import { backupsStore } from "../../stores/backups";
 
-  import { CARD_SCALE_MIN, CARD_SCALE_MAX } from "../../stores/ui";
   let currentSection = $state("mods");
   let isLinux = $state(false);
   let hasMounted = $state(false);

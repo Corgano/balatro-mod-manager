@@ -2953,7 +2953,7 @@
   // sliced AFTER splitting by enabled state, so the render limit applies to
   // each section independently. (Slicing the combined catalog first and then
   // filtering would only ever surface whichever enabled mods happened to land
-  // in the top `renderLimitCatalog` of the full sorted list.)
+  // in the top renderLimitCatalog of the full sorted list.)
   let visibleEnabledCatalog = $derived(
     filteredEnabledMods.slice(0, renderLimitCatalog),
   );
@@ -3457,15 +3457,26 @@
           class:no-local-mods={localMods.length === 0}
           bind:this={modsScrollContainer}
           onscroll={handleModsScroll}
-          onwheel={(e) => {
-            if (!e.ctrlKey) return;
-            e.preventDefault();
-            const delta = e.deltaY > 0 ? -0.05 : 0.05;
-            cardScale.update((v) =>
-              Math.max(CARD_SCALE_MIN, Math.min(CARD_SCALE_MAX, v + delta)),
-            );
+          use={(node) => {
+            const handleWheel = (e: WheelEvent) => {
+              if (!e.ctrlKey) return;
+              e.preventDefault();
+              const delta = e.deltaY > 0 ? -0.05 : 0.05;
+              cardScale.update((v) =>
+                Math.round(
+                  Math.max(CARD_SCALE_MIN, Math.min(CARD_SCALE_MAX, v + delta)) * 100
+                ) / 100
+              );
+            };
+            node.addEventListener("wheel", handleWheel, { passive: false });
+            return {
+              destroy() {
+                node.removeEventListener("wheel", handleWheel);
+              }
+            };
           }}
         >
+
           {#if $currentCategory === "Installed Mods"}
             <div class="scroll-spacer"></div>
             {#if showLoadingLocalMods}
@@ -3660,7 +3671,7 @@
                     class="mods-grid"
                     class:has-local-mods={localMods.length > 0}
                   >
-                    {#each visiblePaginatedMods.filter( (m) => filteredDisabledMods.some((e) => e.title === m.title), ) as mod, index (`${animationNonce}-${$currentCategory}-disabled-${mod.downloadURL || mod.repo || mod.title}`)}
+                    {#each visibleDisabledCatalog as mod, index (`${animationNonce}-${$currentCategory}-disabled-${mod.downloadURL || mod.repo || mod.title}`)}
                       <div class="virtual-cell" style="--card-index: {index}">
                         <ModCard
                           {mod}
