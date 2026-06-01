@@ -84,11 +84,21 @@
   });
 
   onMount(async () => {
+    if (titleEl) {
+      unobserveTitle = observeResize(titleEl, debouncedUpdateTitleScale);
+    }
     isLinux = await isLinuxPlatform();
   });
 
+  onDestroy(() => {
+    if (resizeDebounceTimer) clearTimeout(resizeDebounceTimer);
+    unobserveTitle?.();
+    unobserveTitle = null;
+  });
+
   const updateTitleScale = () => {
-    if (!titleEl || !hideDescription) {
+    const isHideText = hideDescription || $cardScale <= 0.7;
+    if (!titleEl || !isHideText) {
       titleScale = 1;
       return;
     }
@@ -96,13 +106,24 @@
     const needed = titleEl.scrollWidth;
     if (available > 0 && needed > 0) {
       const ratio = Math.min(1, available / needed);
-      titleScale = Math.max(0.8, ratio);
+      const current = titleScale;
+      if (current < 1) {
+        // Hysteresis to prevent flapping:
+        // only scale back up if there's 5%+ extra room,
+        // only scale further down if ratio drops 5%+ below current
+        if (ratio >= 1.05) {
+          titleScale = 1;
+        } else if (ratio < current - 0.05) {
+          titleScale = Math.max(0.8, ratio);
+        }
+      } else {
+        titleScale = Math.max(0.8, ratio);
+      }
     } else {
       titleScale = 1;
     }
   };
 
-  // Debounced version of updateTitleScale for ResizeObserver
   let resizeDebounceTimer: ReturnType<typeof setTimeout> | null = null;
   const debouncedUpdateTitleScale = () => {
     if (resizeDebounceTimer) clearTimeout(resizeDebounceTimer);
@@ -110,25 +131,14 @@
   };
 
   $effect(() => {
-    if (!hideDescription) {
+    const isHideText = hideDescription || $cardScale <= 0.7;
+    if (!isHideText) {
       titleScale = 1;
       return;
     }
     mod.title;
     $cardScale;
     requestAnimationFrame(updateTitleScale);
-  });
-
-  onMount(() => {
-    if (titleEl) {
-      unobserveTitle = observeResize(titleEl, debouncedUpdateTitleScale);
-    }
-  });
-
-  onDestroy(() => {
-    if (resizeDebounceTimer) clearTimeout(resizeDebounceTimer);
-    unobserveTitle?.();
-    unobserveTitle = null;
   });
 
   async function toggleModEnabled(e: Event) {
@@ -329,6 +339,7 @@
   // even when CSS multi-line clamp support is inconsistent across platforms.
   function truncateDynamic(text: string, scale: number): string {
     if (!text) return "";
+    if (scale <= 0.7) return "";
     const lines = scale <= 0.85 ? 1 : 2;
     // width and font-size scale together → per-line capacity ~ constant
     const basePerLine = 38;
@@ -342,6 +353,7 @@
 <div
   class="mod-card"
   class:compact={$cardScale <= 0.85}
+  class:hide-text={$cardScale <= 0.7}
   class:desc-hidden={hideDescription}
   class:thumb-loading={!thumbLoaded}
   class:search-spacing={searchSpacing}
@@ -396,11 +408,11 @@
     <h3 bind:this={titleEl} style={`--title-scale: ${titleScale}`}>
       {mod.title}
     </h3>
-    {#if !hideDescription && descriptionText && descriptionText.trim().length > 0}
+    {#if !hideDescription && descriptionText && descriptionText.trim().length > 0 && $cardScale > 0.7}
       <p class="fade-in">
         {truncateDynamic(stripMarkdown(descriptionText), $cardScale)}
       </p>
-    {:else if !hideDescription}
+    {:else if !hideDescription && $cardScale > 0.7}
       <div class="desc-skeleton" aria-hidden="true">
         <div class="line" style="width: 92%"></div>
         <div class="line" style="width: 84%"></div>
@@ -433,6 +445,7 @@
       <!-- Update button (when installed and update available) -->
       <button
         class="update-button"
+        title="Update"
         onclick={updateMod}
         disabled={$loadingStates[mod.title]}
       >
@@ -440,7 +453,7 @@
           <div class="spinner"></div>
         {:else}
           <RefreshCw size={18} />
-          Update
+          <span class="btn-label">Update</span>
         {/if}
       </button>
     {:else}
@@ -452,12 +465,19 @@
           $loadingStates[mod.title] ||
           (disableInstall && !$installationStatus[mod.title])}
         onclick={installMod}
+        title={$installationStatus[mod.title] ? "Installed" : "Download"}
       >
         {#if $loadingStates[mod.title]}
           <div class="spinner"></div>
         {:else}
-          <Download size={18} />
-          {$installationStatus[mod.title] ? "Installed" : "Download"}
+          {#if $installationStatus[mod.title]}
+            <Check size={18} />
+          {:else}
+            <Download size={18} />
+          {/if}
+          <span class="btn-label"
+            >{$installationStatus[mod.title] ? "Installed" : "Download"}</span
+          >
         {/if}
       </button>
     {/if}
@@ -499,7 +519,6 @@
     box-sizing: border-box;
     cursor: pointer;
     background-size: 100% 200%;
-    transition: all 0.3s ease;
     background-image: repeating-linear-gradient(
       -45deg,
       var(--bg-color),
@@ -614,11 +633,25 @@
 
   .mod-info h3 {
     color: var(--ui-heading);
+    font-family: "M6X11", sans-serif;
     font-size: calc(1.5rem * var(--card-scale, 1));
     margin-bottom: 0.2rem;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+
+  .mod-card.hide-text .mod-info h3 {
+    font-size: calc(1.5rem * var(--card-scale, 1) * var(--title-scale, 1));
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    line-height: 1.2;
+    margin-bottom: 0.5rem;
+  }
+
+  .mod-card.hide-text .mod-info {
+    padding-bottom: calc(25px * var(--card-scale, 1));
   }
 
   .mod-card.desc-hidden .mod-info h3 {
@@ -707,9 +740,9 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 0.4rem;
+    gap: calc(0.25rem * var(--card-scale, 1));
     padding: calc(0.6rem * var(--card-scale, 1))
-      calc(0.5rem * var(--card-scale, 1));
+      calc(0.35rem * var(--card-scale, 1));
     border: none;
     border-radius: 4px;
     font-family: "M6X11", sans-serif;
@@ -760,16 +793,21 @@
   .mod-card.compact .download-button,
   .mod-card.compact .update-button {
     padding: calc(0.5rem * var(--card-scale, 1))
-      calc(0.4rem * var(--card-scale, 1));
+      calc(0.25rem * var(--card-scale, 1));
     min-height: calc(34px * var(--card-scale, 1));
     font-size: calc(0.85rem * var(--card-scale, 1));
+  }
+
+  .mod-card.hide-text .download-button .btn-label,
+  .mod-card.hide-text .update-button .btn-label {
+    display: none;
   }
 
   .mod-card.compact .toggle-button,
   .mod-card.compact .delete-button,
   .mod-card.compact .collection-button {
     min-width: calc(32px * var(--card-scale, 1));
-    height: calc(34px * var(--card-scale, 1));
+    min-height: calc(34px * var(--card-scale, 1));
     padding: calc(4px * var(--card-scale, 1));
   }
 
@@ -787,7 +825,7 @@
     align-items: center;
     justify-content: center;
     min-width: calc(36px * var(--card-scale, 1));
-    height: calc(38px * var(--card-scale, 1));
+    min-height: calc(38px * var(--card-scale, 1));
     padding: calc(6px * var(--card-scale, 1));
     background: var(--ui-danger);
     color: var(--ui-text);
@@ -815,7 +853,7 @@
     align-items: center;
     justify-content: center;
     min-width: calc(36px * var(--card-scale, 1));
-    height: calc(38px * var(--card-scale, 1));
+    min-height: calc(38px * var(--card-scale, 1));
     padding: calc(6px * var(--card-scale, 1));
     background: var(--ui-info-strong);
     color: var(--ui-text);
@@ -843,7 +881,7 @@
     justify-content: center;
     /* Fixed width to ensure ON/OFF buttons are same size */
     min-width: calc(44px * var(--card-scale, 1));
-    height: calc(38px * var(--card-scale, 1));
+    min-height: calc(38px * var(--card-scale, 1));
     padding: calc(6px * var(--card-scale, 1)) calc(8px * var(--card-scale, 1));
     border-radius: 4px;
     cursor: pointer;
