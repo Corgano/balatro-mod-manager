@@ -3646,26 +3646,6 @@
                     >{filteredDisabledMods.length} inactive</span
                   >
                 </div>
-<<<<<<< HEAD
-                <div
-                  class="mods-grid"
-                  class:has-local-mods={localMods.length > 0}
-                >
-                  {#each visibleDisabledCatalog as mod, index (`${animationNonce}-${$currentCategory}-disabled-${mod.downloadURL || mod.repo || mod.title}`)}
-                    <div class="virtual-cell" style="--card-index: {index}">
-                      <ModCard
-                        {mod}
-                        deferImages={paginating}
-                        onmodclick={handleModClick}
-                        oninstallclick={installMod}
-                        onuninstallclick={uninstallMod}
-                        onToggleEnabled={handleModToggled}
-                        showCheckbox={true}
-                      />
-                    </div>
-                  {/each}
-                </div>
-=======
                 {#if !catalogDisabledCollapsed}
                   <div
                     class="mods-grid"
@@ -3686,7 +3666,6 @@
                     {/each}
                   </div>
                 {/if}
->>>>>>> 12b4327 (fix: re-apply update state after refresh to prevent stale version comparison)
               {/if}
 
               {#if filteredEnabledMods.length === 0 && filteredDisabledMods.length === 0 && !$installedModsSearchStore}
