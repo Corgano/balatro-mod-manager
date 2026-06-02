@@ -49,17 +49,22 @@
   let hasMounted = $state(false);
   let appVersion = $state("");
 
+  let cardScaleThrottle = 0;
   function handleCardScaleKey(e: KeyboardEvent) {
     if (currentSection !== "mods") return;
     if (!e.ctrlKey) return;
+    const now = Date.now();
+    if (now - cardScaleThrottle < 120) return;
     if (e.key === "=" || e.key === "+") {
       e.preventDefault();
+      cardScaleThrottle = now;
       $cardScale = Math.min(
         $cardScale + 0.05,
         CARD_SCALE_MAX ?? 1.4,
       );
     } else if (e.key === "-") {
       e.preventDefault();
+      cardScaleThrottle = now;
       $cardScale = Math.max(
         $cardScale - 0.05,
         CARD_SCALE_MIN ?? 0.5,
