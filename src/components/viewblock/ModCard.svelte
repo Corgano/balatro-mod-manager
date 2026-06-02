@@ -598,12 +598,12 @@
 
   .mod-info {
     flex: 1;
-    padding: 0.5rem;
+    padding-top: calc(0.5rem * var(--card-scale, 1));
+    padding-left: 0.5rem;
+    padding-right: 0.5rem;
     position: relative;
     bottom: 1rem;
-    /* Reserve space for buttons at bottom to prevent content overflow */
     padding-bottom: calc(50px * var(--card-scale, 1));
-    overflow: hidden;
   }
 
   .mod-info > p {
