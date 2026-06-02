@@ -561,6 +561,25 @@
     setTimeout(() => {}, 500); // Delay to prevent scroll handler triggering during animated scroll
   }
 
+  function ctrlWheelScale(node: HTMLElement) {
+    const handler = (e: WheelEvent) => {
+      if (!e.ctrlKey) return;
+      e.preventDefault();
+      const delta = e.deltaY > 0 ? -0.05 : 0.05;
+      cardScale.update((v) =>
+        Math.round(
+          Math.max(CARD_SCALE_MIN, Math.min(CARD_SCALE_MAX, v + delta)) * 100,
+        ) / 100,
+      );
+    };
+    node.addEventListener("wheel", handler, { passive: false });
+    return {
+      destroy() {
+        node.removeEventListener("wheel", handler);
+      },
+    };
+  }
+
   function markPaginating() {
     paginating = true;
     if (paginationIdleTimer) {
@@ -3457,24 +3476,7 @@
           class:no-local-mods={localMods.length === 0}
           bind:this={modsScrollContainer}
           onscroll={handleModsScroll}
-          use={(node) => {
-            const handleWheel = (e: WheelEvent) => {
-              if (!e.ctrlKey) return;
-              e.preventDefault();
-              const delta = e.deltaY > 0 ? -0.05 : 0.05;
-              cardScale.update((v) =>
-                Math.round(
-                  Math.max(CARD_SCALE_MIN, Math.min(CARD_SCALE_MAX, v + delta)) * 100
-                ) / 100
-              );
-            };
-            node.addEventListener("wheel", handleWheel, { passive: false });
-            return {
-              destroy() {
-                node.removeEventListener("wheel", handleWheel);
-              }
-            };
-          }}
+          use:ctrlWheelScale
         >
 
           {#if $currentCategory === "Installed Mods"}
