@@ -32,7 +32,8 @@
   import UninstallDialog from "../../components/UninstallDialog.svelte";
   import { onMount } from "svelte";
   import { lovelyPopupStore } from "../../stores/modStore";
-  import { cardScale, CARD_SCALE_MIN, CARD_SCALE_MAX, darkMode } from "../../stores/ui";
+import { cardScale, CARD_SCALE_MIN, CARD_SCALE_MAX, darkMode, accumulateCardScale } from
+  "../../stores/ui";
   import { get } from "svelte/store";
   import ReportIssue from "../../components/ReportIssue.svelte";
   import CollectionPicker from "../../components/CollectionPicker.svelte";
@@ -49,26 +50,15 @@
   let hasMounted = $state(false);
   let appVersion = $state("");
 
-  let cardScaleThrottle = 0;
   function handleCardScaleKey(e: KeyboardEvent) {
     if (currentSection !== "mods") return;
     if (!e.ctrlKey) return;
-    const now = Date.now();
-    if (now - cardScaleThrottle < 120) return;
     if (e.key === "=" || e.key === "+") {
       e.preventDefault();
-      cardScaleThrottle = now;
-      $cardScale = Math.min(
-        $cardScale + 0.05,
-        CARD_SCALE_MAX ?? 1.4,
-      );
+      accumulateCardScale(0.05);
     } else if (e.key === "-") {
       e.preventDefault();
-      cardScaleThrottle = now;
-      $cardScale = Math.max(
-        $cardScale - 0.05,
-        CARD_SCALE_MIN ?? 0.5,
-      );
+      accumulateCardScale(-0.05);
     }
   }
 
@@ -493,6 +483,7 @@
     overflow: hidden;
     max-height: calc(100vh - 12rem);
     min-height: 0;
+    transition: --card-scale 0.15s ease;
   }
 
   .content.modal-open {

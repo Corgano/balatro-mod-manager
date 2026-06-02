@@ -73,4 +73,19 @@ export const cardScale = createPersistentNumber("ui.cardScale", 1, {
   max: CARD_SCALE_MAX,
 });
 
+let cardScalePending = 0;
+let cardScaleDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+
+export function accumulateCardScale(delta: number) {
+  if (cardScaleDebounceTimer) clearTimeout(cardScaleDebounceTimer);
+  cardScalePending += delta;
+  cardScaleDebounceTimer = setTimeout(() => {
+    cardScale.update((v) => {
+      const target = v + cardScalePending;
+      cardScalePending = 0;
+      return Math.min(Math.max(target, CARD_SCALE_MIN), CARD_SCALE_MAX);
+    });
+  }, 80);
+}
+
 export const darkMode = createPersistentBoolean("ui.darkMode", false);

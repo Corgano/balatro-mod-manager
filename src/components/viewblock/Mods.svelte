@@ -68,7 +68,7 @@
   } from "../../stores/modStore";
   import type { InstalledMod } from "../../stores/modStore";
   import { invoke, convertFileSrc } from "@tauri-apps/api/core";
-  import { cardScale, CARD_SCALE_MIN, CARD_SCALE_MAX } from "../../stores/ui";
+  import { cardScale, CARD_SCALE_MIN, CARD_SCALE_MAX, accumulateCardScale } from "../../stores/ui";
   // Lazy-load SearchView only when Search tab is active
   import type { Component } from "svelte";
   let SearchViewComp = $state<Component | null>(null);
@@ -566,11 +566,7 @@
       if (!e.ctrlKey) return;
       e.preventDefault();
       const delta = e.deltaY > 0 ? -0.05 : 0.05;
-      cardScale.update((v) =>
-        Math.round(
-          Math.max(CARD_SCALE_MIN, Math.min(CARD_SCALE_MAX, v + delta)) * 100,
-        ) / 100,
-      );
+      accumulateCardScale(delta);
     };
     node.addEventListener("wheel", handler, { passive: false });
     return {
