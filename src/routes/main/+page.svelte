@@ -493,7 +493,6 @@
     overflow: hidden;
     max-height: calc(100vh - 12rem);
     min-height: 0;
-    transition: --card-scale 0.15s ease;
   }
 
   .content.modal-open {
