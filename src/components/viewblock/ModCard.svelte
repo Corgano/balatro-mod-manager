@@ -635,6 +635,7 @@
     color: var(--ui-heading);
     font-family: "M6X11", sans-serif;
     font-size: calc(1.5rem * var(--card-scale, 1));
+    line-height: 1.2;
     margin-bottom: 0.2rem;
     white-space: nowrap;
     overflow: hidden;
@@ -656,6 +657,7 @@
 
   .mod-card.desc-hidden .mod-info h3 {
     font-size: calc(2rem * var(--card-scale, 1) * var(--title-scale, 1));
+    line-height: 1.2;
     margin-bottom: 0.4rem;
     margin-top: 0.4rem;
     white-space: nowrap;
