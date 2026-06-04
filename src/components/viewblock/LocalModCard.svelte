@@ -392,6 +392,7 @@
     max-width: calc(300px * var(--card-scale, 1));
     height: calc(330px * var(--card-scale, 1));
     content-visibility: auto;
+    contain: content;
     contain-intrinsic-size: 300px 330px;
     margin: 0 auto;
     padding: 1rem;
