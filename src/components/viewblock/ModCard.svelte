@@ -18,8 +18,7 @@
   import LazyImage from "../common/LazyImage.svelte";
   import { cardScale, darkMode } from "../../stores/ui";
   import { normalizeColorPair, pickDarkPalette } from "../../utils/cardPalette";
-  import { observeResize } from "../../utils/resize-observer-pool";
-  import { onMount, onDestroy } from "svelte";
+
   import { isLinuxPlatform } from "$lib/platform";
 
   interface Props {
@@ -49,16 +48,18 @@
   }: Props = $props();
 
   let isEnabled = $state(true); // Default to enabled if not yet checked
-  let isLinux = false;
+  let isLinux = $state(false);
+
+  $effect(() => {
+    isLinuxPlatform().then((v) => (isLinux = v));
+  });
+
   let isSelected = $derived($selectedModsStore.has(mod.title));
   let descriptionText = $derived(
     $descriptionsStore[mod.title] ?? mod.description ?? "",
   );
   let thumbLoaded = $state(false);
   let lastThumbKey = "";
-  let titleEl: HTMLHeadingElement | null = $state(null);
-  let titleScale = $state(1);
-  let unobserveTitle: (() => void) | null = null;
   let cardColors = $derived(
     $darkMode ? pickDarkPalette(mod.title) : normalizeColorPair(mod.colors),
   );
@@ -81,64 +82,6 @@
     if (storeValue !== undefined) {
       isEnabled = storeValue;
     }
-  });
-
-  onMount(async () => {
-    if (titleEl) {
-      unobserveTitle = observeResize(titleEl, debouncedUpdateTitleScale);
-    }
-    isLinux = await isLinuxPlatform();
-  });
-
-  onDestroy(() => {
-    if (resizeDebounceTimer) clearTimeout(resizeDebounceTimer);
-    unobserveTitle?.();
-    unobserveTitle = null;
-  });
-
-  const updateTitleScale = () => {
-    const isHideText = hideDescription || $cardScale <= 0.7;
-    if (!titleEl || !isHideText) {
-      titleScale = 1;
-      return;
-    }
-    const available = titleEl.clientWidth;
-    const needed = titleEl.scrollWidth;
-    if (available > 0 && needed > 0) {
-      const ratio = Math.min(1, available / needed);
-      const current = titleScale;
-      if (current < 1) {
-        // Hysteresis to prevent flapping:
-        // only scale back up if there's 5%+ extra room,
-        // only scale further down if ratio drops 5%+ below current
-        if (ratio >= 1.05) {
-          titleScale = 1;
-        } else if (ratio < current - 0.05) {
-          titleScale = Math.max(0.8, ratio);
-        }
-      } else {
-        titleScale = Math.max(0.8, ratio);
-      }
-    } else {
-      titleScale = 1;
-    }
-  };
-
-  let resizeDebounceTimer: ReturnType<typeof setTimeout> | null = null;
-  const debouncedUpdateTitleScale = () => {
-    if (resizeDebounceTimer) clearTimeout(resizeDebounceTimer);
-    resizeDebounceTimer = setTimeout(updateTitleScale, 50);
-  };
-
-  $effect(() => {
-    const isHideText = hideDescription || $cardScale <= 0.7;
-    if (!isHideText) {
-      titleScale = 1;
-      return;
-    }
-    mod.title;
-    $cardScale;
-    requestAnimationFrame(updateTitleScale);
   });
 
   async function toggleModEnabled(e: Event) {
@@ -405,7 +348,7 @@
   </div>
 
   <div class="mod-info">
-    <h3 bind:this={titleEl} style={`--title-scale: ${titleScale}`}>
+    <h3>
       {mod.title}
     </h3>
     {#if !hideDescription && descriptionText && descriptionText.trim().length > 0 && $cardScale > 0.7}
@@ -644,7 +587,7 @@
   }
 
   .mod-card.hide-text .mod-info h3 {
-    font-size: calc(1.5rem * var(--card-scale, 1) * var(--title-scale, 1));
+    font-size: calc(1.5rem * var(--card-scale, 1));
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -657,7 +600,7 @@
   }
 
   .mod-card.desc-hidden .mod-info h3 {
-    font-size: calc(2rem * var(--card-scale, 1) * var(--title-scale, 1));
+    font-size: calc(2rem * var(--card-scale, 1));
     line-height: 1.2;
     margin-bottom: 0.4rem;
     margin-top: 0.4rem;
